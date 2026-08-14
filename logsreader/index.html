@@ -197,7 +197,7 @@
         <h2>筛选条件</h2>
         <div class="filters">
           <div class="field">
-            <label>日志文件</label>
+            <label>日期 <span class="hint">合并日志 + 错误</span></label>
             <select id="fileSel"><option value="">（加载中…）</option></select>
           </div>
           <div class="field">
@@ -300,6 +300,7 @@
       let followTimer = null;
       let lastEndOffset = 0;
       let levelChips = {};
+      const DAY_FILES = {}; // date -> [file names]
 
       function escapeHtml(s) {
         return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -399,13 +400,27 @@
           const sel = $("fileSel");
           sel.innerHTML = "";
           if (!data.files.length) { sel.innerHTML = '<option value="">（无日志文件）</option>'; return; }
-          const def = data.files.find((f) => f.kind === "app") || data.files[0];
+          // 按日期分组：每天合并 app- + error- 两个文件，供「一天的日志和错误放在一起」查看
           for (const f of data.files) {
+            if (!DAY_FILES[f.date]) DAY_FILES[f.date] = [];
+            DAY_FILES[f.date].push(f.name);
+          }
+          const allFiles = data.files.map((f) => f.name);
+          const oAll = document.createElement("option");
+          oAll.value = "__all__";
+          oAll.textContent = "全部日期（跨天搜索）";
+          sel.appendChild(oAll);
+          // data.files 已按日期倒序，去重得到日期列表
+          const dates = [];
+          for (const f of data.files) if (!dates.includes(f.date)) dates.push(f.date);
+          for (const d of dates) {
+            const kinds = DAY_FILES[d].map((n) => (n.startsWith("error") ? "错误" : "日志")).join(" + ");
             const o = document.createElement("option");
-            o.value = f.name; o.textContent = `${f.name}  (${fmtNum(f.size)} B)`;
-            if (f.name === def.name) o.selected = true;
+            o.value = d;
+            o.textContent = `${d}  (${kinds})`;
             sel.appendChild(o);
           }
+          sel.value = dates[0] || "__all__";
         } catch (e) {
           $("connDot").classList.add("off");
           $("logsDir").textContent = "无法连接服务: " + e.message;
@@ -435,8 +450,11 @@
 
       function buildPayload() {
         const levels = [...document.querySelectorAll("#levels .lvl.active input")].map((i) => i.value);
+        const day = $("fileSel").value;
+        // 选某天 -> 合并该天 app- + error- 文件；选「全部日期」-> 空数组（服务端视为全部文件）
+        const files = day === "__all__" ? [] : (DAY_FILES[day] || []);
         return {
-          files: [$("fileSel").value].filter(Boolean),
+          files,
           levels, contexts: ctxMS.getValues(), operators: opMS.getValues(),
           q: $("q").value.trim(),
           from: dtToServer($("from").value),

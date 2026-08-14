@@ -124,6 +124,7 @@ function parseLine(line) {
       ...parsed,
       operator: operator || null,
       _file: line._file || null,
+      _seq: line.seq,
       _startByte: line.startByte,
       _endByte: line.endByte,
     };
@@ -138,6 +139,7 @@ function parseLine(line) {
     requestId: null,
     ip: null,
     _file: line._file || null,
+    _seq: line.seq,
     _startByte: line.startByte,
     _endByte: line.endByte,
   };
@@ -227,14 +229,17 @@ function runQuery(body) {
   const follow = !!body.follow;
   const afterOffset = Number(body.afterOffset) || 0;
 
-  // 1) 收集候选行（按 file）
+  // 1) 收集候选行（按 file），并打全局行序号 seq
+  //    seq 跨所有选中文件单调递增，用于 follow 增量游标（避免多文件字节偏移串号）。
   let collected = [];
+  let seq = 0;
   for (const fname of files) {
     const abs = resolve(LOGS_DIR, fname);
     if (!existsSync(abs)) continue;
     const lines = readLogLines(abs);
     for (const ln of lines) {
       ln._file = fname;
+      ln.seq = seq++;
       collected.push(ln);
     }
   }
@@ -246,8 +251,8 @@ function runQuery(body) {
   const opSet = new Set(operators);
 
   for (const ln of collected) {
-    // follow 增量：仅取 afterOffset 之后的新行
-    if (follow && ln.startByte < afterOffset) continue;
+    // follow 增量：仅取 afterOffset（全局行序号）之后的新行
+    if (follow && ln.seq <= afterOffset) continue;
     const obj = parseLine(ln);
     const lvl = (obj.level || "").toLowerCase();
     if (levelSet.size && !levelSet.has(lvl)) continue;
@@ -273,8 +278,8 @@ function runQuery(body) {
 
   const total = matched.length;
   const page = matched.slice(offset, offset + limit);
-  // 用于 follow 的字节游标：本页最后一行之后的位置
-  const endOffset = page.length ? page[page.length - 1]._endByte : afterOffset;
+  // 用于 follow 的全局行序号游标：本页最后一行之后的位置
+  const endOffset = page.length ? page[page.length - 1]._seq : afterOffset;
 
   // 4) 统计（基于 matched 全集）
   const byLevel = {};
@@ -327,7 +332,7 @@ function runQuery(body) {
     total,
     count: page.length,
     endOffset,
-    rows: page.map(({ _startByte, _endByte, _file, ...rest }) => ({ file: _file, ...rest })),
+    rows: page.map(({ _startByte, _endByte, _file, _seq, ...rest }) => ({ file: _file, ...rest })),
     byLevel,
     byContext,
     timeline,
