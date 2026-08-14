@@ -288,12 +288,22 @@ function runQuery(body) {
   const byLevel = {};
   const ctxCount = new Map();
   const opSet2 = new Set();
+  let pktUp = 0,
+    pktDown = 0,
+    pktCnt = 0; // 数据包大小合计（上行/下行/含包大小记录数）
   for (const o of matched) {
     const lvl = (o.level || "raw").toLowerCase();
     byLevel[lvl] = (byLevel[lvl] || 0) + 1;
     const c = o.context || "(none)";
     ctxCount.set(c, (ctxCount.get(c) || 0) + 1);
     if (o.operator) opSet2.add(o.operator);
+    const u = typeof o.requestBodySize === "number" ? o.requestBodySize : 0;
+    const d = typeof o.responseBodySize === "number" ? o.responseBodySize : 0;
+    if (u || d) {
+      pktUp += u;
+      pktDown += d;
+      pktCnt++;
+    }
   }
   const byContext = [...ctxCount.entries()]
     .map(([context, count]) => ({ context, count }))
@@ -335,6 +345,7 @@ function runQuery(body) {
     total,
     count: page.length,
     endOffset,
+    pktTotals: { up: pktUp, down: pktDown, cnt: pktCnt },
     rows: page.map(({ _startByte, _endByte, _file, _seq, ...rest }) => ({ file: _file, ...rest })),
     byLevel,
     byContext,

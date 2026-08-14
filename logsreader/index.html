@@ -357,7 +357,6 @@
       let loadingMore = false;      // 是否正在加载下一页（防并发）
       let allLoaded = false;        // 是否已加载完全部匹配行
       let following = false;        // 实时跟随中（暂停分页懒加载）
-      let pktTotals = { up: 0, down: 0, cnt: 0 }; // 数据包大小合计（跨分页累加，基于全量匹配行）
       let sentinelObs = null;
 
       function escapeHtml(s) {
@@ -560,23 +559,14 @@
         renderTimeline(data.timeline || []);
         updateLevelCounts(bl);
 
-        // 数据包大小合计：跨分页累计（基于全量匹配行，与分页无关）
+        // 数据包大小合计：后端基于 matched 全集合计好，随首屏响应一同返回，上来即为完整总计（与分页无关）
         const pk = $("pktStats");
+        const pkt = data.pktTotals || { up: 0, down: 0, cnt: 0 };
         pk.innerHTML = `<span style="font-size:12px;color:var(--muted);">数据包大小合计：</span>`
-          + `<span class="up" style="color:#e5484d;font-weight:600;">↑ 上行 ${fmtBytes(pktTotals.up)}</span>`
+          + `<span class="up" style="color:#e5484d;font-weight:600;">↑ 上行 ${fmtBytes(pkt.up)}</span>`
           + `<span style="margin:0 8px;color:var(--border);">|</span>`
-          + `<span class="down" style="color:#4b83c1;font-weight:600;">↓ 下行 ${fmtBytes(pktTotals.down)}</span>`
-          + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（含包大小记录 ${fmtNum(pktTotals.cnt)} 条）</span>`;
-      }
-
-      // 把一页行的数据包大小累加到 pktTotals；reset=true 表示新查询，先清零。
-      function accumulatePkt(rows, reset) {
-        if (reset) pktTotals = { up: 0, down: 0, cnt: 0 };
-        for (const r of rows) {
-          if (typeof r.requestBodySize === "number") pktTotals.up += r.requestBodySize;
-          if (typeof r.responseBodySize === "number") pktTotals.down += r.responseBodySize;
-          if (r.requestBodySize || r.responseBodySize) pktTotals.cnt++;
-        }
+          + `<span class="down" style="color:#4b83c1;font-weight:600;">↓ 下行 ${fmtBytes(pkt.down)}</span>`
+          + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（含包大小记录 ${fmtNum(pkt.cnt)} 条）</span>`;
       }
 
       function renderTimeline(timeline) {
@@ -725,8 +715,7 @@
           const data = await api("/api/query", payload);
           if (!data.ok) { setLoadMore("加载失败: " + data.error); return; }
           lastEndOffset = data.endOffset || lastEndOffset;
-          accumulatePkt(data.rows);
-          renderStats(data); // 统计/时间线/facets 均为全量计算，幂等刷新；数据包合计走累计值
+          renderStats(data); // 统计/时间线/facets/数据包合计均为全量计算，幂等刷新
           renderRows(data.rows, "append");
           pageOffset += data.rows.length;
           // 客户端分页上限（高级「分页上限」）：达到上限即停止继续懒加载
@@ -760,7 +749,6 @@
           if (isFollow) {
             // 实时跟随：新行插入顶部（最新在前），currentRows 仍为 matched 顶部，停止后可无缝续接分页
             following = true;
-            accumulatePkt(data.rows);
             renderStats(data);
             prependRows(data.rows);
             const cap = Number($("limit").value) || 0;
@@ -783,7 +771,6 @@
             total = data.total;
             const cap = Number($("limit").value) || 0;
             allLoaded = pageOffset >= total || (cap && pageOffset >= cap);
-            accumulatePkt(data.rows, true); // 清零并累计首页
             renderStats(data);
             renderRows(data.rows, "replace");
             const ms = Math.round(performance.now() - t0);
