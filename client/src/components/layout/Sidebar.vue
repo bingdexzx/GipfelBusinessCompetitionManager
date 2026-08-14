@@ -38,7 +38,7 @@
       </div>
     </div>
     <el-menu :default-active="activeMenu" router class="sidebar-menu ai-sidebar">
-      <el-menu-item index="/dashboard">
+      <el-menu-item v-if="authStore.can('dashboard:view')" index="/dashboard">
         <el-icon><Monitor /></el-icon>
         <span>仪表盘</span>
       </el-menu-item>
@@ -48,7 +48,7 @@
         <span>比赛管理</span>
       </el-menu-item>
 
-      <el-sub-menu index="data">
+      <el-sub-menu v-if="dataMenuVisible" index="data">
         <template #title>
           <el-icon><Folder /></el-icon>
           <span>{{
@@ -193,6 +193,26 @@ import { useCompetitionStore } from "@/stores/competition";
 const route = useRoute();
 const authStore = useAuthStore();
 const compStore = useCompetitionStore();
+
+// 数据管理子菜单：仅当至少一个数据域（原料/零件/产品/地图/基建/科技树/
+// 燃料/载具/仓库/生产线）具备 view 或 edit 权限时才显示，避免空菜单。
+const DATA_DOMAINS = [
+  "data:material",
+  "data:part",
+  "data:product",
+  "data:map",
+  "data:infrastructure",
+  "data:tech",
+  "data:fuel",
+  "data:vehicle",
+  "data:warehouse",
+  "data:productionLine",
+];
+const dataMenuVisible = computed(() =>
+  DATA_DOMAINS.some(
+    (d) => authStore.can(`${d}:view`) || authStore.can(`${d}:edit`),
+  ),
+);
 
 const activeMenu = computed(() => {
   const path = route.path;
