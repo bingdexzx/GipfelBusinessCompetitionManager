@@ -24,13 +24,20 @@ import Sidebar from "./Sidebar.vue";
 import TopBar from "./TopBar.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useConfigStore } from "@/stores/config";
+import { useCompetitionStore } from "@/stores/competition";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const configStore = useConfigStore();
+const compStore = useCompetitionStore();
 
-authStore.fetchProfile();
+// 拉取账号资料后：归属比赛的账号（competitionId 非空）自动锁定并显示所属比赛，
+// 无需手动选择，也避免 localStorage 残留其他比赛导致请求越权（403）。
+// 超管 / 未分配账号（competitionId 为空）保持原手动选择逻辑。
+authStore.fetchProfile().then(() => {
+  compStore.applyOwnCompetition(authStore.user?.competitionId ?? null);
+});
 configStore.loadConfig();
 
 // 强制改密：拉取资料后发现仍需改密，跳回登录页触发改密对话框

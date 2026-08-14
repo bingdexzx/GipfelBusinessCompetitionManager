@@ -44,6 +44,35 @@ export const useCompetitionStore = defineStore("competition", () => {
     localStorage.removeItem("currentCompetition");
   }
 
+  // 归属比赛的账号自动锁定并显示所属比赛：登录 / 拉取资料后调用。
+  // - ownId 非空（PLAYER/COMPETITION_ADMIN 等归属账号）：拉取该比赛详情并 selectCompetition，
+  //   覆盖 localStorage 中可能残留的其他比赛（这正是此前选错比赛导致 403 的根因）。
+  // - ownId 为空（null，超管 / 未分配账号）：保持手动选择，不锁定。
+  // 幂等：已锁定到同一比赛时直接返回，避免重复请求 / 重订阅。
+  async function applyOwnCompetition(ownId: number | null | undefined) {
+    if (ownId == null) return;
+    if (selected.value?.id === ownId) return;
+    try {
+      const token = localStorage.getItem("token");
+      const base = getApiBaseUrl() + "/api";
+      const res = await fetch(`${base}/competitions/${ownId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      // 归属比赛已不存在（清库 / 删除）：清空可能的悬空选择，避免顶部栏残留。
+      if (res.status === 404) {
+        clearSelection();
+        return;
+      }
+      if (!res.ok) return;
+      const comp = await res.json();
+      if (comp && comp.id != null) {
+        selectCompetition(comp);
+      }
+    } catch (e) {
+      console.error("Failed to apply own competition:", e);
+    }
+  }
+
   async function loadFiscalYear(compId: number) {
     fiscalYearLoading.value = true;
     try {
@@ -176,6 +205,7 @@ export const useCompetitionStore = defineStore("competition", () => {
     competitionName,
     selectCompetition,
     clearSelection,
+    applyOwnCompetition,
     loadFiscalYear,
     reconnectRealtime,
   };

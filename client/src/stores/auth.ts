@@ -14,6 +14,9 @@ export interface UserInfo {
   companyScopes?: number[];
   /** 公司查看范围：仅持 company:view 的账号，仅在范围内公司可见全量 / 可列示 */
   viewCompanyScopes?: number[];
+  /** 归属比赛 id：归属比赛的账号（PLAYER/COMPETITION_ADMIN 等）非空，登录后自动锁定该比赛；
+   *  超管 / 未分配账号为空（null），保持手动选择。 */
+  competitionId?: number | null;
 }
 
 export const useAuthStore = defineStore("auth", () => {

@@ -39,12 +39,18 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button
-              size="small"
-              :type="compStore.competitionId === row.id ? 'warning' : 'success'"
-              @click.stop="selectCompetition(row)"
-              >{{ compStore.competitionId === row.id ? "取消选择" : "选择" }}</el-button
+            <template v-if="!isOwnedCompetition">
+              <el-button
+                size="small"
+                :type="compStore.competitionId === row.id ? 'warning' : 'success'"
+                @click.stop="selectCompetition(row)"
+                >{{ compStore.competitionId === row.id ? "取消选择" : "选择" }}</el-button
+              >
+            </template>
+            <el-tag v-else-if="compStore.competitionId === row.id" type="info" size="small"
+              >已自动锁定</el-tag
             >
+            <span v-else style="color: #c0c4cc; font-size: 12px">不可切换</span>
             <el-button v-if="isSuperAdmin" size="small" @click.stop="openEdit(row)">编辑</el-button>
             <el-button
               v-if="isSuperAdmin"
@@ -153,6 +159,8 @@ import { useResourceChanged } from "@/realtime/useResourceChanged";
 const authStore = useAuthStore();
 const compStore = useCompetitionStore();
 const isSuperAdmin = computed(() => authStore.can("competition:manage"));
+// 归属比赛的账号（competitionId 非空）其比赛已被自动锁定，禁止在比赛管理页手动切换。
+const isOwnedCompetition = computed(() => authStore.user?.competitionId != null);
 
 const competitions = ref<any[]>([]);
 const loading = ref(false);
