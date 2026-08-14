@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from "axios";
 import { ElMessage } from "element-plus";
 import { getApiBaseUrl } from "@/config";
 import { versionBlocked } from "@/version-block";
-import { getAccountItem, removeAccountItem, clearCurrentAccountCache } from "@/utils/accountStorage";
+import { getAccountItem, removeAccountItem } from "@/utils/accountStorage";
 
 // axios 自定义请求配置字段类型增强（request.ts 与 stores/version.ts 均使用这些字段）。
 declare module "axios" {
