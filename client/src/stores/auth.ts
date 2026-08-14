@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import { authApi } from "@/api";
+import api, { authApi } from "@/api";
 
 export interface UserInfo {
   id: number;
@@ -68,24 +68,68 @@ export const useAuthStore = defineStore("auth", () => {
     token.value = res.token;
     user.value = res.user;
     localStorage.setItem("token", res.token);
+    startHeartbeat();
   }
 
   async function fetchProfile() {
     if (!token.value) return;
-    if (user.value) return; // 已加载则跳过，避免每次布局挂载都重复请求服务器
+    if (user.value) {
+      // 已加载（如刷新后重入应用）：只需确保心跳在运行
+      startHeartbeat();
+      return;
+    }
     try {
       user.value = await authApi.getProfile();
+      startHeartbeat();
     } catch (e) {
       console.error("Failed to fetch profile:", e);
       logout();
     }
   }
 
+  // ---------- 会话心跳（单设备登录顶号）----------
+  // 绝大多数 GET 走本地缓存、不发网络，旧设备停在界面浏览时不会触发任何被守卫的请求，
+  // 也就不会被后端 tokenVersion 校验踢掉。心跳周期性向 /auth/me 真实打网络，
+  // 一旦被新设备登录顶号（tokenVersion 不一致 → 后端 401），响应拦截器会清空登录态并跳转登录页。
+  const HEARTBEAT_INTERVAL_MS = 45 * 1000;
+  let heartbeatTimer: number | null = null;
+
+  function stopHeartbeat() {
+    if (heartbeatTimer != null) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat(); // 避免重复启动
+    if (!token.value) return;
+    heartbeatTimer = window.setInterval(async () => {
+      if (!token.value) {
+        stopHeartbeat();
+        return;
+      }
+      try {
+        // cache:false 确保绕过本地缓存层真实打网络；silent:true 避免瞬时网络抖动打扰用户。
+        // 成功无副作用；被顶号时后端返回 401，由响应拦截器统一处理（清空登录态 + 跳转 + 派发事件）。
+        await api.get("/auth/me", { cache: false, silent: true });
+      } catch {
+        // 401 已由响应拦截器处理；其余错误静默忽略，不中断心跳。
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
   function logout() {
+    stopHeartbeat();
     token.value = "";
     user.value = null;
     localStorage.removeItem("token");
   }
+
+  // 监听「被顶号 / 登录过期」事件（请求拦截器在收到 401 时派发），
+  // 同步清空内存登录态，避免「localStorage 已清但内存 token 仍在、路由守卫把登录页弹回首页」的回弹。
+  window.removeEventListener("auth:kicked", logout);
+  window.addEventListener("auth:kicked", logout);
 
   return {
     token,
@@ -100,5 +144,7 @@ export const useAuthStore = defineStore("auth", () => {
     login,
     fetchProfile,
     logout,
+    startHeartbeat,
+    stopHeartbeat,
   };
 });

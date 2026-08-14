@@ -94,6 +94,9 @@ api.interceptors.response.use(
             ? backendMsg
             : "登录已过期，请重新登录";
         ElMessage.error(msg);
+        // 派发「被顶号 / 登录过期」事件：通知 authStore 同步清空内存登录态，
+        // 否则 localStorage 已清但内存 token ref 仍在，路由守卫会把刚跳到的 /login 又弹回首页（回弹）。
+        window.dispatchEvent(new CustomEvent("auth:kicked"));
       }
     } else {
       ElMessage.error(getErrorMessage(error));

@@ -2,6 +2,10 @@ import api, { getErrorMessage } from "./request";
 
 export { getErrorMessage };
 
+// 默认导出底层请求实例（即 request.ts 的默认导出 cachedApi）。
+// 心跳等场景需要显式绕过本地缓存层真实打网络（传 cache:false），故直接复用此实例。
+export default api;
+
 export const authApi = {
   login: (data: { username: string; password: string }) => api.post("/auth/login", data),
   getProfile: () => api.get("/auth/me"),
