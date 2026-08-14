@@ -38,7 +38,7 @@
       </div>
     </div>
     <el-menu :default-active="activeMenu" router class="sidebar-menu ai-sidebar">
-      <el-menu-item v-if="authStore.can('dashboard:view')" index="/dashboard">
+      <el-menu-item index="/dashboard">
         <el-icon><Monitor /></el-icon>
         <span>仪表盘</span>
       </el-menu-item>
