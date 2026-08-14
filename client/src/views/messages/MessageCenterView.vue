@@ -471,6 +471,15 @@ async function submitPublish() {
       competitionId: publishForm.filterCompetitionId,
     });
     ElMessage.success("消息已发布");
+    // 发送确认：发布者本地也滑入一条右侧弹窗，作为「已发送」反馈。
+    // （在线接收方会经实时通道各自收到 message:new 弹窗；发布者自身不在收件人列表，需本地补一条。）
+    messageStore.pushToast({
+      id: Date.now(),
+      title: publishForm.title.trim(),
+      content: publishForm.content.trim(),
+      senderName: "我（已发送）",
+      createdAt: new Date().toISOString(),
+    });
     publishVisible.value = false;
     if (activeTab.value !== "sent" && canManage.value) {
       activeTab.value = "sent";
