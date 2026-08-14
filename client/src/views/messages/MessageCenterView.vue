@@ -1,21 +1,6 @@
 <template>
   <div class="message-center">
-    <div class="page-header">
-      <div class="page-title">
-        <h2>消息中心</h2>
-        <p class="page-sub">接收系统通知，或向指定账号定向发布消息。</p>
-      </div>
-      <div class="page-actions">
-        <el-button :icon="Refresh" @click="refresh">刷新</el-button>
-        <el-button
-          v-if="canManage"
-          type="primary"
-          :icon="Promotion"
-          @click="openPublish"
-          >发布消息</el-button
-        >
-      </div>
-    </div>
+    <h2 class="page-title">消息中心</h2>
 
     <el-tabs v-model="activeTab" class="msg-tabs" @tab-change="onTabChange">
       <el-tab-pane name="inbox">
@@ -31,6 +16,16 @@
             />
           </span>
         </template>
+        <div class="toolbar">
+          <el-button :icon="Refresh" @click="refresh">刷新</el-button>
+          <el-button
+            class="toolbar-right"
+            :icon="Check"
+            :disabled="messageStore.unreadCount === 0"
+            @click="markAllRead"
+            >全部标为已读</el-button
+          >
+        </div>
         <div class="list-wrap">
           <div v-if="loading" class="empty-tip"><el-icon class="is-loading"><Loading /></el-icon> 加载中…</div>
           <div v-else-if="!inboxItems.length" class="empty-tip">暂无消息</div>
@@ -55,18 +50,20 @@
             >
           </div>
         </div>
-        <div v-if="inboxItems.length" class="list-footer">
-          <el-button
-            :icon="Check"
-            :disabled="messageStore.unreadCount === 0"
-            @click="markAllRead"
-            >全部标为已读</el-button
-          >
-        </div>
       </el-tab-pane>
 
       <el-tab-pane v-if="canManage" name="sent">
         <template #label><span class="tab-label">已发布</span></template>
+        <div class="toolbar">
+          <el-button :icon="Refresh" @click="refresh">刷新</el-button>
+          <el-button
+            class="toolbar-right"
+            type="primary"
+            :icon="Promotion"
+            @click="openPublish"
+            >发布消息</el-button
+          >
+        </div>
         <div class="list-wrap">
           <div v-if="loading" class="empty-tip"><el-icon class="is-loading"><Loading /></el-icon> 加载中…</div>
           <div v-else-if="!sentItems.length" class="empty-tip">尚未发布任何消息</div>
@@ -95,9 +92,6 @@
               >删除</el-button
             >
           </div>
-        </div>
-        <div v-if="sentItems.length" class="list-footer">
-          <span class="foot-hint">仅可删除自己发布的消息</span>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -379,31 +373,16 @@ onMounted(() => {
 
 <style scoped>
 .message-center {
-  max-width: 920px;
-  margin: 0 auto;
+  width: 100%;
 }
-.page-header {
+.toolbar {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  margin-bottom: 18px;
-  gap: 16px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
 }
-.page-title h2 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--color-text, #1f2330);
-}
-.page-sub {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--color-text-tertiary, #9aa1ad);
-}
-.page-actions {
-  display: flex;
-  gap: 10px;
-  flex: 0 0 auto;
+.toolbar-right {
+  margin-left: auto;
 }
 .msg-tabs :deep(.el-tabs__header) {
   margin-bottom: 16px;
@@ -501,16 +480,6 @@ onMounted(() => {
 }
 .del-btn {
   flex: 0 0 auto;
-}
-.list-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 14px;
-}
-.foot-hint {
-  font-size: 12px;
-  color: var(--color-text-tertiary, #9aa1ad);
 }
 .form-hint {
   margin-left: 10px;
