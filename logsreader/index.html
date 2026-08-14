@@ -187,6 +187,21 @@
       .empty { color: var(--muted); padding: 34px; text-align: center; }
       .tl-head { display: flex; justify-content: space-between; align-items: center; }
       .export-btn { font-size: 12px; padding: 5px 12px; }
+      /* 快捷栏 + 分段级别控件 */
+      .quickbar { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: flex-end; }
+      .quickbar .field { min-width: 0; }
+      .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; }
+      .seg .preset { border: none; border-radius: 0; border-right: 1px solid var(--border); padding: 8px 14px; color: var(--muted); font-size: 13px; flex: 1; text-align: center; }
+      .seg .preset:last-child { border-right: none; }
+      .seg .preset:hover { color: var(--accent); background: var(--accent-soft); }
+      .seg .preset.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .seg .preset[data-lv="err"].active { background: var(--error); border-color: var(--error); }
+      .seg .preset[data-lv="erraw"].active { background: var(--warn); border-color: var(--warn); color: #1f2937; }
+      .adv-toggle { margin-top: 14px; background: none; border: none; color: var(--accent); font-size: 12.5px; padding: 0; cursor: pointer; font-family: inherit; }
+      .adv-toggle:hover { text-decoration: underline; }
+      .adv { margin-top: 14px; }
+      .adv.collapsed { display: none; }
+      .hint-err { color: var(--error); font-weight: 600; }
       @media (max-width: 760px) { .stats-grid { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -200,59 +215,74 @@
     <div class="wrap">
       <div class="panel">
         <h2>筛选条件</h2>
-        <div class="filters">
-          <div class="field">
+        <div class="quickbar">
+          <div class="field" style="flex: 1 1 190px;">
             <label>日期 <span class="hint">合并日志 + 错误</span></label>
             <select id="fileSel"><option value="">（加载中…）</option></select>
           </div>
-          <div class="field">
-            <label>级别 <span class="hint">不勾选 = 全部</span></label>
-            <div class="levels" id="levels"></div>
-            <div class="presets" style="margin-top: 6px;">
-              <span class="preset" data-lv="all">全部级别</span>
-              <span class="preset" data-lv="err">仅错误</span>
-              <span class="preset" data-lv="erraw">错误+警告</span>
+          <div class="field" style="flex: 1 1 240px;">
+            <label>级别</label>
+            <div class="seg">
+              <button type="button" class="preset active" data-lv="all">全部</button>
+              <button type="button" class="preset" data-lv="err">仅错误</button>
+              <button type="button" class="preset" data-lv="erraw">错误+警告</button>
             </div>
           </div>
-          <div class="field">
-            <label>上下文 context</label>
-            <div id="ctxWrap"></div>
+          <div class="field" style="flex: 2 1 260px;">
+            <label>关键词</label>
+            <input type="text" id="q" placeholder="搜索消息 / JSON 内容…" />
           </div>
-          <div class="field">
-            <label>操作员 operator</label>
-            <div id="opWrap"></div>
-          </div>
-          <div class="field">
-            <label>自由搜索（消息 / JSON）</label>
-            <input type="text" id="q" placeholder="关键词…" />
-          </div>
-          <div class="field">
-            <label>时间范围</label>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <input type="datetime-local" id="from" step="1" placeholder="起始" />
-              <input type="datetime-local" id="to" step="1" placeholder="结束" />
-            </div>
-            <div class="presets">
-              <span class="preset" data-p="today">今天</span>
-              <span class="preset" data-p="1h">近 1 小时</span>
-              <span class="preset" data-p="24h">近 24 小时</span>
-              <span class="preset" data-p="all">全部</span>
-            </div>
-          </div>
-          <div class="field">
-            <label>排序 / 条数</label>
-            <div style="display: flex; gap: 6px;">
-              <select id="order" style="flex: 1;">
-                <option value="desc">最新在前</option>
-                <option value="asc">最早在前</option>
-              </select>
-              <input type="number" id="limit" value="200" min="10" max="2000" style="width: 84px;" />
+          <div class="field" style="flex: 0 0 auto; justify-content: flex-end;">
+            <label>&nbsp;</label>
+            <div class="actions" style="margin-top: 0;">
+              <button class="primary" id="runBtn">查询</button>
+              <button id="resetBtn">重置</button>
             </div>
           </div>
         </div>
+
+        <button type="button" class="adv-toggle" id="advToggle">高级筛选 ▾</button>
+        <div class="adv collapsed" id="adv">
+          <div class="filters">
+            <div class="field">
+              <label>级别（自定义组合）</label>
+              <div class="levels" id="levels"></div>
+            </div>
+            <div class="field">
+              <label>上下文 context</label>
+              <div id="ctxWrap"></div>
+            </div>
+            <div class="field">
+              <label>操作员 operator</label>
+              <div id="opWrap"></div>
+            </div>
+            <div class="field">
+              <label>时间范围</label>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <input type="datetime-local" id="from" step="1" placeholder="起始" />
+                <input type="datetime-local" id="to" step="1" placeholder="结束" />
+              </div>
+              <div class="presets">
+                <span class="preset" data-p="today">今天</span>
+                <span class="preset" data-p="1h">近 1 小时</span>
+                <span class="preset" data-p="24h">近 24 小时</span>
+                <span class="preset" data-p="all">全部</span>
+              </div>
+            </div>
+            <div class="field">
+              <label>排序 / 条数</label>
+              <div style="display: flex; gap: 6px; min-width: 0;">
+                <select id="order" style="flex: 1; min-width: 0;">
+                  <option value="desc">最新在前</option>
+                  <option value="asc">最早在前</option>
+                </select>
+                <input type="number" id="limit" value="200" min="10" max="2000" style="width: 84px; min-width: 0;" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="actions" style="margin-top: 16px;">
-          <button class="primary" id="runBtn">查询</button>
-          <button id="resetBtn">重置</button>
           <button class="follow" id="followBtn">实时跟随</button>
           <span class="status" id="status"><span class="live" id="liveDot"></span><span id="statusText"></span></span>
         </div>
@@ -446,7 +476,7 @@
           const el = document.createElement("label");
           el.className = "lvl" + (set.has(lv) ? " active" : "");
           el.innerHTML = `<input type="checkbox" value="${lv}" ${set.has(lv) ? "checked" : ""}/><span class="sw" style="background:${LEVEL_COLORS[lv] || "#94a3b8"}"></span><span class="lab">${lv}</span><span class="cnt"></span>`;
-          el.querySelector("input").addEventListener("change", (e) => el.classList.toggle("active", e.target.checked));
+          el.querySelector("input").addEventListener("change", (e) => { el.classList.toggle("active", e.target.checked); syncSeg(); });
           box.appendChild(el);
           levelChips[lv] = { el, cnt: el.querySelector(".cnt") };
         }
@@ -602,14 +632,21 @@
           if (!data.ok) { $("statusText").textContent = "错误: " + data.error; return; }
           lastEndOffset = data.endOffset || 0;
           fillFacets(data.facets);
+          syncSeg();
           renderStats(data);
           if (isFollow) {
             renderRows(data.rows.concat(currentRows).slice(0, Number($("limit").value) || 200));
             $("statusText").textContent = `实时跟随中 · 新增 ${data.count} 条 · 已匹配 ${fmtNum(data.total)} · ${Math.round(performance.now() - t0)}ms`;
           } else {
             renderRows(data.rows);
-            $("statusText").textContent = `已匹配 ${fmtNum(data.total)} 条，显示 ${data.count} 条 · ${Math.round(performance.now() - t0)}ms`;
+            const totalErr = (data.byLevel && data.byLevel.error) || 0;
+            const shownErr = data.rows.filter((r) => r.level === "error").length;
+            const extra = totalErr - shownErr;
+            const base = `已匹配 ${fmtNum(data.total)} 条，显示 ${data.count} 条 · ${Math.round(performance.now() - t0)}ms`;
             $("rowCount").textContent = `共 ${fmtNum(data.total)} 条`;
+            $("statusText").innerHTML = extra > 0
+              ? `${base} <span class="hint-err">（另有 ${fmtNum(extra)} 条 error 被条数限制遮挡，点「仅错误」查看）</span>`
+              : base;
           }
         } catch (e) {
           $("statusText").textContent = "查询失败: " + e.message;
@@ -641,6 +678,16 @@
           inp.checked = on;
           el.classList.toggle("active", on);
         });
+        syncSeg();
+      }
+      // 让顶部分段控件（全部/仅错误/错误+警告）反映当前 chips 的真实选择
+      function syncSeg() {
+        const set = new Set([...document.querySelectorAll("#levels .lvl.active input")].map((i) => i.value));
+        const allOn = LEVELS.every((l) => set.has(l));
+        const onlyErr = set.has("error") && set.size === 1;
+        const errWarn = set.has("error") && set.has("warn") && set.size === 2;
+        const mode = allOn ? "all" : onlyErr ? "err" : errWarn ? "erraw" : null;
+        document.querySelectorAll(".seg .preset").forEach((b) => b.classList.toggle("active", b.dataset.lv === mode));
       }
 
       function exportCsv() {
@@ -680,6 +727,10 @@
       document.querySelectorAll(".preset[data-lv]").forEach((p) =>
         p.addEventListener("click", () => { applyLevelPreset(p.dataset.lv); stopFollow(); doQuery(false); })
       );
+      $("advToggle").addEventListener("click", () => {
+        const collapsed = $("adv").classList.toggle("collapsed");
+        $("advToggle").textContent = collapsed ? "高级筛选 ▾" : "高级筛选 ▴";
+      });
 
       renderLevels([]);
       loadList().then(() => doQuery(false));
