@@ -18,12 +18,6 @@ export interface PermissionDomain {
 
 export const PERMISSION_CATALOG: PermissionDomain[] = [
   {
-    key: "dashboard",
-    label: "仪表盘",
-    group: "概览",
-    actions: [{ key: "dashboard:view", action: "view", label: "查看" }],
-  },
-  {
     key: "competition",
     label: "比赛管理",
     group: "比赛",

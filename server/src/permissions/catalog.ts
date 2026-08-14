@@ -28,12 +28,6 @@ export interface PermissionDomain {
 
 export const PERMISSION_CATALOG: PermissionDomain[] = [
   {
-    key: "dashboard",
-    label: "仪表盘",
-    group: "概览",
-    actions: [{ key: "dashboard:view", action: "view", label: "查看" }],
-  },
-  {
     key: "competition",
     label: "比赛管理",
     group: "比赛",
@@ -223,7 +217,11 @@ export const PERMISSION_GROUPS: { group: string; domains: PermissionDomain[] }[]
 })();
 
 /** 已废止但为兼容旧数据仍视为合法的权限 key（如系统设置不再单独分权限） */
-export const DEPRECATED_PERMISSION_KEYS: string[] = ["settings:view", "settings:manage"];
+export const DEPRECATED_PERMISSION_KEYS: string[] = [
+  "settings:view",
+  "settings:manage",
+  "dashboard:view",
+];
 
 /** 校验一组 key 是否全部合法（用于 DTO 校验） */
 export function isValidPermissions(perms: unknown): perms is string[] {
