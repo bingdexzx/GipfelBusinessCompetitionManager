@@ -52,6 +52,9 @@ export const useCompetitionStore = defineStore("competition", () => {
   async function applyOwnCompetition(ownId: number | null | undefined) {
     if (ownId == null) return;
     if (selected.value?.id === ownId) return;
+    // 先用最少信息（仅 id）立即锁定，消除「fetch 完成前仍用 localStorage 残留旧比赛发请求」的竞态窗口，
+    // 避免归属账号在自动锁定生效前短暂以旧比赛 id 请求而 403。selectCompetition 拿到详情后会补全。
+    selected.value = { id: ownId };
     try {
       const token = localStorage.getItem("token");
       const base = getApiBaseUrl() + "/api";
@@ -64,7 +67,9 @@ export const useCompetitionStore = defineStore("competition", () => {
         return;
       }
       if (!res.ok) return;
-      const comp = await res.json();
+      const json = await res.json();
+      // 服务端经全局 ResponseInterceptor 包裹为 {code,data,message}，必须取出 data（否则 comp.id 为 undefined）。
+      const comp = json?.data ?? json;
       if (comp && comp.id != null) {
         selectCompetition(comp);
       }
