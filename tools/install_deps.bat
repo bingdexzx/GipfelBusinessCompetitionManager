@@ -11,7 +11,7 @@ set "ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electro
 echo ============================================================
 echo [1/3] Installing server dependencies ...
 echo ============================================================
-cd /d "%~dp0server"
+cd /d "%~dp0..\server"
 if exist package-lock.json del package-lock.json
 if exist node_modules rmdir /s /q node_modules
 call npm install
@@ -38,7 +38,7 @@ echo.
 echo ============================================================
 echo [3/3] Installing client dependencies ...
 echo ============================================================
-cd /d "%~dp0client"
+cd /d "%~dp0..\client"
 if exist package-lock.json del package-lock.json
 if exist node_modules rmdir /s /q node_modules
 call npm install
@@ -55,7 +55,7 @@ echo ============================================================
 echo [OK] Dependencies installed.
 echo      If this is a fresh clone (DB not initialized), continue with:
 echo        cd server ^&^& npx prisma db push ^&^& npx prisma db seed
-echo      Then run start_server.bat and start_client.bat.
+echo      Then run tools/start_server.bat and tools/start_client.bat.
 echo      Remember to commit the regenerated package-lock.json files.
 echo ============================================================
 echo Press any key to close this window.

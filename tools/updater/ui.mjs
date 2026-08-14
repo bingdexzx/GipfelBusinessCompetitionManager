@@ -2,13 +2,13 @@
 /**
  * Gipfel 商赛系统 — 发布助手（可视化界面）
  *
- * 启动一个本地 HTTP 服务，浏览器打开 updater/index.html，
+ * 启动一个本地 HTTP 服务，浏览器打开 tools/updater/index.html，
  * 通过 /api/info 与 /api/release 调用 release-core.mjs 完成发布。
  *
  * 用法：
- *   node updater/ui.mjs            # 默认端口 7788，自动打开浏览器
- *   node updater/ui.mjs --port 9000
- *   node updater/ui.mjs --no-open  # 不自动打开浏览器
+ *   node tools/updater/ui.mjs            # 默认端口 7788，自动打开浏览器
+ *   node tools/updater/ui.mjs --port 9000
+ *   node tools/updater/ui.mjs --no-open  # 不自动打开浏览器
  */
 
 import http from "node:http";
@@ -28,7 +28,7 @@ function parseArgs(argv) {
     if (a === "--port") opts.port = Number(argv[++i]) || 7788;
     else if (a === "--no-open") opts.open = false;
     else if (a === "-h" || a === "--help") {
-      console.log("用法: node updater/ui.mjs [--port 7788] [--no-open]");
+      console.log("用法: node tools/updater/ui.mjs [--port 7788] [--no-open]");
       process.exit(0);
     }
   }

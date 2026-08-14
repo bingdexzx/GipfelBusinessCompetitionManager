@@ -11,7 +11,7 @@
 | 客户端 | Electron + Vue 3 + TypeScript + Element Plus + Pinia + Axios + Vite + Socket.IO Client + Konva（地图/科技树/合同画布） |
 | 服务端 | NestJS（无 UI，带 Winston 日志）+ Prisma + SQLite + JWT + Passport + Socket.IO |
 | 数据库 | SQLite（Prisma ORM，单文件 `server/prisma/dev.db`） |
-| 发版工具 | `updater/`（本地发布页 + 版本改写脚本） |
+| 发版工具 | `tools/updater/`（本地发布页 + 版本改写脚本） |
 
 服务端默认监听 `http://localhost:3000`，并为 Socket.IO 复用同一端口；REST 与 WebSocket 共享该端点。
 
@@ -25,11 +25,13 @@
 ├── client/                 # Electron + Vue3 客户端
 │   └── src/
 ├── docs/                   # 软件文档（整合版）
-├── updater/                # 本地发布页与版本改写脚本
-├── build.bat               # 构建服务端 + 客户端
-├── package.bat             # 打包 Windows 安装包（NSIS）
-├── start_server.bat        # 启动服务端（dev）
-└── start_client.bat        # 启动客户端（dev）
+└── tools/                  # 辅助脚本（构建 / 打包 / 启动 / 日志阅读 / 发布）
+    ├── build.bat           # 构建服务端 + 客户端
+    ├── package.bat         # 打包 Windows 安装包（NSIS）
+    ├── start_server.bat    # 启动服务端（dev）
+    ├── start_client.bat    # 启动客户端（dev）
+    ├── logsreader/         # 服务端日志可视化读取工具（本地 HTTP）
+    └── updater/            # 本地发布页与版本改写脚本
 ```
 
 ## 环境要求
@@ -57,7 +59,7 @@ cd ../client
 npm run dev
 ```
 
-也可直接双击根目录 `start_server.bat` / `start_client.bat` 分别启动前后端。
+也可直接双击 `tools/start_server.bat` / `tools/start_client.bat` 分别启动前后端。
 
 ## 默认管理员
 
@@ -69,13 +71,13 @@ npm run dev
 
 ## 构建安装包
 
-以管理员身份运行根目录 `package.bat`（Windows），会自动使用国内 npmmirror 镜像构建客户端并生成 NSIS 安装包，输出至 `client/release/`，形如 `Gipfel商赛系统 Setup 1.0.0.exe`（安装时可选择安装位置）。
+以管理员身份运行 `tools/package.bat`（Windows），会自动使用国内 npmmirror 镜像构建客户端并生成 NSIS 安装包，输出至 `client/release/`，形如 `Gipfel商赛系统 Setup 1.0.0.exe`（安装时可选择安装位置）。
 
-> 若遇到符号链接/解压权限问题，请右键 `package.bat` → 「以管理员身份运行」。
+> 若遇到符号链接/解压权限问题，请右键 `tools/package.bat` → 「以管理员身份运行」。
 
 ## 版本与发版
 
-版本号存在两处真源：`client/package.json`（`app.getVersion()`）与 `server/package.json`（`GET /api/version`）。发版由 `updater/release-core.mjs` 统一改写两处 `version`，确保二者一致。
+版本号存在两处真源：`client/package.json`（`app.getVersion()`）与 `server/package.json`（`GET /api/version`）。发版由 `tools/updater/release-core.mjs` 统一改写两处 `version`，确保二者一致。
 
 ## 安全说明
 

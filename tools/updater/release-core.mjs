@@ -27,7 +27,7 @@ import { dirname, resolve } from "node:path";
 import { execSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(__dirname, "..", "..");
 const SERVER_PKG = resolve(ROOT, "server/package.json");
 const CLIENT_PKG = resolve(ROOT, "client/package.json");
 const ANNOUNCEMENT = resolve(ROOT, "client/src/data/announcement.ts");

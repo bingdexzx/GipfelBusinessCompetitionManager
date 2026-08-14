@@ -2,14 +2,14 @@
 /**
  * Gipfel 商赛系统 — 服务端日志可视化读取工具（logsreader）
  *
- * 启动一个本地 HTTP 服务，浏览器打开 logsreader/index.html，
+ * 启动一个本地 HTTP 服务，浏览器打开 tools/logsreader/index.html，
  * 通过 /api/list 与 /api/query 读取并分析 server/logs 下的 Winston JSONL 日志。
  *
  * 用法：
- *   node logsreader/logsreader.mjs                  # 默认端口 7799，自动打开浏览器
- *   node logsreader/logsreader.mjs --port 9000
- *   node logsreader/logsreader.mjs --no-open        # 不自动打开浏览器
- *   node logsreader/logsreader.mjs --logs ../server/logs   # 指定日志目录
+ *   node tools/logsreader/logsreader.mjs                  # 默认端口 7799，自动打开浏览器
+ *   node tools/logsreader/logsreader.mjs --port 9000
+ *   node tools/logsreader/logsreader.mjs --no-open        # 不自动打开浏览器
+ *   node tools/logsreader/logsreader.mjs --logs ../server/logs   # 指定日志目录
  */
 
 import http from "node:http";
@@ -20,7 +20,7 @@ import { execSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = resolve(__dirname, "index.html");
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(__dirname, "..", "..");
 
 // Winston 标准级别（由严重到详细）。统计/过滤按此排序。
 const LEVEL_ORDER = ["error", "warn", "info", "http", "verbose", "debug", "silly"];
@@ -33,7 +33,7 @@ function parseArgs(argv) {
     else if (a === "--no-open") opts.open = false;
     else if (a === "--logs") opts.logsDir = argv[++i];
     else if (a === "-h" || a === "--help") {
-      console.log("Usage: node logsreader/logsreader.mjs [--port 7799] [--logs <dir>] [--no-open]");
+      console.log("Usage: node tools/logsreader/logsreader.mjs [--port 7799] [--logs <dir>] [--no-open]");
       process.exit(0);
     }
   }

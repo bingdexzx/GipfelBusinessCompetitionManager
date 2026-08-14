@@ -18,7 +18,7 @@ set "NODE_OPTIONS=--use-system-ca"
 echo ============================================================
 echo [1/1] Building install package (client + NSIS installer) ...
 echo ============================================================
-cd /d "%~dp0client"
+cd /d "%~dp0..\client"
 call npm run electron:build
 if errorlevel 1 (
     echo.

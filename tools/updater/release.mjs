@@ -6,16 +6,16 @@
  *
  * 用法：
  *   交互模式（推荐）：
- *     node updater/release.mjs
+ *     node tools/updater/release.mjs
  *   参数模式：
- *     node updater/release.mjs --version 1.1.0 --title "v1.1.0 更新" --date 2026-08-14 \
+ *     node tools/updater/release.mjs --version 1.1.0 --title "v1.1.0 更新" --date 2026-08-14 \
  *          --notes "修复登录失败" --notes "新增导出功能"
  *   仅预览不写入：
- *     node updater/release.mjs --version 1.1.0 --dry-run
+ *     node tools/updater/release.mjs --version 1.1.0 --dry-run
  *   写入后顺便 git 提交：
- *     node updater/release.mjs --version 1.1.0 --commit
+ *     node tools/updater/release.mjs --version 1.1.0 --commit
  *
- * 图形界面：运行 node updater/ui.mjs，浏览器自动打开发布助手。
+ * 图形界面：运行 node tools/updater/ui.mjs，浏览器自动打开发布助手。
  */
 
 import { createInterface } from "node:readline/promises";
@@ -27,7 +27,7 @@ function printHelp() {
 Gipfel 商赛系统 — 快速发布小工具（命令行版）
 
 用法:
-  node updater/release.mjs [选项]
+  node tools/updater/release.mjs [选项]
 
 选项:
   --version <x.y.z>      新版本号（必填，除非交互模式）

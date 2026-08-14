@@ -5,7 +5,7 @@ cd /d "%~dp0"
 echo ============================================================
 echo [1/2] Building server ...
 echo ============================================================
-cd /d "%~dp0server"
+cd /d "%~dp0..\server"
 call npm run build
 if errorlevel 1 (
     echo.
@@ -19,7 +19,7 @@ echo.
 echo ============================================================
 echo [2/2] Building client ...
 echo ============================================================
-cd /d "%~dp0client"
+cd /d "%~dp0..\client"
 call npm run build
 if errorlevel 1 (
     echo.
