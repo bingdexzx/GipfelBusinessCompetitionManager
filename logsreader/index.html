@@ -189,6 +189,7 @@
       .detail pre { margin: 0; padding: 12px; color: var(--code-fg); white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; max-height: 380px; overflow: auto; }
       .j-key { color: #7dd3fc; } .j-str { color: #86efac; } .j-num { color: #fca5a5; } .j-bool { color: #c4b5fd; } .j-null { color: #94a3b8; }
       .empty { color: var(--muted); padding: 34px; text-align: center; }
+      .load-more { text-align: center; color: var(--muted); font-size: 12px; padding: 14px; }
       .tl-head { display: flex; justify-content: space-between; align-items: center; }
       .export-btn { font-size: 12px; padding: 5px 12px; }
       /* 快捷栏 + 分段级别控件 */
@@ -274,7 +275,7 @@
               </div>
             </div>
             <div class="field">
-              <label>排序 / 条数 <span class="hint">空 = 不限制</span></label>
+              <label>排序 / 分页上限 <span class="hint">空 = 全加载</span></label>
               <div style="display: flex; gap: 6px; min-width: 0;">
                 <select id="order" style="flex: 1; min-width: 0;">
                   <option value="desc">最新在前</option>
@@ -331,6 +332,7 @@
             <tr><td colspan="6" class="empty">点击「查询」加载日志</td></tr>
           </tbody>
         </table>
+        <div id="loadMore" class="load-more">下拉到底部自动加载更多…</div>
       </div>
     </div>
 
@@ -347,6 +349,16 @@
       let lastEndOffset = 0;
       let levelChips = {};
       const DAY_FILES = {}; // date -> [file names]
+
+      // 分页 / 无限滚动状态
+      const PAGE_SIZE = 200;        // 每页条数
+      let pageOffset = 0;           // 已请求的下一页起始（= 已加载行数，作为 offset 传给后端）
+      let total = 0;                // 本次查询匹配总数
+      let loadingMore = false;      // 是否正在加载下一页（防并发）
+      let allLoaded = false;        // 是否已加载完全部匹配行
+      let following = false;        // 实时跟随中（暂停分页懒加载）
+      let pktTotals = { up: 0, down: 0, cnt: 0 }; // 数据包大小合计（跨分页累加，基于全量匹配行）
+      let sentinelObs = null;
 
       function escapeHtml(s) {
         return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -514,8 +526,9 @@
           from: dtToServer($("from").value),
           to: dtToServer($("to").value),
           order: $("order").value,
-          // 条数为空 = 不限制（显示全部匹配行）；仅当用户主动填写时才限制
-          limit: $("limit").value ? Number($("limit").value) : 0,
+          // 分页：固定每页 PAGE_SIZE 条；offset 由前端分页状态控制（loadMore 会覆盖写入）。
+          // 高级「分页上限」输入框仅作为客户端累计加载上限（见 doQuery / loadMore），不参与后端切片。
+          limit: PAGE_SIZE,
         };
       }
 
@@ -547,20 +560,23 @@
         renderTimeline(data.timeline || []);
         updateLevelCounts(bl);
 
-        // 数据包大小合计（基于本次查询结果中的行）
-        const rows = data.rows || [];
-        let up = 0, down = 0, cnt = 0;
-        for (const r of rows) {
-          if (typeof r.requestBodySize === "number") up += r.requestBodySize;
-          if (typeof r.responseBodySize === "number") down += r.responseBodySize;
-          if (r.requestBodySize || r.responseBodySize) cnt++;
-        }
+        // 数据包大小合计：跨分页累计（基于全量匹配行，与分页无关）
         const pk = $("pktStats");
         pk.innerHTML = `<span style="font-size:12px;color:var(--muted);">数据包大小合计：</span>`
-          + `<span class="up" style="color:#e5484d;font-weight:600;">↑ 上行 ${fmtBytes(up)}</span>`
+          + `<span class="up" style="color:#e5484d;font-weight:600;">↑ 上行 ${fmtBytes(pktTotals.up)}</span>`
           + `<span style="margin:0 8px;color:var(--border);">|</span>`
-          + `<span class="down" style="color:#4b83c1;font-weight:600;">↓ 下行 ${fmtBytes(down)}</span>`
-          + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（本次查询含包大小记录 ${fmtNum(cnt)} 条）</span>`;
+          + `<span class="down" style="color:#4b83c1;font-weight:600;">↓ 下行 ${fmtBytes(pktTotals.down)}</span>`
+          + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（含包大小记录 ${fmtNum(pktTotals.cnt)} 条）</span>`;
+      }
+
+      // 把一页行的数据包大小累加到 pktTotals；reset=true 表示新查询，先清零。
+      function accumulatePkt(rows, reset) {
+        if (reset) pktTotals = { up: 0, down: 0, cnt: 0 };
+        for (const r of rows) {
+          if (typeof r.requestBodySize === "number") pktTotals.up += r.requestBodySize;
+          if (typeof r.responseBodySize === "number") pktTotals.down += r.responseBodySize;
+          if (r.requestBodySize || r.responseBodySize) pktTotals.cnt++;
+        }
       }
 
       function renderTimeline(timeline) {
@@ -607,49 +623,72 @@
       }
 
       let renderToken = 0;
-      function renderRows(rows) {
-        currentRows = rows;
+      function buildRowEl(row) {
+        const tr = document.createElement("tr");
+        tr._obj = row; // 直接把记录挂在元素上，详情展开按引用取，避免分页增删导致索引错位
+        if (row.level === "error") tr.className = "row-err";
+        else if (row.level === "warn") tr.className = "row-warn";
+        const color = LEVEL_COLORS[row.level] || "#94a3b8";
+        const hasSz = (row.requestBodySize || row.responseBodySize);
+        const szHtml = hasSz
+          ? `<span class="up">↑${fmtBytes(row.requestBodySize)}</span> <span class="down">↓${fmtBytes(row.responseBodySize)}</span>`
+          : '<span class="muted">-</span>';
+        tr.innerHTML = `
+          <td class="ts">${escapeHtml(row.timestamp || "")}</td>
+          <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
+          <td class="ctx">${escapeHtml(row.context || "")}</td>
+          <td class="op">${escapeHtml(row.operator || "")}</td>
+          <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>
+          <td class="sz">${szHtml}</td>`;
+        tr.addEventListener("click", () => toggleDetail(tr));
+        return tr;
+      }
+      // 分批把 rows 追加进表格并按当前 token 防旧批次串台。
+      function appendRowsToBody(rows, tokenCheck) {
         const body = $("logBody");
-        body.innerHTML = "";
-        if (!rows.length) { body.innerHTML = '<tr><td colspan="6" class="empty">没有匹配的日志</td></tr>'; return; }
-        // 分批渲染：不限制条数后可能上万行，一次性建 DOM 会卡死浏览器。
-        // 用渲染令牌避免在连续查询时旧批次把过期行塞进新表格。
-        const myToken = ++renderToken;
         let i = 0;
         const BATCH = 600;
         function step() {
-          if (myToken !== renderToken) return; // 已被新查询取代
+          if (tokenCheck != null && tokenCheck !== renderToken) return; // 已被新查询取代
           const end = Math.min(i + BATCH, rows.length);
           for (; i < end; i++) {
-            const idx = i;
-            const row = rows[idx];
-            const tr = document.createElement("tr");
-            if (row.level === "error") tr.className = "row-err";
-            else if (row.level === "warn") tr.className = "row-warn";
-            const color = LEVEL_COLORS[row.level] || "#94a3b8";
-            const hasSz = (row.requestBodySize || row.responseBodySize);
-            const szHtml = hasSz
-              ? `<span class="up">↑${fmtBytes(row.requestBodySize)}</span> <span class="down">↓${fmtBytes(row.responseBodySize)}</span>`
-              : '<span class="muted">-</span>';
-            tr.innerHTML = `
-              <td class="ts">${escapeHtml(row.timestamp || "")}</td>
-              <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
-              <td class="ctx">${escapeHtml(row.context || "")}</td>
-              <td class="op">${escapeHtml(row.operator || "")}</td>
-              <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>
-              <td class="sz">${szHtml}</td>`;
-            tr.addEventListener("click", () => toggleDetail(tr, idx));
+            const tr = buildRowEl(rows[i]);
             body.appendChild(tr);
+            currentRows.push(rows[i]);
           }
           if (i < rows.length) requestAnimationFrame(step);
         }
         step();
       }
+      // mode: 'replace' 清空表格并渲染首页；'append' 追加到末尾（分页懒加载）
+      function renderRows(rows, mode) {
+        const body = $("logBody");
+        if (mode === "replace") {
+          ++renderToken;
+          body.innerHTML = "";
+          currentRows = [];
+          if (!rows.length) { body.innerHTML = '<tr><td colspan="6" class="empty">没有匹配的日志</td></tr>'; return; }
+        }
+        appendRowsToBody(rows, renderToken);
+      }
+      // 实时跟随：把新行插入到表格最顶部（最新在前）。保持 currentRows 与 matched 顶部一致，
+      // 以便停止跟随后分页能从 pageOffset 无缝续接（不会重复）。
+      function prependRows(rows) {
+        const body = $("logBody");
+        const empty = body.querySelector(".empty");
+        if (empty) empty.remove();
+        // 倒序插入，使 rows[0]（最新）落在最上
+        for (let k = rows.length - 1; k >= 0; k--) {
+          const tr = buildRowEl(rows[k]);
+          body.insertBefore(tr, body.firstChild);
+          currentRows.unshift(rows[k]);
+        }
+      }
 
-      function toggleDetail(tr, idx) {
+      function toggleDetail(tr) {
         const next = tr.nextElementSibling;
         if (next && next.classList.contains("detail")) { next.remove(); tr.classList.remove("expanded"); return; }
-        const obj = currentRows[idx];
+        const obj = tr._obj;
         const detail = document.createElement("tr");
         detail.className = "detail";
         const td = document.createElement("td");
@@ -672,6 +711,42 @@
         if (facets && facets.operators) opMS.setOptions(facets.operators);
       }
 
+      // 加载下一页（分页懒加载）：在已加载基础上 offset += 已加载行数，追加而不是覆盖。
+      async function loadMore() {
+        if (loadingMore || allLoaded || following) return;
+        if (pageOffset >= total) { allLoaded = true; updateLoadMore(); return; }
+        loadingMore = true;
+        setLoadMore("加载中…");
+        const t0 = performance.now();
+        const payload = buildPayload();
+        payload.offset = pageOffset; // 从已加载位置继续取下一页
+        payload.limit = PAGE_SIZE;
+        try {
+          const data = await api("/api/query", payload);
+          if (!data.ok) { setLoadMore("加载失败: " + data.error); return; }
+          lastEndOffset = data.endOffset || lastEndOffset;
+          accumulatePkt(data.rows);
+          renderStats(data); // 统计/时间线/facets 均为全量计算，幂等刷新；数据包合计走累计值
+          renderRows(data.rows, "append");
+          pageOffset += data.rows.length;
+          // 客户端分页上限（高级「分页上限」）：达到上限即停止继续懒加载
+          const cap = Number($("limit").value) || 0;
+          allLoaded = pageOffset >= total || (cap && pageOffset >= cap);
+          $("rowCount").textContent = `已加载 ${fmtNum(pageOffset)} / 共 ${fmtNum(total)} 条`;
+          updateLoadMore();
+        } catch (e) {
+          setLoadMore("加载失败: " + e.message);
+        } finally {
+          loadingMore = false;
+        }
+      }
+      function setLoadMore(text) { const el = $("loadMore"); if (el) el.textContent = text; }
+      function updateLoadMore() {
+        if (following) { setLoadMore("实时跟随中…"); return; }
+        if (allLoaded) setLoadMore(`—— 已加载全部 ${fmtNum(total)} 条 ——`);
+        else setLoadMore("下拉到底部自动加载更多…");
+      }
+
       async function doQuery(isFollow) {
         const t0 = performance.now();
         const payload = buildPayload();
@@ -682,20 +757,42 @@
           lastEndOffset = data.endOffset || 0;
           fillFacets(data.facets);
           syncSeg();
-          renderStats(data);
           if (isFollow) {
+            // 实时跟随：新行插入顶部（最新在前），currentRows 仍为 matched 顶部，停止后可无缝续接分页
+            following = true;
+            accumulatePkt(data.rows);
+            renderStats(data);
+            prependRows(data.rows);
             const cap = Number($("limit").value) || 0;
-            renderRows(data.rows.concat(currentRows).slice(0, cap || undefined));
+            if (cap && currentRows.length > cap) {
+              // 超出上限时从底部（最旧）裁剪，保持 currentRows = matched 的顶部 cap 行
+              while (currentRows.length > cap) {
+                currentRows.pop();
+                const last = $("logBody").lastElementChild;
+                if (last && !last.classList.contains("detail")) last.remove();
+              }
+            }
+            total = data.total;
             const ms = Math.round(performance.now() - t0);
-            $("statusText").textContent = `实时跟随中 · 新增 ${data.count} 条 · 已匹配 ${fmtNum(data.total)} · ${ms}ms`;
+            $("rowCount").textContent = `已加载 ${fmtNum(currentRows.length)} / 共 ${fmtNum(total)} 条`;
+            $("statusText").textContent = `实时跟随中 · 新增 ${data.count} 条 · 已匹配 ${fmtNum(total)} · 已加载 ${fmtNum(currentRows.length)} · ${ms}ms`;
           } else {
-            renderRows(data.rows);
+            // 新查询：重置分页状态，仅加载首页（PAGE_SIZE 条）
+            following = false;
+            pageOffset = data.rows.length;
+            total = data.total;
+            const cap = Number($("limit").value) || 0;
+            allLoaded = pageOffset >= total || (cap && pageOffset >= cap);
+            accumulatePkt(data.rows, true); // 清零并累计首页
+            renderStats(data);
+            renderRows(data.rows, "replace");
             const ms = Math.round(performance.now() - t0);
-            $("rowCount").textContent = `共 ${fmtNum(data.total)} 条`;
-            let msg = `已匹配 ${fmtNum(data.total)} 条 · ${ms}ms`;
-            // 不再有显示条数限制；仅当结果极多时提示已完整分批渲染（非截断）
-            if (data.total > 5000) msg += `（已全部加载，大数据量已分批渲染）`;
+            $("rowCount").textContent = `已加载 ${fmtNum(pageOffset)} / 共 ${fmtNum(total)} 条`;
+            let msg = `已匹配 ${fmtNum(total)} 条 · ${ms}ms`;
+            if (allLoaded) msg = `共 ${fmtNum(total)} 条 · 已全部加载 · ${ms}ms`;
+            else msg += `（下拉自动加载更多）`;
             $("statusText").textContent = msg;
+            updateLoadMore();
           }
         } catch (e) {
           $("statusText").textContent = "查询失败: " + e.message;
@@ -707,6 +804,11 @@
         $("followBtn").classList.remove("on");
         $("followBtn").textContent = "实时跟随";
         $("liveDot").classList.remove("on");
+        // 停止跟随后，已加载的 currentRows 即为 matched 顶部若干行，分页从当前位置无缝续接
+        following = false;
+        pageOffset = currentRows.length;
+        allLoaded = pageOffset >= total;
+        updateLoadMore();
       }
 
       function setPreset(p) {
@@ -739,12 +841,24 @@
         document.querySelectorAll(".seg .preset").forEach((b) => b.classList.toggle("active", b.dataset.lv === mode));
       }
 
-      function exportCsv() {
-        if (!currentRows.length) return;
+      async function exportCsv() {
+        // 导出不受前端分页影响：单独拉取全量匹配行（limit=0），保证 CSV 完整。
+        const payload = buildPayload();
+        payload.limit = 0;
+        payload.offset = 0;
+        let rows;
+        try {
+          const data = await api("/api/query", payload);
+          rows = data.rows || [];
+        } catch (e) {
+          $("statusText").textContent = "导出失败: " + e.message;
+          return;
+        }
+        if (!rows.length) return;
         const cols = ["timestamp", "level", "context", "operator", "requestId", "ip", "message", "requestBodySize", "responseBodySize"];
         const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
         const lines = [cols.join(",")];
-        for (const r of currentRows) lines.push(cols.map((c) => esc(r[c])).join(","));
+        for (const r of rows) lines.push(cols.map((c) => esc(r[c])).join(","));
         const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -758,7 +872,7 @@
         stopFollow();
         $("q").value = ""; $("from").value = ""; $("to").value = "";
         ctxMS.clear(); opMS.clear();
-        $("order").value = "desc"; $("limit").value = 200;
+        $("order").value = "desc"; $("limit").value = "";
         renderLevels([]);
         doQuery(false);
       });
@@ -782,6 +896,17 @@
       });
 
       renderLevels([]);
+      // 无限滚动：监听底部「加载更多」哨兵，进入视口（提前 300px）即加载下一页
+      const sentinel = $("loadMore");
+      if ("IntersectionObserver" in window && sentinel) {
+        sentinelObs = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) if (e.isIntersecting) loadMore();
+          },
+          { root: null, rootMargin: "300px" },
+        );
+        sentinelObs.observe(sentinel);
+      }
       loadList().then(() => doQuery(false));
     </script>
   </body>
