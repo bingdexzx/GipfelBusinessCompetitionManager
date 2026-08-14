@@ -23,6 +23,13 @@ export interface BackgroundMeta {
   filename: string;
   width: number | null;
   height: number | null;
+  /**
+   * 背景图在画布中的变换（世界坐标）：
+   * - x/y：图片左上角的世界坐标（与节点同坐标系）。
+   * - scale：缩放倍率，1 表示「适配节点包围盒」。
+   * null 表示未手动编辑，前端按节点包围盒自动适配；一旦用户进入编辑模式并拖拽/缩放即写入。
+   */
+  transform?: { x: number; y: number; scale: number } | null;
 }
 
 // 与 main.ts 中静态服务目录保持一致：进程工作目录下的 uploads/map-backgrounds
@@ -168,6 +175,7 @@ export class FilesService {
       filename: safeName,
       width,
       height,
+      transform: null, // 新上传默认按节点包围盒自动适配，不写入变换
     };
 
     const updated = await this.prisma.competition.update({
@@ -194,5 +202,37 @@ export class FilesService {
       this.realtime.broadcastToCompetition(cid, "competition:changed", updated);
     }
     return { ok: true };
+  }
+
+  /**
+   * 更新背景图的画布变换（位置 + 缩放），供管理端「背景编辑模式」持久化。
+   * 仅写入变换参数，不动已上传的图片文件；未设置背景图时拒绝。
+   */
+  async updateTransform(
+    user: any,
+    dto: { x: number; y: number; scale: number },
+    requested?: number,
+  ): Promise<BackgroundMeta> {
+    const cid = this.resolveTarget(user, requested);
+    const comp = await this.prisma.competition.findUnique({ where: { id: cid } });
+    if (!comp) throw new NotFoundException("比赛不存在");
+
+    const oldMeta = this.parseMeta(comp.mapBackground);
+    if (!oldMeta) {
+      throw new BadRequestException("该比赛尚未设置背景图，无法编辑变换");
+    }
+
+    // 限制 scale 范围，避免极端值导致画布不可用。
+    const scale = Math.max(0.1, Math.min(10, dto.scale));
+    const transform = { x: dto.x, y: dto.y, scale };
+    const meta: BackgroundMeta = { ...oldMeta, transform };
+
+    const updated = await this.prisma.competition.update({
+      where: { id: cid },
+      data: { mapBackground: JSON.stringify(meta) },
+    });
+    // 强时效：变换变更实时广播给该比赛所有前端。
+    this.realtime.broadcastToCompetition(cid, "competition:changed", updated);
+    return meta;
   }
 }

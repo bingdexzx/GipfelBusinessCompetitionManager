@@ -23,6 +23,12 @@
           @click="clearBackground"
           >清除背景</el-button
         >
+        <el-button
+          v-if="canEdit && backgroundMeta"
+          :type="bgEditMode ? 'success' : 'default'"
+          @click="toggleBgEditMode"
+          >{{ bgEditMode ? "完成背景编辑" : "背景编辑" }}</el-button
+        >
       </div>
     </div>
 
@@ -89,9 +95,14 @@
           @contextmenu="handleStageContextMenu"
           @wheel="handleStageWheel"
         >
-          <!-- 背景图层：置于最底层，覆盖节点包围盒；listening=false 不拦截任何交互 -->
-          <v-layer :listening="false">
-            <v-image v-if="backgroundImage" :config="backgroundConfig" />
+          <!-- 背景图层：置于最底层，覆盖节点包围盒；非编辑态 listening=false 不拦截任何交互，
+               编辑态开启 listening 并允许拖拽以调整位置 -->
+          <v-layer :listening="bgEditMode">
+            <v-image
+              v-if="backgroundImage"
+              :config="backgroundConfig"
+              @dragend="handleBgDragEnd"
+            />
           </v-layer>
           <!-- 边图层 -->
           <v-layer>
@@ -121,6 +132,29 @@
             </v-group>
           </v-layer>
         </v-stage>
+
+        <!-- 背景编辑面板：仅进入「背景编辑」模式且已有背景图时显示 -->
+        <div v-if="bgEditMode && backgroundImage" class="bg-edit-panel">
+          <div class="bg-edit-title">背景编辑</div>
+          <div class="bg-edit-row">
+            <span class="bg-edit-label">缩放</span>
+            <el-slider
+              v-model="bgScale"
+              :min="0.1"
+              :max="5"
+              :step="0.01"
+              :show-tooltip="true"
+              :format-tooltip="(v: number) => Math.round(v * 100) + '%'"
+              class="bg-edit-slider"
+              @change="persistTransform"
+            />
+            <span class="bg-edit-val">{{ Math.round((bgTransform?.scale ?? 1) * 100) }}%</span>
+          </div>
+          <div class="bg-edit-row">
+            <el-button size="small" @click="resetBgTransform">重置位置/缩放</el-button>
+            <span class="bg-edit-hint">拖拽背景图可移动位置</span>
+          </div>
+        </div>
       </div>
 
       <!-- 右侧属性面板 -->
@@ -1584,6 +1618,10 @@ const backgroundImage = ref<HTMLImageElement | null>(null);
 const bgBBox = ref<{ x: number; y: number; w: number; h: number } | null>(null);
 const bgFileInput = ref<HTMLInputElement | null>(null);
 const uploadingBg = ref(false);
+// 背景编辑模式：开启后可拖拽背景图移动位置、用滑块调整缩放；关闭则背景不可交互。
+const bgEditMode = ref(false);
+// 背景变换（世界坐标）：由服务端持久化；null 表示按节点包围盒自动适配。
+const bgTransform = ref<{ x: number; y: number; scale: number } | null>(null);
 const BG_PADDING = 160; // 背景超出节点包围盒的留白，避免边缘节点压在图边
 
 /** 由当前节点集合计算背景覆盖框（包围盒 + 留白）；无节点时返回 null（回退为图片原始尺寸置于原点）。 */
@@ -1613,8 +1651,12 @@ function applyBackgroundMeta(meta: any) {
   if (!meta || !meta.url) {
     backgroundImage.value = null;
     bgBBox.value = null;
+    bgTransform.value = null;
+    bgEditMode.value = false;
     return;
   }
+  // 同步已持久化的变换（无则回退自动适配）。
+  bgTransform.value = meta.transform ? { ...meta.transform } : null;
   const img = new Image();
   // 不设置 crossOrigin：背景仅作显示纹理，无需像素读取；跨源（Electron）显示仍正常，
   // 仅 stage.toDataURL 导出时会因 canvas 污染失败（非核心路径）。
@@ -1695,7 +1737,9 @@ async function clearBackground() {
   }
 }
 
-/** 背景图 Konva 配置：置于节点包围盒下方、可随画布平移缩放、不拦截交互。 */
+/** 背景图 Konva 配置：置于节点包围盒下方、可随画布平移缩放。
+ *  - 非编辑态：listening=false 不拦截交互，按节点包围盒自动适配（transform 为空）。
+ *  - 编辑态：listening/draggable 开启，应用 bgTransform 的位置与缩放，可拖拽调整。 */
 const backgroundConfig = computed(() => {
   if (!backgroundImage.value) return null;
   const img = backgroundImage.value;
@@ -1707,16 +1751,84 @@ const backgroundConfig = computed(() => {
       w: img.naturalWidth || 800,
       h: img.naturalHeight || 600,
     } as { x: number; y: number; w: number; h: number });
+  const t = bgTransform.value;
+  const scale = t?.scale ?? 1;
   return {
     image: img,
-    x: box.x,
-    y: box.y,
-    width: box.w,
-    height: box.h,
-    listening: false,
+    x: t ? t.x : box.x,
+    y: t ? t.y : box.y,
+    width: box.w * scale,
+    height: box.h * scale,
+    draggable: bgEditMode.value,
+    listening: bgEditMode.value,
     opacity: 0.85,
   };
 });
+
+/** 缩放滑块的双向绑定：读取/写入 bgTransform.scale（进入编辑态时 transform 必已初始化）。 */
+const bgScale = computed({
+  get: () => bgTransform.value?.scale ?? 1,
+  set: (v: number) => {
+    const box = bgBBox.value;
+    if (!bgTransform.value) {
+      bgTransform.value = {
+        x: box?.x ?? 0,
+        y: box?.y ?? 0,
+        scale: v,
+      };
+    } else {
+      bgTransform.value = { ...bgTransform.value, scale: v };
+    }
+  },
+});
+
+/** 进入/退出背景编辑模式。进入时若尚无变换，以当前自动适配位置初始化，便于拖拽/缩放。 */
+function toggleBgEditMode() {
+  if (!backgroundImage.value) return;
+  const entering = !bgEditMode.value;
+  if (entering && !bgTransform.value) {
+    const box = bgBBox.value;
+    bgTransform.value = {
+      x: box?.x ?? 0,
+      y: box?.y ?? 0,
+      scale: 1,
+    };
+  }
+  bgEditMode.value = !bgEditMode.value;
+}
+
+/** 拖拽背景图结束时，把新的世界坐标写入变换并持久化。 */
+function handleBgDragEnd(e: any) {
+  const node = e?.target;
+  if (!node) return;
+  const x = node.x();
+  const y = node.y();
+  if (!bgTransform.value) {
+    bgTransform.value = { x, y, scale: 1 };
+  } else {
+    bgTransform.value = { ...bgTransform.value, x, y };
+  }
+  persistTransform();
+}
+
+/** 重置为自动适配（位置=节点包围盒左上、缩放=1）。 */
+function resetBgTransform() {
+  const box = bgBBox.value;
+  bgTransform.value = { x: box?.x ?? 0, y: box?.y ?? 0, scale: 1 };
+  persistTransform();
+}
+
+/** 持久化当前背景变换到服务端（强时效，服务端会广播 competition:changed 让其他前端刷新）。 */
+async function persistTransform() {
+  const t = bgTransform.value;
+  if (!t || !compStore.competitionId) return;
+  if (!authStore.can("data:map:edit")) return;
+  try {
+    await mapsApi.mapBackground.updateTransform(t, compStore.competitionId);
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "保存背景变换失败");
+  }
+}
 
 /** 实时同步：其他客户端（或本端另一标签页）改动背景时，立即刷新背景图层。 */
 function handleCompetitionChangedBg(payload: any) {
@@ -1772,6 +1884,8 @@ useCompetitionReload(
     backgroundMeta.value = null;
     backgroundImage.value = null;
     bgBBox.value = null;
+    bgTransform.value = null;
+    bgEditMode.value = false;
   },
 );
 
@@ -1923,6 +2037,55 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: #f0f2f5;
   position: relative;
+}
+
+/* 背景编辑浮动面板 */
+.bg-edit-panel {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 20;
+  width: 320px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(2px);
+}
+.bg-edit-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 10px;
+}
+.bg-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.bg-edit-row:last-child {
+  margin-bottom: 0;
+}
+.bg-edit-label {
+  font-size: 13px;
+  color: #606266;
+  flex-shrink: 0;
+}
+.bg-edit-slider {
+  flex: 1;
+}
+.bg-edit-val {
+  font-size: 13px;
+  color: #409eff;
+  width: 44px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.bg-edit-hint {
+  font-size: 12px;
+  color: #909399;
 }
 
 /* 右侧面板 */

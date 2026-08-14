@@ -134,6 +134,16 @@ export const mapsApi = {
           ? { params: { competitionId }, cache: false }
           : { cache: false },
       ),
+    // 更新变换（位置 + 缩放）：PATCH /files/map-background/transform，需 data:map:edit。
+    // transform 为 { x, y, scale }（世界坐标）；归属账号无需传 competitionId。
+    updateTransform: (
+      transform: { x: number; y: number; scale: number },
+      competitionId?: number,
+    ) => {
+      const data: any = { ...transform };
+      if (competitionId != null) data.competitionId = competitionId;
+      return api.patch("/files/map-background/transform", data);
+    },
   },
 };
 

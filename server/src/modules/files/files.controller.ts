@@ -3,6 +3,7 @@ import {
   Post,
   Delete,
   Get,
+  Patch,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -18,6 +19,7 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { NoCompetitionScope } from "../../common/decorators/no-competition-scope.decorator";
 import { FilesService } from "./files.service";
 import { MapBackgroundTargetDto } from "./dto/map-background.dto";
+import { MapBackgroundTransformDto } from "./dto/map-background-transform.dto";
 
 const ALLOWED_MIME = [
   "image/png",
@@ -77,6 +79,20 @@ export class FilesController {
     return this.service.getBackground(
       user,
       Number.isNaN(cid as number) ? undefined : cid,
+    );
+  }
+
+  @Patch("map-background/transform")
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions("data:map:edit")
+  updateTransform(
+    @CurrentUser() user: any,
+    @Body() dto: MapBackgroundTransformDto,
+  ) {
+    return this.service.updateTransform(
+      user,
+      { x: dto.x, y: dto.y, scale: dto.scale },
+      dto.competitionId,
     );
   }
 }
