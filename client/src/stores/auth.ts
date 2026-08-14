@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import api, { authApi } from "@/api";
+import { getAccountItem, setAccountItem, removeAccountItem, setActiveUser } from "@/utils/accountStorage";
 
 export interface UserInfo {
   id: number;
@@ -20,7 +21,7 @@ export interface UserInfo {
 }
 
 export const useAuthStore = defineStore("auth", () => {
-  const token = ref<string>(localStorage.getItem("token") || "");
+  const token = ref<string>(getAccountItem("token") || "");
   const user = ref<UserInfo | null>(null);
 
   const isLoggedIn = computed(() => !!token.value);
@@ -72,7 +73,9 @@ export const useAuthStore = defineStore("auth", () => {
     const res = await authApi.login({ username, password });
     token.value = res.token;
     user.value = res.user;
-    localStorage.setItem("token", res.token);
+    // 账号隔离：先建立激活账号指针，再写入该账号命名空间下的 token，使后续请求 / 缓存都归属该账号。
+    setActiveUser(res.user.id);
+    setAccountItem("token", res.token);
     startHeartbeat();
   }
 
@@ -128,7 +131,9 @@ export const useAuthStore = defineStore("auth", () => {
     stopHeartbeat();
     token.value = "";
     user.value = null;
-    localStorage.removeItem("token");
+    // 仅移除账号命名空间下的 token（保留该账号其余已持久化数据，下次登录可恢复）；
+    // activeUserId 指针保留，由 token 是否存在决定登录态（见 competition.loadFromStorage 守卫）。
+    removeAccountItem("token");
   }
 
   // 监听「被顶号 / 登录过期」事件（请求拦截器在收到 401 时派发），

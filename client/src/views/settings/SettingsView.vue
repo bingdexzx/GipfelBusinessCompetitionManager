@@ -23,7 +23,8 @@
       <h3>本地数据</h3>
       <p>
         客户端会将请求数据缓存在本地（IndexedDB）以加速加载并支持离线查看。若服务端已重置数据库，
-        本地可能残留已不存在的内容。点击下方按钮可清空全部本地缓存与当前比赛选择，下次将从服务端重新加载。
+        本地可能残留已不存在的内容。点击下方按钮可清空<strong>当前账号</strong>的本地缓存与当前比赛选择，
+        下次将从服务端重新加载（其他账号的数据不受影响）。
       </p>
       <el-button type="warning" @click="clearLocalData">清空本地缓存</el-button>
     </div>
@@ -36,7 +37,8 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useConfigStore } from "@/stores/config";
 import { useCompetitionStore } from "@/stores/competition";
 import { DEFAULT_SERVER_URL } from "@/config";
-import { clearAllCache } from "@/api/cache";
+import { clearCurrentAccountCache } from "@/api/cache";
+import { removeAccountItem } from "@/utils/accountStorage";
 import axios from "axios";
 import AnnouncementHistoryDialog from "@/components/AnnouncementHistoryDialog.vue";
 
@@ -77,15 +79,17 @@ async function testConnection() {
 async function clearLocalData() {
   try {
     await ElMessageBox.confirm(
-      "将清空客户端本地缓存（比赛、原料、公司等全部请求数据）与当前比赛选择，下次将从服务端重新加载。确定继续？",
+      "将清空当前账号的本地缓存（比赛、原料、公司等全部请求数据）与当前比赛选择，下次将从服务端重新加载。确定继续？",
       "清空本地缓存",
       { type: "warning" },
     );
   } catch {
     return; // 用户取消
   }
-  await clearAllCache();
-  localStorage.removeItem("currentCompetition");
+  // 仅清空当前账号的本地缓存（IndexedDB 全量副本）与当前比赛选择；
+  // token（登录态）保留，不清空其他账号的数据——按账号分库天然隔离。
+  await clearCurrentAccountCache();
+  removeAccountItem("currentCompetition");
   ElMessage.success("本地缓存已清空，请刷新页面以重新加载数据");
 }
 </script>

@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from "axios";
 import { ElMessage } from "element-plus";
 import { getApiBaseUrl } from "@/config";
 import { versionBlocked } from "@/version-block";
+import { getAccountItem, removeAccountItem, clearCurrentAccountCache } from "@/utils/accountStorage";
 
 // axios 自定义请求配置字段类型增强（request.ts 与 stores/version.ts 均使用这些字段）。
 declare module "axios" {
@@ -28,7 +29,7 @@ api.interceptors.request.use(
         new Error("客户端版本与服务端不一致，已禁用全部请求，请联系管理员获取最新版本"),
       );
     }
-    const token = localStorage.getItem("token");
+    const token = getAccountItem("token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -82,8 +83,8 @@ api.interceptors.response.use(
       if (isLoginRequest) {
         ElMessage.error(getErrorMessage(error));
       } else {
-        localStorage.removeItem("token");
-        clearAllCache();
+        removeAccountItem("token");
+        clearCurrentAccountCache();
         _resetMemo();
         window.location.hash = "#/login";
         // 优先采用后端明确提示：被新设备登录顶掉时后端返回「您的账号已在其他设备登录，请重新登录」；
@@ -125,7 +126,7 @@ import {
   cacheGet,
   cacheSet,
   invalidateResource,
-  clearAllCache,
+  clearCurrentAccountCache,
   SEG_TO_RESOURCE,
   getFull,
   setFull,

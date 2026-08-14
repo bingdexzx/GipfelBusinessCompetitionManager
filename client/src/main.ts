@@ -10,6 +10,11 @@ import router from "./router";
 import "./assets/styles/global.scss";
 // 注册自定义仪表盘控件（必须在 app.mount 之前执行）
 import "./components/dashboard/registerCustomWidgets";
+// 账号隔离：在挂载前完成本地存储迁移（旧顶层 token → 账号命名空间；清理遗留共享 DB），
+// 确保各 store 初始化读取 token / 比赛选择时已进入正确的账号命名空间。
+import { ensureStorageMigration } from "./utils/accountStorage";
+
+ensureStorageMigration();
 
 const app = createApp(App);
 

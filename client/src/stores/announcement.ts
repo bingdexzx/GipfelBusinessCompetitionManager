@@ -1,8 +1,9 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { announcements, currentAnnouncement } from "@/data/announcement";
+import { getAccountItem, setAccountItem } from "@/utils/accountStorage";
 
-/** 已读公告版本在 localStorage 中的键名 */
+/** 已读公告版本的逻辑键名（实际存储会由 accountStorage 加账号前缀，按账号隔离）。 */
 const SEEN_KEY = "announcementSeenVersion";
 
 /**
@@ -17,7 +18,7 @@ export const useAnnouncementStore = defineStore("announcement", () => {
   const current = currentAnnouncement;
   const history = announcements;
   const visible = ref(false);
-  const seenVersion = ref<string>(localStorage.getItem(SEEN_KEY) || "");
+  const seenVersion = ref<string>(getAccountItem(SEEN_KEY) || "");
 
   /** 应用启动时调用：当前公告版本未被读过则弹出。 */
   function maybeOpen() {
@@ -27,7 +28,7 @@ export const useAnnouncementStore = defineStore("announcement", () => {
   /** 用户点击「确认」：标记当前版本已读并关闭弹窗。 */
   function confirm() {
     seenVersion.value = current.version;
-    localStorage.setItem(SEEN_KEY, current.version);
+    setAccountItem(SEEN_KEY, current.version);
     visible.value = false;
   }
 
@@ -39,7 +40,7 @@ export const useAnnouncementStore = defineStore("announcement", () => {
   /** 系统设置中显式「标记为已读」：记录已读并不再自动弹出（保留打开查看能力）。 */
   function markSeen() {
     seenVersion.value = current.version;
-    localStorage.setItem(SEEN_KEY, current.version);
+    setAccountItem(SEEN_KEY, current.version);
     visible.value = false;
   }
 

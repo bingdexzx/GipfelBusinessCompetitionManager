@@ -1,6 +1,7 @@
 import { io, type Socket } from "socket.io-client";
 import { getApiBaseUrl } from "@/config";
 import { versionBlocked } from "@/version-block";
+import { getAccountItem } from "@/utils/accountStorage";
 
 let socket: Socket | null = null;
 // 记录当前 socket 连接所用的 baseUrl；serverUrl 变更后用于检测并重建单例。
@@ -13,7 +14,7 @@ function getBaseUrl(): string {
 }
 
 function getToken(): string | null {
-  return localStorage.getItem("token");
+  return getAccountItem("token");
 }
 
 /** 建立（或复用）实时连接。无 token 时不连接。返回 socket 或 null。

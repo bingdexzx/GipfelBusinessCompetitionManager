@@ -1,6 +1,7 @@
 // 客户端本地持久化缓存（IndexedDB）
 // ===================================================================
 // 增量同步设计（v2）：真正降低服务器压力的关键在网络层——
+import { getActiveUserId } from "@/utils/accountStorage";
 //   - 前端为每个「资源集合」（按 资源名 + 非分页查询参数 唯一标识）在本地维护一份「全量副本」；
 //   - 列表刷新时：若本地已有全量副本且基线未过期，则携带 `updatedAfter=<基线>` 向服务器请求
 //     「仅变更的数据」(服务端按 updatedAt 过滤)，前端按 id 增量 patch 本地全量副本；
@@ -9,9 +10,16 @@
 //   - 离线（请求失败）时，用本地全量副本构造响应降级，保证离线可读。
 // IndexedDB 不可用时（如隐私模式）自动降级为「直接走网络」，不影响主流程。
 
-const DB_NAME = "gipfel-client-cache";
 const DB_VERSION = 1;
 const STORE_NAME = "responses";
+
+// IndexedDB 库按账号分库：库名含当前激活账号 id，使不同账号的全量副本 / 增量基线互不串档。
+// 未登录（activeUserId 为 null）时用匿名库名，避免与任何账号混淆。详见 utils/accountStorage.ts。
+const BASE_DB_NAME = "gipfel-client-cache";
+function currentDbName(): string {
+  const id = getActiveUserId();
+  return id == null ? `${BASE_DB_NAME}-anon` : `${BASE_DB_NAME}-u${id}`;
+}
 
 // 本地全量副本的存储键格式：FULL|<资源名>|<非分页参数>
 // 例如 FULL|material|competitionId=1
@@ -46,15 +54,21 @@ export const SEG_TO_RESOURCE: Record<string, string> = {
 };
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
+let _dbName: string | null = null;
 
 function openDB(): Promise<IDBDatabase> {
-  if (_dbPromise) return _dbPromise;
+  const name = currentDbName();
+  // 账号切换 / 库名变化（activeUserId 改变）：丢弃旧连接，按当前账号重新开库，
+  // 使不同账号的全量副本物理隔离在各自 DB，互不串档。
+  if (_dbPromise && _dbName === name) return _dbPromise;
+  _dbPromise = null;
+  _dbName = name;
   _dbPromise = new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") {
       reject(new Error("IndexedDB 不可用"));
       return;
     }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(name, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -379,8 +393,9 @@ async function deleteByPrefixes(prefixes: string[]): Promise<void> {
   }
 }
 
-/** 清空全部本地缓存（如登出时，避免不同账号数据串档）。 */
-export async function clearAllCache(): Promise<void> {
+/** 清空当前账号的本地缓存（登出 / 401 顶号 / 设置页「清空本地缓存」时调用）。
+ *  仅清当前账号所属 DB 的存储，不影响其他账号——按账号分库天然隔离。 */
+export async function clearCurrentAccountCache(): Promise<void> {
   try {
     const db = await openDB();
     await new Promise<void>((resolve, reject) => {

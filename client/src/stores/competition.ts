@@ -12,6 +12,7 @@ import {
 } from "@/realtime/socket";
 import { invalidateResource } from "@/api/cache";
 import { bindResourceChanged } from "@/realtime/resource-changed";
+import { getAccountItem, setAccountItem, removeAccountItem } from "@/utils/accountStorage";
 
 export const useCompetitionStore = defineStore("competition", () => {
   const selected = ref<any>(null);
@@ -24,7 +25,7 @@ export const useCompetitionStore = defineStore("competition", () => {
 
   function selectCompetition(comp: any) {
     selected.value = comp;
-    localStorage.setItem("currentCompetition", JSON.stringify(comp));
+    setAccountItem("currentCompetition", JSON.stringify(comp));
     // 切换比赛时先清空旧财年并进入加载态，避免残留上一个比赛的财年（跳变）。
     currentFiscalYear.value = null;
     fiscalYearLoading.value = true;
@@ -41,7 +42,7 @@ export const useCompetitionStore = defineStore("competition", () => {
     selected.value = null;
     currentFiscalYear.value = null;
     fiscalYearLoading.value = false;
-    localStorage.removeItem("currentCompetition");
+    removeAccountItem("currentCompetition");
   }
 
   // 归属比赛的账号自动锁定并显示所属比赛：登录 / 拉取资料后调用。
@@ -56,7 +57,7 @@ export const useCompetitionStore = defineStore("competition", () => {
     // 避免归属账号在自动锁定生效前短暂以旧比赛 id 请求而 403。selectCompetition 拿到详情后会补全。
     selected.value = { id: ownId };
     try {
-      const token = localStorage.getItem("token");
+      const token = getAccountItem("token");
       const base = getApiBaseUrl() + "/api";
       const res = await fetch(`${base}/competitions/${ownId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -81,7 +82,7 @@ export const useCompetitionStore = defineStore("competition", () => {
   async function loadFiscalYear(compId: number) {
     fiscalYearLoading.value = true;
     try {
-      const token = localStorage.getItem("token");
+      const token = getAccountItem("token");
       const base = getApiBaseUrl() + "/api";
       const res = await fetch(`${base}/competitions/${compId}/fiscal-years`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -164,7 +165,7 @@ export const useCompetitionStore = defineStore("competition", () => {
   // 用原生 fetch 绕过本地缓存，避免读到 IndexedDB 中已删除的旧数据。
   async function verifyCompetition(compId: number) {
     try {
-      const token = localStorage.getItem("token");
+      const token = getAccountItem("token");
       const base = getApiBaseUrl() + "/api";
       const res = await fetch(`${base}/competitions/${compId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -180,7 +181,11 @@ export const useCompetitionStore = defineStore("competition", () => {
 
   function loadFromStorage() {
     try {
-      const raw = localStorage.getItem("currentCompetition");
+      // 仅当当前账号存在有效 token 时才恢复比赛选择；
+      // 否则（如显式登出后重启，activeUserId 指针仍在但 token 已移除）不恢复，避免以登出态残留比赛。
+      const token = getAccountItem("token");
+      if (!token) return;
+      const raw = getAccountItem("currentCompetition");
       if (raw) {
         const comp = JSON.parse(raw);
         selected.value = comp;
