@@ -36,7 +36,11 @@ export class MessageService {
   async getSelectableUsers(actor: Actor, competitionId?: number) {
     const where: any = {};
     if (actor.role === "SUPER_ADMIN") {
-      if (competitionId != null) where.competitionId = competitionId;
+      // 超管：传了 competitionId 时，范围为「所选比赛内账号 ∪ 无归属比赛的系统账号
+      // （超管等）」，既不广播到其他比赛，也保证系统账号能收到；不传则为全部比赛（全站广播）。
+      if (competitionId != null) {
+        where.OR = [{ competitionId }, { competitionId: null }];
+      }
     } else {
       where.competitionId = actor.competitionId ?? null;
     }

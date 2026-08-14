@@ -171,9 +171,11 @@ import {
 } from "@element-plus/icons-vue";
 import api, { messagesApi, type InboxItem, type SentItem } from "@/api";
 import { useAuthStore } from "@/stores/auth";
+import { useCompetitionStore } from "@/stores/competition";
 import { useMessageStore } from "@/stores/message";
 
 const authStore = useAuthStore();
+const compStore = useCompetitionStore();
 const messageStore = useMessageStore();
 
 const activeTab = ref<"inbox" | "sent">("inbox");
@@ -310,6 +312,9 @@ async function openPublish() {
     } catch {
       competitions.value = [];
     }
+    // 默认把「按比赛筛选」指向当前正在浏览的比赛，使「本比赛全体」精确指向该比赛，
+    // 避免超管未注意下拉而误发全站。清空下拉仍可主动触发全站广播（提交时会二次确认）。
+    publishForm.filterCompetitionId = compStore.competitionId || undefined;
   }
   await loadSelectableUsers();
   publishVisible.value = true;
@@ -335,6 +340,18 @@ async function submitPublish() {
     await publishFormRef.value.validate();
   } catch {
     return;
+  }
+  // 超管开启「本比赛全体」但未指定比赛 → 将广播全站（含其他比赛），强制二次确认避免误发。
+  if (isSuperAdmin.value && publishForm.targetsAll && !publishForm.filterCompetitionId) {
+    try {
+      await ElMessageBox.confirm(
+        "未选择具体比赛，「本比赛全体」将发送给全部比赛（含其他比赛）的所有账号。确认继续？",
+        "确认全站广播",
+        { type: "warning", confirmButtonText: "仍要发送", cancelButtonText: "返回选择" },
+      );
+    } catch {
+      return;
+    }
   }
   submitting.value = true;
   try {
