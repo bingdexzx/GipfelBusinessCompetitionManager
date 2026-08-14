@@ -2,9 +2,9 @@
 setlocal
 cd /d "%~dp0"
 
-REM 国内镜像：加速 Electron / electron-builder 二进制下载，避免直连 GitHub 超时。
-REM 如需默认源，删除下面两行即可。npm 包本身走你本机默认 registry；
-REM 若想整体走 npmmirror，可在本文件开头加一行：set "NPM_CONFIG_REGISTRY=https://registry.npmmirror.com"
+REM Use npmmirror to speed up Electron / electron-builder binary downloads (avoid GitHub timeouts).
+REM To use the default registry instead, delete the two SET lines below.
+REM To route all npm packages through npmmirror too, add: set "NPM_CONFIG_REGISTRY=https://registry.npmmirror.com"
 set "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/"
 set "ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder-binaries/"
 
@@ -28,9 +28,8 @@ echo ============================================================
 call npm run prisma:generate
 if errorlevel 1 (
     echo.
-    echo [WARN] prisma generate 失败。若报错为 query_engine 重命名 EPERM，
-    echo       请手动删除 node_modules/.prisma/client/*.tmp* 后重试：npm run prisma:generate
-    echo       （这是沙箱/杀软拦截 rename 的偶发问题，普通机器上通常直接成功。）
+    echo [WARN] prisma generate failed. If the error is an EPERM on query_engine rename,
+    echo        delete node_modules/.prisma/client/*.tmp* and retry: npm run prisma:generate
 )
 
 echo.
@@ -49,10 +48,10 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo [OK] 依赖安装完成。
-echo      若是全新库（数据库尚未初始化），继续：
+echo [OK] Dependencies installed.
+echo      If this is a fresh clone (DB not initialized), continue with:
 echo        cd server ^&^& npx prisma db push ^&^& npx prisma db seed
-echo      然后分别运行 start_server.bat 与 start_client.bat 启动。
+echo      Then run start_server.bat and start_client.bat.
 echo ============================================================
 echo Press any key to close this window.
 pause >nul
