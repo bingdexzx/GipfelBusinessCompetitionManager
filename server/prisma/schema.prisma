@@ -509,3 +509,42 @@ model ContractFieldEffect {
   @@index([contractId])
   @@index([companyId, industryFieldId])
 }
+
+// ============ 消息中心 ============
+// Message：一条播发给若干收件人的站内消息（公告 / 通知）。
+// 收件人在发布时一次性结算为 MessageRecipient 行（支持「本比赛全体」或显式选人），
+// 故收件箱与未读状态以 MessageRecipient 为准，与比赛隔离逻辑解耦，离线用户登录后也能看到。
+model Message {
+  id      Int      @id @default(autoincrement())
+  title   String
+  content String
+  senderId Int
+  // 归属比赛（上下文展示 + 选人默认范围）；super-admin 跨比赛发布时为指定比赛 id，未指定可为 null。
+  // 仅作展示与选人范围，收件箱以 MessageRecipient 为准，不依赖此字段做租户隔离。
+  competitionId Int?
+  // 是否「全体（可选范围内用户）」：true 时收件人 = 所有可选用户（发布者同比赛 / 超管全部）。
+  targetsAll    Boolean  @default(false)
+  // 显式指定收件人用户 id（JSON 数组）；与 targetsAll 取并集后去重。
+  targetUserIds String   @default("[]")
+  recipients    MessageRecipient[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([competitionId])
+  @@index([senderId])
+}
+
+// MessageRecipient：消息与收件人的关联（含已读状态）。发布时按解析后的收件人批量写入。
+// 删除消息时级联删除其收件人记录。
+model MessageRecipient {
+  id        Int       @id @default(autoincrement())
+  messageId Int
+  userId    Int
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}

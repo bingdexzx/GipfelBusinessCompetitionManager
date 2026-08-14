@@ -25,18 +25,23 @@ import TopBar from "./TopBar.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useConfigStore } from "@/stores/config";
 import { useCompetitionStore } from "@/stores/competition";
+import { useMessageStore } from "@/stores/message";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const configStore = useConfigStore();
 const compStore = useCompetitionStore();
+const messageStore = useMessageStore();
 
 // 拉取账号资料后：归属比赛的账号（competitionId 非空）自动锁定并显示所属比赛，
 // 无需手动选择，也避免 localStorage 残留其他比赛导致请求越权（403）。
 // 超管 / 未分配账号（competitionId 为空）保持原手动选择逻辑。
 authStore.fetchProfile().then(() => {
   compStore.applyOwnCompetition(authStore.user?.competitionId ?? null);
+  // 初始化消息中心实时监听并拉取未读红点（仅 message:view 权限账号生效，其余静默）。
+  messageStore.initRealtime();
+  messageStore.fetchUnread();
 });
 configStore.loadConfig();
 

@@ -2,12 +2,14 @@
   <router-view />
   <AnnouncementDialog />
   <VersionUpdateDialog />
+  <MessageToastHost />
 </template>
 
 <script setup lang="ts">
 import { onMounted, onUnmounted } from "vue";
 import AnnouncementDialog from "@/components/AnnouncementDialog.vue";
 import VersionUpdateDialog from "@/components/VersionUpdateDialog.vue";
+import MessageToastHost from "@/components/MessageToastHost.vue";
 import { useAnnouncementStore } from "@/stores/announcement";
 import { useVersionStore } from "@/stores/version";
 

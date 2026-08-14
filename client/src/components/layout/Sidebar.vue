@@ -164,6 +164,21 @@
       </el-menu-item>
 
       <el-menu-item
+        v-if="authStore.can('message:view')"
+        index="/messages"
+      >
+        <el-icon><Bell /></el-icon>
+        <span>消息中心</span>
+        <el-badge
+          v-if="unreadCount > 0"
+          :value="unreadCount"
+          :max="99"
+          class="msg-badge"
+          type="danger"
+        />
+      </el-menu-item>
+
+      <el-menu-item
         v-if="authStore.canAny(['company:view', 'company:manage'])"
         index="/companies"
       >
@@ -187,12 +202,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
+import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores/auth";
 import { useCompetitionStore } from "@/stores/competition";
+import { useMessageStore } from "@/stores/message";
 
 const route = useRoute();
 const authStore = useAuthStore();
 const compStore = useCompetitionStore();
+const messageStore = useMessageStore();
+const { unreadCount } = storeToRefs(messageStore);
 
 // 数据管理子菜单：仅当至少一个数据域（原料/零件/产品/地图/基建/科技树/
 // 燃料/载具/仓库/生产线）具备 view 或 edit 权限时才显示，避免空菜单。
@@ -339,6 +358,19 @@ const activeMenu = computed(() => {
   position: relative;
   background: var(--gradient-brand-soft);
   color: var(--color-primary);
+  font-weight: 600;
+}
+.sidebar-menu :deep(.el-menu-item) {
+  position: relative;
+}
+.msg-badge {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.msg-badge :deep(.el-badge__content) {
+  border: none;
   font-weight: 600;
 }
 .sidebar-menu :deep(.el-menu-item.is-active)::before {

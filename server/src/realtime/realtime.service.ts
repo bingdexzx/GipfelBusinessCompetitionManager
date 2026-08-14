@@ -66,6 +66,20 @@ export class RealtimeService {
     this.server.emit(event, data);
   }
 
+  /** 向指定用户的私有房间推送（用于定向到具体用户的消息 / 通知）。 */
+  emitToUser(userId: number, event: string, data: any) {
+    if (!this.server) return;
+    this.server.to(`user-${userId}`).emit(event, data);
+  }
+
+  /** 向多个用户的私有房间批量推送。 */
+  emitToUsers(userIds: number[], event: string, data: any) {
+    if (!this.server) return;
+    for (const id of userIds) {
+      if (Number.isFinite(id)) this.server.to(`user-${id}`).emit(event, data);
+    }
+  }
+
   /**
    * 广播「某资源某条记录发生变更（created / updated / deleted / bulk）」，供前端实时作废
    * 本地缓存并刷新当前列表。

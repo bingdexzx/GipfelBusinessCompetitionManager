@@ -29,6 +29,7 @@ import { CompanyFieldsModule } from "./modules/company-fields/company-fields.mod
 import { ContractsModule } from "./modules/contracts/contracts.module";
 import { RegionsModule } from "./modules/regions/region.module";
 import { ConsumerDemandsModule } from "./modules/consumer-demands/consumer-demand.module";
+import { MessagesModule } from "./modules/messages/message.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 
 @Module({
@@ -64,6 +65,7 @@ import { RealtimeModule } from "./realtime/realtime.module";
     ContractsModule,
     RegionsModule,
     ConsumerDemandsModule,
+    MessagesModule,
     RealtimeModule,
   ],
 })

@@ -91,6 +91,9 @@ export class RealtimeGateway implements OnGatewayInit {
       client.data.userId = user.id;
       client.data.role = user.role;
       client.data.competitionId = user.competitionId ?? null;
+      // 加入用户私有房间，便于按用户定向推送（如站内消息 / 通知）。
+      // 断开时 socket.io 自动清理房间归属。
+      client.join(`user-${user.id}`);
     } catch {
       client.disconnect();
     }

@@ -188,6 +188,19 @@ export const PERMISSION_CATALOG: PermissionDomain[] = [
     group: "系统",
     actions: [{ key: "account:manage", action: "manage", label: "管理（增删改账号与权限）" }],
   },
+  {
+    key: "message",
+    label: "消息中心",
+    group: "消息",
+    actions: [
+      {
+        key: "message:view",
+        action: "view",
+        label: "查看（收件箱 / 已发布 / 接收弹窗）",
+      },
+      { key: "message:manage", action: "manage", label: "管理（发布 / 删除消息）" },
+    ],
+  },
 ];
 
 /** 所有合法权限 key 列表 */

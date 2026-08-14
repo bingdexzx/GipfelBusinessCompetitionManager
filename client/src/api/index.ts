@@ -262,3 +262,54 @@ export const consumerDemandsApi = {
       competitionId != null ? { params: { competitionId } } : undefined,
     ),
 };
+
+export interface MessageItem {
+  id: number;
+  title: string;
+  content: string;
+  senderId: number;
+  competitionId: number | null;
+  targetsAll: boolean;
+  targetUserIds: string;
+  createdAt: string;
+  updatedAt: string;
+  senderName?: string;
+}
+
+export interface InboxItem {
+  recipientId: number;
+  read: boolean;
+  readAt: string | null;
+  message: MessageItem;
+  senderName: string;
+}
+
+export interface SentItem extends MessageItem {
+  _count: { recipients: number };
+  senderName: string;
+}
+
+/** 消息中心接口集合。收件箱 / 未读 / 已读以当前用户维度，绕过本地缓存实时拉取。 */
+export const messagesApi = {
+  /** 可选收件人（发布者同比赛 / 超管全部，超管可附加 competitionId 过滤）。 */
+  selectableUsers: (competitionId?: number) => {
+    const params: Record<string, unknown> = {};
+    if (competitionId != null) params.competitionId = competitionId;
+    return api.get("/messages/selectable-users", { params, cache: false });
+  },
+  /** 发布消息。targetsAll 与 targetUserIds 取并集去重。 */
+  create: (data: { title: string; content: string; targetsAll?: boolean; targetUserIds?: number[] }) =>
+    api.post("/messages", data),
+  /** 当前用户收件箱。 */
+  inbox: (): Promise<InboxItem[]> => api.get("/messages/inbox", { cache: false }),
+  /** 当前用户已发布消息。 */
+  sent: (): Promise<SentItem[]> => api.get("/messages/sent", { cache: false }),
+  /** 未读计数。 */
+  unreadCount: (): Promise<{ count: number }> => api.get("/messages/unread-count", { cache: false }),
+  /** 标记单条已读。 */
+  markRead: (id: number) => api.patch(`/messages/${id}/read`),
+  /** 全部标记为已读。 */
+  markAllRead: () => api.post("/messages/read-all"),
+  /** 删除已发布消息。 */
+  remove: (id: number) => api.delete(`/messages/${id}`),
+};

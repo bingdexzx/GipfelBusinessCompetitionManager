@@ -159,6 +159,16 @@ const router = createRouter({
           },
         },
         {
+          path: "messages",
+          name: "Messages",
+          component: () => import("@/views/messages/MessageCenterView.vue"),
+          meta: {
+            title: "消息中心",
+            requiresPermission: "message:view",
+            managePermission: "message:manage",
+          },
+        },
+        {
           path: "contract-types",
           name: "ContractTypes",
           component: () => import("@/views/data-management/ContractTypeManageView.vue"),
