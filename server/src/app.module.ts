@@ -23,6 +23,7 @@ import { WarehouseModule } from "./modules/warehouses/warehouse.module";
 import { ProductionLineModule } from "./modules/production-lines/production-line.module";
 import { CompetitionModule } from "./modules/competitions/competition.module";
 import { CompanyModule } from "./modules/companies/company.module";
+import { FilesModule } from "./modules/files/files.module";
 import { IndustryTypeModule } from "./modules/industry-types/industry-type.module";
 import { CompanyFieldsModule } from "./modules/company-fields/company-fields.module";
 import { ContractsModule } from "./modules/contracts/contracts.module";
@@ -56,6 +57,7 @@ import { RealtimeModule } from "./realtime/realtime.module";
     WarehouseModule,
     ProductionLineModule,
     CompetitionModule,
+    FilesModule,
     CompanyModule,
     IndustryTypeModule,
     CompanyFieldsModule,

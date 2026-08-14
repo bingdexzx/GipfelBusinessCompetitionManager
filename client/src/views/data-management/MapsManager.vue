@@ -13,8 +13,27 @@
         >
           {{ connectMode ? "退出连线模式" : "连线模式" }}
         </el-button>
+        <el-button v-if="canEdit" :loading="uploadingBg" @click="bgFileInput?.click()"
+          >导入背景</el-button
+        >
+        <el-button
+          v-if="canEdit"
+          type="danger"
+          :disabled="!backgroundMeta"
+          @click="clearBackground"
+          >清除背景</el-button
+        >
       </div>
     </div>
+
+    <!-- 隐藏的文件选择器：仅 data:map:edit 可见的「导入背景」按钮触发 -->
+    <input
+      ref="bgFileInput"
+      type="file"
+      accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+      style="display: none"
+      @change="onBgFileChange"
+    />
 
     <div v-if="!compStore.competitionId" class="no-comp-warning">
       请先在「比赛管理」中选择一个比赛
@@ -70,6 +89,10 @@
           @contextmenu="handleStageContextMenu"
           @wheel="handleStageWheel"
         >
+          <!-- 背景图层：置于最底层，覆盖节点包围盒；listening=false 不拦截任何交互 -->
+          <v-layer :listening="false">
+            <v-image v-if="backgroundImage" :config="backgroundConfig" />
+          </v-layer>
           <!-- 边图层 -->
           <v-layer>
             <v-line
@@ -587,6 +610,8 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import { getApiBaseUrl } from "@/config";
+import { onRealtime, offRealtime } from "@/realtime/socket";
 
 const NODE_RADIUS = 28;
 const compStore = useCompetitionStore();
@@ -1551,6 +1576,154 @@ function closeContextMenu() {
   contextMenu.visible = false;
 }
 
+// ===================== 地图背景 =====================
+// 背景图元信息（服务端返回的 BackgroundMeta）与已加载的 HTMLImageElement。
+const backgroundMeta = ref<any>(null);
+const backgroundImage = ref<HTMLImageElement | null>(null);
+// 背景覆盖框（节点包围盒 + 留白），在加载时冻结，避免节点拖拽时背景抖动。
+const bgBBox = ref<{ x: number; y: number; w: number; h: number } | null>(null);
+const bgFileInput = ref<HTMLInputElement | null>(null);
+const uploadingBg = ref(false);
+const BG_PADDING = 160; // 背景超出节点包围盒的留白，避免边缘节点压在图边
+
+/** 由当前节点集合计算背景覆盖框（包围盒 + 留白）；无节点时返回 null（回退为图片原始尺寸置于原点）。 */
+function computeBBox(): { x: number; y: number; w: number; h: number } | null {
+  if (!nodes.value.length) return null;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const n of nodes.value) {
+    if (n.x < minX) minX = n.x;
+    if (n.y < minY) minY = n.y;
+    if (n.x > maxX) maxX = n.x;
+    if (n.y > maxY) maxY = n.y;
+  }
+  return {
+    x: minX - BG_PADDING,
+    y: minY - BG_PADDING,
+    w: maxX - minX + BG_PADDING * 2,
+    h: maxY - minY + BG_PADDING * 2,
+  };
+}
+
+/** 应用背景元信息：构建完整图片 URL 并预加载；meta 为空则清空。 */
+function applyBackgroundMeta(meta: any) {
+  backgroundMeta.value = meta || null;
+  if (!meta || !meta.url) {
+    backgroundImage.value = null;
+    bgBBox.value = null;
+    return;
+  }
+  const img = new Image();
+  // 不设置 crossOrigin：背景仅作显示纹理，无需像素读取；跨源（Electron）显示仍正常，
+  // 仅 stage.toDataURL 导出时会因 canvas 污染失败（非核心路径）。
+  img.onload = () => {
+    backgroundImage.value = img;
+    bgBBox.value = computeBBox(); // 冻结覆盖框，与后续节点拖拽解耦
+  };
+  img.onerror = () => {
+    backgroundImage.value = null;
+    bgBBox.value = null;
+    ElMessage.error("背景图加载失败");
+  };
+  img.src = getApiBaseUrl() + meta.url;
+}
+
+/** 拉取当前比赛的地图背景（绕过本地缓存，保证实时）。 */
+async function loadBackground() {
+  if (!compStore.competitionId) {
+    backgroundMeta.value = null;
+    backgroundImage.value = null;
+    bgBBox.value = null;
+    return;
+  }
+  try {
+    const meta = await mapsApi.mapBackground.get(compStore.competitionId);
+    applyBackgroundMeta(meta);
+  } catch (e) {
+    console.error("Failed to load map background:", e);
+  }
+}
+
+/** 隐藏文件选择器的 change 回调：取出文件后立即上传。 */
+function onBgFileChange(e: any) {
+  const file = e?.target?.files?.[0];
+  if (file) uploadBackground(file);
+  // 清空 input，确保重复选择同一文件也能再次触发 change
+  if (e?.target) e.target.value = "";
+}
+
+/** 上传地图背景图（仅 data:map:edit）。 */
+async function uploadBackground(file: File) {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  if (!authStore.can("data:map:edit")) {
+    ElMessage.warning("无权限操作地图背景");
+    return;
+  }
+  uploadingBg.value = true;
+  try {
+    const meta = await mapsApi.mapBackground.upload(file, compStore.competitionId);
+    ElMessage.success("地图背景已更新");
+    applyBackgroundMeta(meta);
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "上传失败");
+  } finally {
+    uploadingBg.value = false;
+  }
+}
+
+/** 清除地图背景图（二次确认）。 */
+async function clearBackground() {
+  if (!compStore.competitionId) return;
+  try {
+    await ElMessageBox.confirm("确定清除地图背景图吗？此操作不可恢复。", {
+      type: "warning",
+    });
+  } catch {
+    return;
+  }
+  try {
+    await mapsApi.mapBackground.remove(compStore.competitionId);
+    ElMessage.success("已清除地图背景");
+    applyBackgroundMeta(null);
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "清除失败");
+  }
+}
+
+/** 背景图 Konva 配置：置于节点包围盒下方、可随画布平移缩放、不拦截交互。 */
+const backgroundConfig = computed(() => {
+  if (!backgroundImage.value) return null;
+  const img = backgroundImage.value;
+  const box =
+    bgBBox.value ||
+    ({
+      x: 0,
+      y: 0,
+      w: img.naturalWidth || 800,
+      h: img.naturalHeight || 600,
+    } as { x: number; y: number; w: number; h: number });
+  return {
+    image: img,
+    x: box.x,
+    y: box.y,
+    width: box.w,
+    height: box.h,
+    listening: false,
+    opacity: 0.85,
+  };
+});
+
+/** 实时同步：其他客户端（或本端另一标签页）改动背景时，立即刷新背景图层。 */
+function handleCompetitionChangedBg(payload: any) {
+  if (!payload?.id || payload.id !== compStore.competitionId) return;
+  loadBackground();
+}
+
 // ===================== 初始化 =====================
 let resizeObserver: ResizeObserver | null = null;
 
@@ -1566,6 +1739,7 @@ function updateStageSize() {
 
 onMounted(async () => {
   await loadData();
+  await loadBackground();
 
   updateStageSize();
 
@@ -1577,17 +1751,29 @@ onMounted(async () => {
   }
 
   document.addEventListener("click", closeContextMenu);
+
+  // 订阅比赛变更广播：管理员（含本端其他标签页）上传/清除背景后立即刷新。
+  onRealtime("competition:changed", handleCompetitionChangedBg);
 });
 
 // 切换比赛时先清空全部地图数据再重新拉取，避免停留在上一个比赛的旧数据。
-useCompetitionReload(loadData, () => {
-  nodes.value = [];
-  edges.value = [];
-  nodeTypes.value = [];
-  pathTypes.value = [];
-  regions.value = [];
-  regionIdMap.value = new Map();
-});
+useCompetitionReload(
+  async () => {
+    await loadData();
+    await loadBackground();
+  },
+  () => {
+    nodes.value = [];
+    edges.value = [];
+    nodeTypes.value = [];
+    pathTypes.value = [];
+    regions.value = [];
+    regionIdMap.value = new Map();
+    backgroundMeta.value = null;
+    backgroundImage.value = null;
+    bgBBox.value = null;
+  },
+);
 
 // 监听删除事件，刷新地图
 useResourceChanged("map-nodes", () => {
@@ -1607,6 +1793,7 @@ useResourceChanged("path-types", () => {
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   document.removeEventListener("click", closeContextMenu);
+  offRealtime("competition:changed", handleCompetitionChangedBg);
 });
 </script>
 

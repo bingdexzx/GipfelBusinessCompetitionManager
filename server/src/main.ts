@@ -1,6 +1,8 @@
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { Request, Response, NextFunction } from "express";
+import * as express from "express";
+import * as path from "path";
 import { AppModule } from "./app.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { ResponseInterceptor } from "./common/interceptors/response.interceptor";
@@ -17,7 +19,7 @@ const logger = WinstonLogger();
  * 安全响应头中间件（零依赖替代 helmet）：设置基础防护头，
  * 缓解 MIME 嗅探、点击劫持、Referrer 泄露等。
  */
-function securityHeaders(_req: Request, res: Response, next: NextFunction) {
+function securityHeaders(req: Request, res: Response, next: NextFunction) {
   // API 仅返回 JSON，无需脚本执行：default-src 'none' 可彻底阻断浏览器端脚本执行，
   // 即使诱导用户直接访问 API 也无法注入脚本（XSS 纵深防御）。frame-ancestors 'none' 防点击劫持。
   res.setHeader(
@@ -28,7 +30,13 @@ function securityHeaders(_req: Request, res: Response, next: NextFunction) {
   res.setHeader("X-Frame-Options", "DENY");
   // 已废弃的 X-XSS-Protection 不再设置（现代浏览器忽略），避免误导。
   res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  // 静态资源（/uploads，地图背景图等）需被前端跨源（Electron 渲染进程 / 开发服务器端口）加载，
+  // 故放松 CORP 为 cross-origin；其余 API 响应保持 same-origin。
+  if (req.path && req.path.startsWith("/uploads")) {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  } else {
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  }
   next();
 }
 
@@ -105,6 +113,14 @@ async function bootstrap() {
 
   // 安全响应头
   app.use(securityHeaders);
+
+  // 静态文件服务：用户上传的地图背景图等，挂在 /uploads 路径下（跨源加载已通过 CORP 放松）。
+  // 与 FilesService 中 UPLOAD_DIR 保持一致：进程工作目录下的 uploads/。
+  const uploadsDir = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
+  app.use(
+    "/uploads",
+    express.static(uploadsDir, { maxAge: "1h", index: false }),
+  );
 
   // 登录限流
   app.use(loginRateLimiter);

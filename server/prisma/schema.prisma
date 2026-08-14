@@ -73,6 +73,9 @@ model Competition {
   warehouses      Warehouse[]
   productionLines ProductionLine[]
   contracts       Contract[]
+  // 地图背景图（每比赛一张）：JSON 字符串 { url, filename, width, height }，null 表示未设置。
+  // 由管理端「地图管理」上传，作为整张地图编辑器的背景图层（覆盖节点包围盒、不影响节点/边坐标）。
+  mapBackground   String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 }

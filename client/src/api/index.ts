@@ -110,6 +110,31 @@ export const mapsApi = {
       api.delete(`/path-types/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
     impact: (id: number) => api.get(`/path-types/${id}/impact`, { cache: false }),
   },
+  // 地图背景图：每比赛一张，由管理端上传，作为整张地图编辑器的背景图层（不影响节点/边坐标）。
+  // 端点经 @NoCompetitionScope：归属比赛由服务端按角色强制收敛（超管指定 competitionId，归属账号仅限自身比赛）。
+  mapBackground: {
+    // 上传：multipart/form-data，字段名 "file"；归属账号无需传 competitionId（服务端强制自身比赛）。
+    upload: (file: File, competitionId?: number) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (competitionId != null) fd.append("competitionId", String(competitionId));
+      return api.post("/files/map-background", fd);
+    },
+    // 删除：DELETE 带 body（axios 经 config.data 发送），成功后背景立即清空。
+    remove: (competitionId?: number) =>
+      api.delete(
+        "/files/map-background",
+        competitionId != null ? { data: { competitionId } } : undefined,
+      ),
+    // 查看：仅 JwtAuthGuard，返回 BackgroundMeta | null（meta.url 为 /uploads/... 相对路径，前端拼接 baseURL）。
+    get: (competitionId?: number) =>
+      api.get(
+        "/files/map-background",
+        competitionId != null
+          ? { params: { competitionId }, cache: false }
+          : { cache: false },
+      ),
+  },
 };
 
 export const infrastructuresApi = {
