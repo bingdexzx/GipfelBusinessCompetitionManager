@@ -155,6 +155,32 @@
             <span class="bg-edit-hint">拖拽背景图可移动位置</span>
           </div>
         </div>
+
+        <!-- 图例浮窗：无地图管理（data:map:edit）权限时显示，帮助只读查看者理解地图配色 -->
+        <div v-if="!canEdit" class="mm-legend-panel" :class="{ collapsed: legendCollapsed }">
+          <div class="legend-header" @click="legendCollapsed = !legendCollapsed">
+            <span class="legend-title">图例</span>
+            <span class="legend-caret">{{ legendCollapsed ? "展开" : "收起" }}</span>
+          </div>
+          <div v-show="!legendCollapsed" class="legend-body">
+            <div class="legend-section">
+              <div class="legend-section-title">节点类型</div>
+              <div v-for="nt in nodeTypes" :key="nt.id" class="legend-item">
+                <span class="legend-dot" :style="{ background: nt.color }"></span>
+                <span class="legend-name">{{ nt.name }}</span>
+              </div>
+              <div v-if="!nodeTypes.length" class="legend-empty">暂无节点类型</div>
+            </div>
+            <div class="legend-section">
+              <div class="legend-section-title">路径类型</div>
+              <div v-for="pt in pathTypes" :key="pt.id" class="legend-item">
+                <span class="legend-line" :style="{ background: pt.color }"></span>
+                <span class="legend-name">{{ pt.name }}</span>
+              </div>
+              <div v-if="!pathTypes.length" class="legend-empty">暂无路径类型</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 右侧属性面板 -->
@@ -652,6 +678,8 @@ const compStore = useCompetitionStore();
 const authStore = useAuthStore();
 // 查看权限（无 data:map:edit）时只展示可拖拽/缩放的地图，隐藏所有编辑用外框与按钮
 const canEdit = computed(() => authStore.can("data:map:edit"));
+// 图例浮窗（仅无管理权限时显示）的折叠状态
+const legendCollapsed = ref(false);
 
 // ===================== 数据 =====================
 interface MapNode {
@@ -2086,6 +2114,87 @@ onBeforeUnmount(() => {
 .bg-edit-hint {
   font-size: 12px;
   color: #909399;
+}
+
+/* 图例浮窗（无地图管理权限时显示，悬浮在画布右上角） */
+.mm-legend-panel {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  z-index: 20;
+  width: 220px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+}
+.legend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  background: #fafafa;
+  border-bottom: 1px solid #e4e7ed;
+}
+.legend-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+.legend-caret {
+  font-size: 12px;
+  color: #909399;
+}
+.legend-body {
+  padding: 10px 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.legend-section {
+  margin-bottom: 12px;
+}
+.legend-section:last-child {
+  margin-bottom: 0;
+}
+.legend-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 8px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.legend-item:last-child {
+  margin-bottom: 0;
+}
+.legend-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+.legend-line {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.legend-name {
+  font-size: 13px;
+  color: #303133;
+}
+.legend-empty {
+  font-size: 12px;
+  color: #c0c4cc;
 }
 
 /* 右侧面板 */
