@@ -68,9 +68,10 @@ export function useDashboardFields() {
         }
       }
 
-      // 消费者需求（来自「区域总览」页的消费者需求块）：后端读开放，与区域总览页行为一致，
-      // 只要选定比赛即拉取，纳入仪表盘可绑定字段（不影响区域总览卡片 / 公司字段）。
-      if (compId != null) {
+      // 消费者需求（来自「区域总览」页的消费者需求块）：与区域总览卡片同属区域数据，
+      // 后端 GET /consumer-demands 需 data:region:view（超管恒可）；无权限则不纳入仪表盘
+      // 字段，避免 PLAYER 等无区域权限账号登录仪表盘触发 403 噪音日志。
+      if (canRegion && compId != null) {
         try {
           const demands: any[] = (await consumerDemandsApi.list(compId)) || [];
           for (const d of demands) {
