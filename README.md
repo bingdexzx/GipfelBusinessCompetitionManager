@@ -75,7 +75,7 @@ npm run dev
 
 ## 版本与发版
 
-版本号存在两处真源：`client/package.json`（`app.getVersion()`）与 `server/package.json`（`GET /api/version`）。发版由 `updater/release-core.mjs` 统一改写两处 `version`，确保二者一致。不一致时客户端启动即触发「版本一致性硬封锁」（见上「核心功能」）。
+版本号存在两处真源：`client/package.json`（`app.getVersion()`）与 `server/package.json`（`GET /api/version`）。发版由 `updater/release-core.mjs` 统一改写两处 `version`，确保二者一致。
 
 ## 安全说明
 
