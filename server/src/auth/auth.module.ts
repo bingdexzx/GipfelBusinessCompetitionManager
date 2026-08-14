@@ -14,7 +14,8 @@ import { JwtStrategy } from "./strategies/jwt.strategy";
       useFactory: (config: ConfigService) => ({
         secret: config.jwtSecret,
         signOptions: {
-          expiresIn: config.jwtExpiresIn,
+          // @nestjs/jwt v11: expiresIn 类型为 number | StringValue（非普通 string）；ConfigService 返回 string 需断言（'24h' 运行时合法）
+          expiresIn: config.jwtExpiresIn as any,
           issuer: config.jwtIssuer,
           audience: config.jwtAudience,
         },
