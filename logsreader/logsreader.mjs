@@ -310,6 +310,21 @@ function runQuery(body) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 20);
 
+  // 4.5) URL 统计：按「路径（去除 ?query 参数）」聚合，反映各 API 端点被访问次数；
+  //      仅统计含 url 字段的 HTTP 请求日志，无 url 的非请求业务日志不计入该维度
+  //      （否则会混入海量"(非请求日志)"使条形图失效）；完整 URL 仍保留在明细行与详情中展示。
+  const urlCount = new Map();
+  for (const o of matched) {
+    const raw = o.url || "";
+    if (!raw) continue; // 跳过无 url 的非请求日志
+    const path = raw.split("?")[0];
+    urlCount.set(path, (urlCount.get(path) || 0) + 1);
+  }
+  const byUrl = [...urlCount.entries()]
+    .map(([url, count]) => ({ url, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
+
   // 5) 时间线堆叠
   const bucket = chooseBucket(from, to);
   const tlMap = new Map(); // bucketStart -> { bucket, level counts }
@@ -349,6 +364,7 @@ function runQuery(body) {
     rows: page.map(({ _startByte, _endByte, _file, _seq, ...rest }) => ({ file: _file, ...rest })),
     byLevel,
     byContext,
+    byUrl,
     timeline,
     facets,
     files,

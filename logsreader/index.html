@@ -163,8 +163,9 @@
 
       table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
       thead th { text-align: left; padding: 9px 11px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
-      th.col-ts { width: 150px; } th.col-lv { width: 72px; } th.col-ctx { width: 150px; } th.col-op { width: 120px; } th.col-sz { width: 132px; }
+      th.col-ts { width: 150px; } th.col-lv { width: 72px; } th.col-ctx { width: 150px; } th.col-op { width: 120px; } th.col-url { width: 220px; } th.col-sz { width: 132px; }
       tbody td.sz { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 12px; }
+      tbody td.url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 11.5px; color: var(--accent); }
       .sz .up { color: #e5484d; }
       .sz .down { color: #4b83c1; }
       .sz .muted { color: var(--muted); }
@@ -303,6 +304,7 @@
           </div>
         </div>
         <div class="pkt-stats" id="pktStats" style="margin-top: 14px;"></div>
+        <div id="urlStats" style="margin-top: 16px;"></div>
         <div style="margin-top: 18px;">
           <div class="tl-head">
             <div style="font-size: 12px; color: var(--muted);">时间线（堆叠：各级别数量）</div>
@@ -324,6 +326,7 @@
               <th class="col-lv">级别</th>
               <th class="col-ctx">上下文</th>
               <th class="col-op">操作员</th>
+              <th class="col-url">URL</th>
               <th>消息</th>
               <th class="col-sz">包大小</th>
             </tr>
@@ -567,6 +570,24 @@
           + `<span style="margin:0 8px;color:var(--border);">|</span>`
           + `<span class="down" style="color:#4b83c1;font-weight:600;">↓ 下行 ${fmtBytes(pkt.down)}</span>`
           + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（含包大小记录 ${fmtNum(pkt.cnt)} 条）</span>`;
+
+        // URL 路径 Top 统计：后端按「路径（已去除 ?query 参数）」聚合，反映各 API 端点访问次数
+        const ub = $("urlStats");
+        const uu = data.byUrl || [];
+        if (uu.length) {
+          ub.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:7px;">URL 路径 Top（按访问次数，已去除参数）</div><div class="bars" id="urlBars"></div>';
+          const uBars = $("urlBars");
+          const mxu = uu[0].count;
+          for (const u of uu) {
+            const pct = Math.max(2, (u.count / mxu) * 100);
+            const row = document.createElement("div");
+            row.className = "bar-row";
+            row.innerHTML = `<span class="bl" title="${escapeHtml(u.url)}">${escapeHtml(u.url)}</span><span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span><span class="bv">${fmtNum(u.count)}</span>`;
+            uBars.appendChild(row);
+          }
+        } else {
+          ub.innerHTML = '<span class="empty">无数据</span>';
+        }
       }
 
       function renderTimeline(timeline) {
@@ -628,6 +649,7 @@
           <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
           <td class="ctx">${escapeHtml(row.context || "")}</td>
           <td class="op">${escapeHtml(row.operator || "")}</td>
+          <td class="url" title="${escapeHtml(row.url || "")}">${escapeHtml(row.url || "")}</td>
           <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>
           <td class="sz">${szHtml}</td>`;
         tr.addEventListener("click", () => toggleDetail(tr));
@@ -657,7 +679,7 @@
           ++renderToken;
           body.innerHTML = "";
           currentRows = [];
-          if (!rows.length) { body.innerHTML = '<tr><td colspan="6" class="empty">没有匹配的日志</td></tr>'; return; }
+          if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="empty">没有匹配的日志</td></tr>'; return; }
         }
         appendRowsToBody(rows, renderToken);
       }
@@ -682,7 +704,7 @@
         const detail = document.createElement("tr");
         detail.className = "detail";
         const td = document.createElement("td");
-        td.colSpan = 6;
+        td.colSpan = 7;
         td.innerHTML = `<div class="dh"><span style="color:var(--code-fg);font-size:11px;">完整记录 (${escapeHtml(obj.file || "")})</span><button type="button" id="copyBtn">复制 JSON</button></div><pre>${syntaxHighlight(JSON.stringify(obj, null, 2))}</pre>`;
         detail.appendChild(td);
         tr.classList.add("expanded");
@@ -842,7 +864,7 @@
           return;
         }
         if (!rows.length) return;
-        const cols = ["timestamp", "level", "context", "operator", "requestId", "ip", "message", "requestBodySize", "responseBodySize"];
+        const cols = ["timestamp", "level", "context", "operator", "url", "requestId", "ip", "message", "requestBodySize", "responseBodySize"];
         const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
         const lines = [cols.join(",")];
         for (const r of rows) lines.push(cols.map((c) => esc(r[c])).join(","));
