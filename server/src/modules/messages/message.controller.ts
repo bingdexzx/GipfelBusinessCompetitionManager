@@ -8,8 +8,12 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   ParseIntPipe,
+  BadRequestException,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { MessageService } from "./message.service";
 import { CreateMessageDto } from "./dto/message.dto";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
@@ -44,6 +48,30 @@ export class MessageController {
   @RequirePermissions("message:manage")
   create(@CurrentUser() actor: any, @Body() dto: CreateMessageDto) {
     return this.service.create(actor, dto);
+  }
+
+  /**
+   * 上传消息图片（multipart 单文件）。仅 message:manage 可调用（仅发布者需要）。
+   * 返回 { url, filename }，前端在发布时将其填入 CreateMessageDto.images 一并提交。
+   * 复用 /uploads 静态托管：落盘于 uploads/message-images/，前端经 getApiBaseUrl() + url 跨源加载。
+   */
+  @Post("upload-image")
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions("message:manage")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+      fileFilter: (_req, file, cb) => {
+        const ALLOWED = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"];
+        if (!ALLOWED.includes(file.mimetype)) {
+          return cb(new BadRequestException("仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）"), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  uploadImage(@CurrentUser() actor: any, @UploadedFile() file: any) {
+    return this.service.uploadImage(actor, file);
   }
 
   /** 收件箱（当前用户）。 */

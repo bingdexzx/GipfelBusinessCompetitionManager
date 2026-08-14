@@ -1,5 +1,24 @@
-import { IsArray, IsBoolean, IsInt, IsOptional, IsString, MinLength } from "class-validator";
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateNested,
+} from "class-validator";
 import { Type } from "class-transformer";
+
+/** 消息图片元信息（发布时由前端经上传接口预取到 {url, filename} 后回传）。 */
+export class MessageImageDto {
+  /** 相对服务端根的路径，形如 /uploads/message-images/xxx.png */
+  @IsString()
+  url: string;
+
+  /** 落盘文件名（用于删除时定位文件）。 */
+  @IsString()
+  filename: string;
+}
 
 /** 发布消息：标题 + 正文 + 收件范围（全体可选用户 或/且 显式指定用户）。 */
 export class CreateMessageDto {
@@ -31,4 +50,14 @@ export class CreateMessageDto {
   @Type(() => Number)
   @IsInt()
   competitionId?: number;
+
+  /**
+   * 消息附带图片（可选）：元素为经 messages/upload-image 预上传后回传的 {url, filename}。
+   * 仅做结构校验，落盘文件在服务端 upload-image 时已写入 uploads/message-images/。
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MessageImageDto)
+  images?: MessageImageDto[];
 }

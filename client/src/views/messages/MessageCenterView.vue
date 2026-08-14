@@ -44,6 +44,21 @@
                 <span class="msg-time">{{ formatTime(item.message.createdAt) }}</span>
               </div>
               <div class="msg-content">{{ item.message.content }}</div>
+              <div
+                v-if="item.message.images && item.message.images.length"
+                class="msg-images"
+                @click.stop
+              >
+                <el-image
+                  v-for="(img, i) in item.message.images"
+                  :key="img.filename"
+                  :src="imgSrc(img)"
+                  :preview-src-list="item.message.images.map(imgSrc)"
+                  :initial-index="i"
+                  fit="cover"
+                  class="msg-img"
+                />
+              </div>
             </div>
             <el-tag v-if="!item.read" size="small" type="primary" effect="plain" class="unread-tag"
               >未读</el-tag
@@ -74,6 +89,17 @@
                 <span class="msg-time">{{ formatTime(item.createdAt) }}</span>
               </div>
               <div class="msg-content">{{ item.content }}</div>
+              <div v-if="item.images && item.images.length" class="msg-images">
+                <el-image
+                  v-for="(img, i) in item.images"
+                  :key="img.filename"
+                  :src="imgSrc(img)"
+                  :preview-src-list="item.images.map(imgSrc)"
+                  :initial-index="i"
+                  fit="cover"
+                  class="msg-img"
+                />
+              </div>
               <div class="msg-meta">
                 <el-tag size="small" effect="plain" type="info"
                   >接收 {{ item._count.recipients }} 人</el-tag
@@ -150,6 +176,37 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="图片">
+          <div class="img-uploader">
+            <div class="img-grid">
+              <div v-for="(img, i) in publishForm.images" :key="img.filename" class="img-thumb">
+                <el-image :src="imgSrc(img)" :preview-src-list="previewList" :initial-index="i" fit="cover" />
+                <el-button
+                  class="img-del"
+                  :icon="Close"
+                  circle
+                  size="small"
+                  type="danger"
+                  @click="removeImage(i)"
+                />
+              </div>
+              <label class="img-add" :class="{ disabled: uploadingImg }">
+                <el-icon v-if="!uploadingImg"><Plus /></el-icon>
+                <el-icon v-else class="is-loading"><Loading /></el-icon>
+                <input
+                  ref="imgInput"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  hidden
+                  :disabled="uploadingImg"
+                  @change="onPickImages"
+                />
+              </label>
+            </div>
+            <span class="form-hint">可选，最多 9 张，单张 ≤ 15MB（PNG / JPEG / GIF / WebP / BMP）。</span>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="publishVisible = false">取消</el-button>
@@ -168,8 +225,11 @@ import {
   Loading,
   Check,
   Delete,
+  Plus,
+  Close,
 } from "@element-plus/icons-vue";
-import api, { messagesApi, type InboxItem, type SentItem } from "@/api";
+import api, { messagesApi, type InboxItem, type SentItem, type MessageImage } from "@/api";
+import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/auth";
 import { useCompetitionStore } from "@/stores/competition";
 import { useMessageStore } from "@/stores/message";
@@ -274,7 +334,48 @@ const publishForm = reactive({
   targetsAll: false,
   targetUserIds: [] as number[],
   filterCompetitionId: undefined as number | undefined,
+  images: [] as MessageImage[],
 });
+
+const uploadingImg = ref(false);
+const imgInput = ref<any>(null);
+
+/** 图片完整地址：服务端根 + 相对路径（静态文件经 /uploads 托管，前端跨源加载）。 */
+function imgSrc(img: MessageImage) {
+  return getApiBaseUrl() + img.url;
+}
+
+/** 发布对话框预览列表（随 images 变化）。 */
+const previewList = computed(() => publishForm.images.map(imgSrc));
+
+/** 选择图片后逐张上传，成功追加到 images；超 9 张或单张失败给出提示。 */
+async function onPickImages(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const files = input.files ? Array.from(input.files) : [];
+  if (!files.length) return;
+  if (publishForm.images.length + files.length > 9) {
+    ElMessage.warning("最多添加 9 张图片");
+    files.splice(9 - publishForm.images.length);
+  }
+  uploadingImg.value = true;
+  try {
+    for (const f of files) {
+      const meta = await messagesApi.uploadImage(f);
+      publishForm.images.push(meta);
+    }
+  } catch (err: any) {
+    console.error("上传图片失败:", err);
+    ElMessage.error(err?.response?.data?.message || "图片上传失败");
+  } finally {
+    uploadingImg.value = false;
+    input.value = "";
+  }
+}
+
+/** 从待发布列表移除某张图片。 */
+function removeImage(i: number) {
+  publishForm.images.splice(i, 1);
+}
 
 const publishRules = {
   title: [{ required: true, message: "请输入标题", trigger: "blur" }],
@@ -299,6 +400,7 @@ function resetPublish() {
   publishForm.targetsAll = false;
   publishForm.targetUserIds = [];
   publishForm.filterCompetitionId = undefined;
+  publishForm.images = [];
   selectableUsers.value = [];
   publishFormRef.value?.clearValidate?.();
 }
@@ -360,6 +462,8 @@ async function submitPublish() {
       content: publishForm.content.trim(),
       targetsAll: publishForm.targetsAll,
       targetUserIds: publishForm.targetUserIds,
+      // 已预上传的图片元信息（url/filename）随消息一并持久化；落盘文件在删除消息时清理。
+      images: publishForm.images,
       // 超管经「按比赛筛选」选中的比赛 → 后端据此把「本比赛全体」/显式选人收敛到该比赛；
       // 不选则为全部比赛（全站广播）。归属账号恒以自身比赛为准，此字段被忽略。
       competitionId: publishForm.filterCompetitionId,
@@ -505,5 +609,72 @@ onMounted(() => {
   margin-left: 10px;
   font-size: 12px;
   color: var(--color-text-tertiary, #9aa1ad);
+}
+.img-uploader {
+  width: 100%;
+}
+.img-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.img-thumb {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-border, #e8eaef);
+}
+.img-thumb :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.img-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 12px;
+  opacity: 0.92;
+}
+.img-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border: 1px dashed var(--color-border, #cdd2dc);
+  border-radius: 10px;
+  color: var(--color-text-tertiary, #9aa1ad);
+  cursor: pointer;
+  font-size: 22px;
+  transition: border-color 0.2s, color 0.2s;
+}
+.img-add:hover {
+  border-color: var(--color-primary, #6366f1);
+  color: var(--color-primary, #6366f1);
+}
+.img-add.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.msg-img {
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #e8eaef);
+  overflow: hidden;
+  cursor: zoom-in;
 }
 </style>

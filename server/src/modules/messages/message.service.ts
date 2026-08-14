@@ -4,14 +4,55 @@ import {
   ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
+import * as fs from "fs";
+import * as path from "path";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeService } from "../../realtime/realtime.service";
-import { CreateMessageDto } from "./dto/message.dto";
+import { CreateMessageDto, MessageImageDto } from "./dto/message.dto";
 
 interface Actor {
   id: number;
   role: string;
   competitionId?: number | null;
+}
+
+// 消息图片落盘目录（与 main.ts 的 /uploads 静态服务同源，前端经 getApiBaseUrl() + url 跨源加载）。
+const MSG_UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "message-images");
+
+// 仅允许常见图片格式，规避非图片/可执行文件上传风险。
+const MSG_ALLOWED_MIME: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/bmp": ".bmp",
+};
+
+/** 解析 PNG / JPEG 的像素尺寸；其他格式或解析失败返回 null（前端加载后再补）。 */
+function readImageDimensions(
+  buf: Buffer,
+  mime: string,
+): { width: number | null; height: number | null } {
+  try {
+    if (mime === "image/png" && buf.length >= 24) {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+    if (mime === "image/jpeg") {
+      let off = 2;
+      while (off + 9 < buf.length) {
+        if (buf[off] !== 0xff) break;
+        const marker = buf[off + 1];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { width: buf.readUInt16BE(off + 7), height: buf.readUInt16BE(off + 5) };
+        }
+        const len = buf.readUInt16BE(off + 2);
+        off += 2 + len;
+      }
+    }
+  } catch {
+    /* 尺寸解析失败不阻塞上传，前端以实际加载结果为准 */
+  }
+  return { width: null, height: null };
 }
 
 /**
@@ -27,6 +68,25 @@ export class MessageService {
     private prisma: PrismaService,
     private realtime: RealtimeService,
   ) {}
+
+  /**
+   * 上传消息图片（multipart 单文件），落盘到 uploads/message-images/，返回 {url, filename}。
+   * 仅做结构落盘，不入库；真正发布时由 CreateMessageDto.images 携带这些元信息一并持久化。
+   * 文件名前缀 userId 以避免并发冲突，删除消息时按 filename 清理。
+   */
+  async uploadImage(actor: Actor, file: { buffer: Buffer; mimetype: string; size: number }): Promise<MessageImageDto> {
+    if (!file || !file.buffer) throw new BadRequestException("未收到文件");
+    const ext = MSG_ALLOWED_MIME[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException("仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）");
+    }
+    fs.mkdirSync(MSG_UPLOAD_DIR, { recursive: true });
+    const safeName = `msg-${actor.id}-${Date.now()}-${Math.floor(Math.random() * 1e6)}${ext}`;
+    fs.writeFileSync(path.join(MSG_UPLOAD_DIR, safeName), file.buffer);
+    readImageDimensions(file.buffer, file.mimetype); // 尺寸解析失败不阻塞
+    return { url: `/uploads/message-images/${safeName}`, filename: safeName };
+  }
+
 
   /**
    * 返回当前发布者可选择的用户（前端选人列表 + 服务端收件人范围校验）。
@@ -81,6 +141,7 @@ export class MessageService {
         competitionId: actor.competitionId ?? null,
         targetsAll: !!dto.targetsAll,
         targetUserIds: JSON.stringify(dto.targetUserIds || []),
+        images: JSON.stringify(dto.images || []),
         recipients: {
           create: Array.from(recipientIds).map((userId) => ({ userId })),
         },
@@ -106,10 +167,11 @@ export class MessageService {
         senderId: message.senderId,
         senderName,
         createdAt: message.createdAt,
+        images: dto.images || [],
       },
     );
 
-    return { ...message, senderName };
+    return { ...message, images: this.parseImages(message.images), senderName };
   }
 
   /** 当前用户的收件箱（按接收时间倒序），含消息体、已读状态与发送者昵称。 */
@@ -129,7 +191,7 @@ export class MessageService {
       recipientId: r.id,
       read: r.read,
       readAt: r.readAt,
-      message: r.message,
+      message: { ...r.message, images: this.parseImages(r.message.images) },
       senderName: senderMap.get(r.message.senderId) ?? `用户${r.message.senderId}`,
     }));
   }
@@ -142,7 +204,7 @@ export class MessageService {
       orderBy: { createdAt: "desc" },
     });
     const senderName = (actor as any)?.displayName || (actor as any)?.username || `用户${actor.id}`;
-    return msgs.map((m) => ({ ...m, senderName }));
+    return msgs.map((m) => ({ ...m, images: this.parseImages(m.images), senderName }));
   }
 
   /** 当前用户未读消息数。 */
@@ -181,7 +243,46 @@ export class MessageService {
     if (actor.role !== "SUPER_ADMIN" && msg.senderId !== actor.id) {
       throw new ForbiddenException("只能删除自己发布的消息");
     }
+    // 删除消息前清理其落盘图片（忽略异常，避免阻塞主流程）。
+    this.deleteMessageImages(msg.images);
     await this.prisma.message.delete({ where: { id: messageId } });
     return { message: "已删除" };
+  }
+
+  /** 解析消息 images(JSON 字符串) 为元信息数组；损坏 / 为空时返回 []（不影响主流程）。 */
+  private parseImages(raw: string | null | undefined): MessageImageDto[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((it) => it && typeof it.url === "string" && typeof it.filename === "string")
+          .map((it) => ({ url: it.url, filename: it.filename }));
+      }
+    } catch {
+      /* 损坏数据当作无图片 */
+    }
+    return [];
+  }
+
+  /** 解析消息 images(JSON 字符串) 并逐个删除落盘文件（忽略缺失 / 异常）。 */
+  private deleteMessageImages(raw: string | null | undefined) {
+    if (!raw) return;
+    let arr: { filename?: string }[] = [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) arr = parsed;
+    } catch {
+      return;
+    }
+    for (const it of arr) {
+      if (!it?.filename) continue;
+      try {
+        const p = path.join(MSG_UPLOAD_DIR, path.basename(it.filename));
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        /* 文件删除失败不影响主流程 */
+      }
+    }
   }
 }

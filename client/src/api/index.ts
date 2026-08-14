@@ -263,6 +263,14 @@ export const consumerDemandsApi = {
     ),
 };
 
+/** 消息图片元信息（与后端 MessageImageDto 对应）。 */
+export interface MessageImage {
+  /** 相对服务端根的路径，形如 /uploads/message-images/xxx.png */
+  url: string;
+  /** 落盘文件名（删除消息时由服务端清理）。 */
+  filename: string;
+}
+
 export interface MessageItem {
   id: number;
   title: string;
@@ -271,6 +279,8 @@ export interface MessageItem {
   competitionId: number | null;
   targetsAll: boolean;
   targetUserIds: string;
+  /** 消息附带图片（JSON 数组反序列化后的元信息列表）。 */
+  images?: MessageImage[];
   createdAt: string;
   updatedAt: string;
   senderName?: string;
@@ -304,7 +314,14 @@ export const messagesApi = {
     targetsAll?: boolean;
     targetUserIds?: number[];
     competitionId?: number;
+    images?: MessageImage[];
   }) => api.post("/messages", data),
+  /** 上传单张消息图片（multipart/form-data，字段名 "file"），返回 { url, filename }。 */
+  uploadImage: (file: File): Promise<MessageImage> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post("/messages/upload-image", fd);
+  },
   /** 当前用户收件箱。 */
   inbox: (): Promise<InboxItem[]> => api.get("/messages/inbox", { cache: false }),
   /** 当前用户已发布消息。 */

@@ -526,6 +526,9 @@ model Message {
   targetsAll    Boolean  @default(false)
   // 显式指定收件人用户 id（JSON 数组）；与 targetsAll 取并集后去重。
   targetUserIds String   @default("[]")
+  // 消息附带的图片（JSON 数组，元素 { url, filename }）；url 为 /uploads/message-images/... 相对路径，落盘于 uploads/message-images/。
+  // 删除消息时由服务端一并清理落盘文件。
+  images        String?  @default("[]")
   recipients    MessageRecipient[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
