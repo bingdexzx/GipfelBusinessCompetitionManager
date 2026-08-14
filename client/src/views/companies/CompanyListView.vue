@@ -81,6 +81,21 @@ const loading = ref(false);
 const dataLoading = ref(true);
 const form = reactive({ name: "", industryTypeId: null as number | null });
 
+// 公司查看范围过滤（与服务端 companyListScopes 对齐）：仅持 company:view（无 company:manage /
+// data:region:edit）且配置了 viewCompanyScopes 的账号，公司管理界面只展示其可见范围内的公司；
+// 超管 / 管理者 / 区域总览发布者展示全部。前端兜底，防止机器级全量缓存跨账号复用导致越权可见。
+function filterByScope(list: any[]): any[] {
+  const scopes = authStore.user?.viewCompanyScopes;
+  const restricted =
+    !!scopes && scopes.length > 0 &&
+    authStore.can("company:view") &&
+    !authStore.can("company:manage") &&
+    !authStore.can("data:region:edit");
+  if (!restricted) return list;
+  const allow = new Set(scopes);
+  return Array.isArray(list) ? list.filter((x) => allow.has(x.id)) : list;
+}
+
 async function loadCompanies() {
   if (!compStore.competitionId) {
     dataLoading.value = false;
@@ -89,7 +104,7 @@ async function loadCompanies() {
   dataLoading.value = true;
   try {
     const c = await api.get("/companies", { params: { competitionId: compStore.competitionId } });
-    companies.value = c;
+    companies.value = filterByScope(c);
   } catch (e) {
     console.error("Failed to load companies:", e);
   } finally {

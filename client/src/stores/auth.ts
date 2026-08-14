@@ -12,6 +12,8 @@ export interface UserInfo {
   permissions?: string[];
   /** 公司审核范围：可作为管理员/审核员审核其合同的公司 id 列表 */
   companyScopes?: number[];
+  /** 公司查看范围：仅持 company:view 的账号，仅在范围内公司可见全量 / 可列示 */
+  viewCompanyScopes?: number[];
 }
 
 export const useAuthStore = defineStore("auth", () => {
