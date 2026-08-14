@@ -113,6 +113,17 @@
               @click="selectEdge(edge)"
               @contextmenu="handleContextEdgeDelete($event, edge)"
             />
+            <!-- 路径距离标签：仅在填写了距离值时显示，居中于边中点 -->
+            <v-group
+              v-for="edge in edgesWithDistance"
+              :key="'el-' + edge.id"
+              :config="getEdgeLabelGroupConfig(edge)"
+              @click="selectEdge(edge)"
+              @contextmenu="handleContextEdgeDelete($event, edge)"
+            >
+              <v-rect :config="getEdgeLabelBgConfig(edge)" />
+              <v-text :config="getEdgeLabelTextConfig(edge)" />
+            </v-group>
           </v-layer>
           <!-- 节点图层 -->
           <v-layer>
@@ -1051,6 +1062,66 @@ function getEdgeConfig(edge: MapEdge) {
     lineCap: "round",
     hitStrokeWidth: 12,
     name: `edge-${edge.id}`,
+  };
+}
+
+// 仅在有距离值的边上显示距离标签，避免未填写的 0 距离污染画布
+const edgesWithDistance = computed(() =>
+  edges.value.filter((e) => typeof e.distance === "number" && e.distance > 0),
+);
+
+// 距离标签整体定位在边的中点（节点拖拽时随 from/to 坐标实时移动）
+function getEdgeLabelGroupConfig(edge: MapEdge) {
+  const from = getNodeById(edge.fromNodeId);
+  const to = getNodeById(edge.toNodeId);
+  if (!from || !to) return { x: 0, y: 0 };
+  return {
+    x: (from.x + to.x) / 2,
+    y: (from.y + to.y) / 2,
+  };
+}
+
+// 距离文字为数字，按位数估算标签宽度（字号 11 时每位约 7px）
+function getEdgeLabelWidth(edge: MapEdge): number {
+  const text = String(edge.distance);
+  return Math.max(22, text.length * 7 + 10);
+}
+
+function getEdgeLabelBgConfig(edge: MapEdge) {
+  const w = getEdgeLabelWidth(edge);
+  const isSelected = selectedEdge.value?.id === edge.id;
+  return {
+    x: 0,
+    y: 0,
+    width: w,
+    height: 16,
+    offsetX: w / 2,
+    offsetY: 8,
+    fill: isSelected ? "rgba(255,247,230,0.95)" : "rgba(255,255,255,0.9)",
+    cornerRadius: 3,
+    stroke: isSelected ? "#FF7D00" : "#E5E6EB",
+    strokeWidth: 1,
+    listening: true,
+  };
+}
+
+function getEdgeLabelTextConfig(edge: MapEdge) {
+  const w = getEdgeLabelWidth(edge);
+  const isSelected = selectedEdge.value?.id === edge.id;
+  return {
+    x: 0,
+    y: 0,
+    width: w,
+    height: 16,
+    offsetX: w / 2,
+    offsetY: 8,
+    text: String(edge.distance),
+    fontSize: 11,
+    fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+    fill: isSelected ? "#1D2129" : "#4E5969",
+    align: "center",
+    verticalAlign: "middle",
+    listening: false,
   };
 }
 
