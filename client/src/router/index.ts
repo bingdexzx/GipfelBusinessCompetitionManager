@@ -225,25 +225,28 @@ const router = createRouter({
   ],
 });
 
-router.beforeEach((to, _from, next) => {
+// vue-router 5 起导航守卫不再提供 next 回调，改用返回值控制跳转：
+// 返回路径字符串表示重定向，返回 true（或不返回）表示放行，返回 false 表示取消。
+router.beforeEach((to) => {
   const authStore = useAuthStore();
   // 强制改密：已登录但需改密的账号，统一停在登录页触发改密对话框，优先于其他跳转。
   if (authStore.isLoggedIn && authStore.needsPasswordChange) {
-    if (to.path !== "/login") next("/login");
-    else next();
-    return;
+    if (to.path !== "/login") return "/login";
+    return true;
   }
   if (to.path !== "/login" && !authStore.isLoggedIn) {
-    next("/login");
-  } else if (to.path === "/login" && authStore.isLoggedIn) {
-    next("/dashboard");
-  } else if (to.meta.requiresSuperAdmin && authStore.user?.role !== "SUPER_ADMIN") {
-    next("/dashboard");
-  } else if (to.meta.requiresPermission && !authStore.can(to.meta.requiresPermission as string)) {
-    next("/dashboard");
-  } else {
-    next();
+    return "/login";
   }
+  if (to.path === "/login" && authStore.isLoggedIn) {
+    return "/dashboard";
+  }
+  if (to.meta.requiresSuperAdmin && authStore.user?.role !== "SUPER_ADMIN") {
+    return "/dashboard";
+  }
+  if (to.meta.requiresPermission && !authStore.can(to.meta.requiresPermission as string)) {
+    return "/dashboard";
+  }
+  return true;
 });
 
 export default router;
