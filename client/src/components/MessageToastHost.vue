@@ -36,7 +36,7 @@ function close(key: string) {
   position: fixed;
   top: 64px;
   right: 18px;
-  z-index: 9999;
+  z-index: 4000;
   pointer-events: none;
 }
 .toast-stack {
