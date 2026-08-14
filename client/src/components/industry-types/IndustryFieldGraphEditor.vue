@@ -1,0 +1,976 @@
+<template>
+  <div class="ge">
+    <!-- 顶部工具栏 -->
+    <div class="ge-toolbar">
+      <el-button @click="$emit('close')">返回</el-button>
+      <el-button @click="toggleSource">{{ showSource ? "画布视图" : "源码 JSON" }}</el-button>
+      <el-button type="danger" @click="onClear">清空</el-button>
+      <span v-if="pending" class="ge-connecting"
+        >已选输出端口，请点击目标输入端口连线（再次点输出端口取消）</span
+      >
+      <span v-else class="ge-hint"
+        >拖动节点标题移动；点输出端口→点输入端口连线；点连线可删除</span
+      >
+    </div>
+
+    <div class="ge-body">
+      <!-- 左侧节点库 -->
+      <div class="ge-palette">
+        <div class="ge-palette-title">节点库</div>
+        <div v-for="cat in palette" :key="cat.group" class="ge-palette-group">
+          <div class="ge-palette-group-title">{{ cat.group }}</div>
+          <div
+            v-for="item in cat.items"
+            :key="item.type"
+            class="ge-palette-item"
+            :style="{ borderLeftColor: NODE_META[item.type].color }"
+            @click="addNode(item.type)"
+          >
+            + {{ item.title }}
+          </div>
+        </div>
+      </div>
+
+      <!-- 中间画布 -->
+      <div ref="canvasRef" class="ge-canvas" @mousedown="onCanvasDown">
+        <svg class="ge-svg" :width="svgW" :height="svgH">
+          <path
+            v-for="e in graph.edges"
+            :key="e.id"
+            :d="edgePath(e) || ''"
+            class="ge-edge"
+            @click.stop="removeEdge(e.id)"
+          >
+            <title>点击删除连线</title>
+          </path>
+        </svg>
+
+        <div
+          v-for="n in graph.nodes"
+          :key="n.id"
+          class="ge-node"
+          :class="{ 'ge-node-sel': n.id === selectedId }"
+          :style="nodeStyle(n)"
+          @click.stop="select(n.id)"
+        >
+          <div
+            class="ge-node-header"
+            :style="{ background: NODE_META[n.type].color }"
+            @mousedown.stop.prevent="startDrag(n, $event)"
+          >
+            <span>{{ NODE_META[n.type].title }}</span>
+            <span v-if="n.type !== 'output'" class="ge-node-del" @click.stop="removeNode(n.id)"
+              >✕</span
+            >
+          </div>
+          <div class="ge-node-cap">{{ nodeSummary(n) }}</div>
+
+          <!-- 输入端口 + 名称 + 类型 -->
+          <template v-for="(h, i) in indInputHandles(n)" :key="'i' + h">
+            <div
+              class="ge-port ge-port-in"
+              :class="{ 'ge-port-hot': pending }"
+              :style="portStyle('in', i)"
+              :title="portTitle(n, 'in', i)"
+              @mousedown.stop
+              @click.stop="onPortClick(n.id, h, 'in')"
+            ></div>
+            <div class="ge-port-info" :style="infoStyle('in', i)">
+              <div class="ge-port-row">
+                <span class="ge-port-name">{{ indPortLabel(n, 'in', i) }}</span>
+                <span class="ge-port-type">{{ indPortType(n, 'in', i) }}</span>
+              </div>
+            </div>
+          </template>
+
+          <!-- 输出端口 + 名称 + 类型（右栏，镜像） -->
+          <template v-for="(h, j) in indOutputHandles(n)" :key="'o' + h">
+            <div class="ge-port-info ge-port-info-out" :style="infoStyle('out', j)">
+              <div class="ge-port-row">
+                <span class="ge-port-name">{{ indPortLabel(n, 'out', j) }}</span>
+                <span class="ge-port-type">{{ indPortType(n, 'out', j) }}</span>
+              </div>
+            </div>
+            <div
+              class="ge-port ge-port-out"
+              :class="{ 'ge-port-hot': pending && pending.nodeId === n.id }"
+              :style="portStyle('out', j)"
+              :title="portTitle(n, 'out', j)"
+              @mousedown.stop
+              @click.stop="onPortClick(n.id, h, 'out')"
+            ></div>
+          </template>
+        </div>
+      </div>
+
+      <!-- 右侧属性面板 -->
+      <div class="ge-panel">
+        <el-alert
+          v-if="warnings.length"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="ge-warn"
+          title="当前图尚不完整"
+          :description="warnings.join('；')"
+        />
+
+        <template v-if="selectedNode">
+          <div class="ge-sel-title">
+            {{ NODE_META[selectedNode.type].title }}
+            <el-button
+              v-if="selectedNode.type !== 'output'"
+              size="small"
+              type="danger"
+              plain
+              @click="removeNode(selectedNode.id)"
+              >删除</el-button
+            >
+          </div>
+          <el-divider />
+
+          <!-- 输出节点 -->
+          <template v-if="selectedNode.type === 'output'">
+            <div class="ge-tip">
+              本节点是计算结果汇点：把最终表达式连到左侧「值」端口即可。保存后，该表达式的求值结果即写入本计算字段（不会回写其它字段）。
+            </div>
+          </template>
+
+          <!-- 数值源 -->
+          <template v-else-if="selectedNode.type === 'value'">
+            <el-form label-width="80px" size="small">
+              <el-form-item label="来源">
+                <el-select
+                  v-model="selectedNode.data.kind"
+                  style="width: 100%"
+                  @change="onKindChange"
+                >
+                  <el-option
+                    v-for="t in IND_VALUE_KINDS"
+                    :key="t"
+                    :label="IND_VALUE_KIND_LABEL[t] || t"
+                    :value="t"
+                  />
+                </el-select>
+              </el-form-item>
+
+              <template v-if="selectedNode.data.kind === 'FIELD'">
+                <el-form-item label="产业字段">
+                  <el-select
+                    v-model="selectedNode.data.fieldKey"
+                    placeholder="选择字段"
+                    clearable
+                    filterable
+                    allow-create
+                    default-first-option
+                    style="width: 100%"
+                  >
+                    <el-option
+                      v-for="f in fieldOptions"
+                      :key="f.value"
+                      :label="f.label"
+                      :value="f.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <div class="ge-tip">
+                  读取本产业类型中该字段的当前值（按字段键匹配）。数字字段返回数字，列表/字典字段返回数组/对象。把本节点的「输出」连到运算/条件/输出节点即可参与计算。
+                </div>
+              </template>
+
+              <template v-else-if="selectedNode.data.kind === 'CONST'">
+                <el-form-item label="常量值">
+                  <el-input v-model="selectedNode.data.value" placeholder="数字或 JSON" />
+                </el-form-item>
+                <div class="ge-tip">
+                  快捷填入：
+                  <el-button size="small" link type="primary" @click="setConstEmpty('dict')"
+                    >空字典 {}</el-button
+                  >
+                  <el-button size="small" link type="primary" @click="setConstEmpty('list')"
+                    >空数组 []</el-button
+                  >
+                </div>
+              </template>
+
+              <template v-else-if="selectedNode.data.kind === 'FORMULA'">
+                <el-form-item label="公式">
+                  <el-input
+                    v-model="selectedNode.data.expr"
+                    type="textarea"
+                    :rows="2"
+                    placeholder="mathjs 表达式，变量=字段键"
+                  />
+                </el-form-item>
+                <div class="ge-tip">
+                  可用变量（字段键）：<code>{{ formulaVars || "（暂无字段）" }}</code
+                  >。作用域还内置 EXPR_HELPERS 辅助函数。
+                </div>
+              </template>
+
+              <template v-else-if="selectedNode.data.kind === 'OP'">
+                <el-form-item label="运算">
+                  <el-select
+                    v-model="selectedNode.data.op"
+                    style="width: 100%"
+                    @change="onOpChange"
+                  >
+                    <el-option-group label="算术">
+                      <el-option
+                        v-for="o in IND_ARITH_OPS"
+                        :key="o"
+                        :label="OP_LABELS_FULL[o] || o"
+                        :value="o"
+                      />
+                    </el-option-group>
+                    <el-option-group label="布尔比较">
+                      <el-option
+                        v-for="o in IND_BOOL_OPS"
+                        :key="o"
+                        :label="OP_LABELS_FULL[o] || o"
+                        :value="o"
+                      />
+                    </el-option-group>
+                    <el-option-group label="列表">
+                      <el-option
+                        v-for="o in IND_LIST_OPS"
+                        :key="o"
+                        :label="OP_LABELS_FULL[o] || o"
+                        :value="o"
+                      />
+                    </el-option-group>
+                    <el-option-group label="字典">
+                      <el-option
+                        v-for="o in IND_DICT_OPS"
+                        :key="o"
+                        :label="OP_LABELS_FULL[o] || o"
+                        :value="o"
+                      />
+                    </el-option-group>
+                  </el-select>
+                </el-form-item>
+                <el-form-item
+                  v-for="h in opArgs"
+                  :key="h"
+                  :label="OP_ARG_LABELS[h] || h"
+                >
+                  <el-input
+                    v-model="selectedNode.data.argLiterals[h]"
+                    placeholder="字面量(可选)"
+                  />
+                </el-form-item>
+                <div class="ge-tip">
+                  把各参数输入端口连到数值/运算节点；未连线的参数取上方字面量。输出连到下游数值/条件/输出节点。
+                </div>
+              </template>
+
+              <template v-else-if="selectedNode.data.kind === 'VAR'">
+                <el-form-item label="变量名">
+                  <el-input v-model="selectedNode.data.name" placeholder="如 tmp" />
+                </el-form-item>
+                <div class="ge-tip">
+                  读取由「赋值」节点写入的运行期变量（不回写字段）。变量名须与某个「赋值」节点的名称一致。
+                </div>
+              </template>
+            </el-form>
+          </template>
+
+          <!-- 条件 IF -->
+          <template v-else-if="selectedNode.type === 'if'">
+            <div class="ge-tip">
+              值返回式条件分支：把「条件」端口连到一个布尔/数值节点；「真分支值」「假分支值」分别连到两个数值节点。求值时先算条件，为真取真分支值、为假取假分支值，再从本节点的「结果」输出连到下游数值/运算/输出节点。
+            </div>
+          </template>
+
+          <!-- 赋值 -->
+          <template v-else-if="selectedNode.type === 'assign'">
+            <el-form label-width="80px" size="small">
+              <el-form-item label="变量名">
+                <el-input v-model="selectedNode.data.name" placeholder="如 tmp" />
+              </el-form-item>
+            </el-form>
+            <div class="ge-tip">
+              把「值」端口连到一个数值节点；求值时该值存入运行期变量（变量名见上），供后续「数值源·运行期变量」引用。赋值不回写任何字段。
+            </div>
+          </template>
+        </template>
+        <div v-else class="ge-sel-empty">点击画布中的节点查看 / 编辑属性</div>
+
+        <template v-if="showSource">
+          <el-divider />
+          <div class="ge-source-title">源码 JSON（保存时以此生成）</div>
+          <pre class="json-box">{{ sourceJson }}</pre>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed, watch, onMounted } from "vue";
+import { ElMessage } from "element-plus";
+import {
+  GGraph,
+  GNode,
+  GNodeType,
+  NODE_META,
+  OP_ARG_SPECS,
+  OP_LABELS_FULL,
+  OP_ARG_LABELS,
+  ARITH_OPS,
+} from "@/contracts/graph-model";
+
+const props = defineProps<{
+  modelValue?: string | null;
+  availableFields?: { fieldKey: string; name?: string; fieldType?: string }[];
+}>();
+const emit = defineEmits<{
+  (e: "close"): void;
+  (e: "update:modelValue", v: string): void;
+}>();
+
+// ===== 几何常量（与合同可视化编辑器一致） =====
+const NODE_W = 288;
+const COL_W = 118;
+const HEADER_H = 30;
+const PORT_TOP = 20;
+const PORT_GAP = 50;
+const DOT = 12;
+const PORT_INSET = 12;
+
+// ===== 产业计算图专用节点端口（局部定义，避免影响合同编辑器） =====
+// value 节点：输出恒为 "out"；输入端口依 kind 动态决定。
+function indInputHandles(node: GNode): string[] {
+  if (node.type === "output") return ["value"];
+  if (node.type === "assign") return ["value"];
+  if (node.type === "if") return ["cond", "then", "else"];
+  if (node.type === "value") {
+    const k = node.data?.kind as string;
+    if (k === "OP") return OP_ARG_SPECS[node.data?.op as string] || [];
+    return [];
+  }
+  return [];
+}
+function indOutputHandles(node: GNode): string[] {
+  if (node.type === "value") return ["out"];
+  if (node.type === "if") return ["out"];
+  return [];
+}
+
+const IND_PORT_LABEL: Record<string, string> = {
+  value: "值",
+  cond: "条件",
+  then: "真分支值",
+  else: "假分支值",
+  out: "结果",
+};
+function indPortLabel(node: GNode, kind: "in" | "out", idx: number): string {
+  const list = kind === "in" ? indInputHandles(node) : indOutputHandles(node);
+  const handle = list[idx] || "";
+  if (node.type === "value" && kind === "in") return OP_ARG_LABELS[handle] || handle;
+  return IND_PORT_LABEL[handle] || (handle === "out" ? "输出" : handle);
+}
+function indPortType(node: GNode, kind: "in" | "out", idx: number): string {
+  const list = kind === "in" ? indInputHandles(node) : indOutputHandles(node);
+  const handle = list[idx] || "";
+  if (node.type === "output") return "结果";
+  if (node.type === "if" && handle === "cond") return "布尔";
+  if (node.type === "value" && kind === "out") return "值";
+  return "值";
+}
+
+// ===== 图状态 =====
+const graph = reactive<GGraph>({ nodes: [], edges: [] });
+const selectedId = ref<string | null>(null);
+const pending = ref<{ nodeId: string; handle: string } | null>(null);
+const showSource = ref(false);
+const canvasRef = ref<HTMLElement | null>(null);
+
+let _seq = 0;
+function uid(p = "n"): string {
+  _seq += 1;
+  return `${p}_${Date.now().toString(36)}_${_seq}`;
+}
+function nodeById(id?: string): GNode | undefined {
+  if (!id) return undefined;
+  return graph.nodes.find((n) => n.id === id);
+}
+
+// 节点库：仅 4 类（输出 / 数值源 / 条件 / 赋值）
+const palette = [
+  { group: "结果", items: [{ type: "output" as GNodeType, title: "输出" }] },
+  { group: "数值", items: [{ type: "value" as GNodeType, title: "数值源" }] },
+  {
+    group: "逻辑",
+    items: [
+      { type: "if" as GNodeType, title: "条件(IF)" },
+      { type: "assign" as GNodeType, title: "赋值" },
+    ],
+  },
+];
+
+const IND_VALUE_KINDS = ["FIELD", "CONST", "FORMULA", "OP", "VAR"];
+const IND_VALUE_KIND_LABEL: Record<string, string> = {
+  FIELD: "产业字段现值",
+  CONST: "常量",
+  FORMULA: "公式(mathjs)",
+  OP: "运算(列表/字典/算术/比较)",
+  VAR: "运行期变量",
+};
+const IND_ARITH_OPS = ARITH_OPS;
+const IND_BOOL_OPS = ["CMP_EQ", "CMP_NE", "CMP_GT", "CMP_LT", "CMP_GTE", "CMP_LTE"];
+const IND_LIST_OPS = Object.keys(OP_ARG_SPECS).filter(
+  (k) => !k.startsWith("DICT_") && !ARITH_OPS.includes(k) && !k.startsWith("CMP_"),
+);
+const IND_DICT_OPS = Object.keys(OP_ARG_SPECS).filter((k) => k.startsWith("DICT_"));
+
+const selectedNode = computed(
+  () => graph.nodes.find((n) => n.id === selectedId.value) || null,
+);
+
+// 可选字段（本产业类型的其它字段）
+const fieldOptions = computed<{ value: string; label: string }[]>(() => {
+  const out: { value: string; label: string }[] = [];
+  for (const f of props.availableFields || []) {
+    const key = f.fieldKey;
+    if (!key) continue;
+    out.push({ value: key, label: f.name || f.fieldKey || key });
+  }
+  return out;
+});
+const formulaVars = computed(() =>
+  (props.availableFields || [])
+    .map((f) => f.fieldKey)
+    .filter(Boolean)
+    .join(", "),
+);
+
+const opArgs = computed(() =>
+  selectedNode.value && selectedNode.value.data.kind === "OP"
+    ? OP_ARG_SPECS[selectedNode.value.data.op as string] || []
+    : [],
+);
+
+// ===== 校验提示 =====
+const outputNode = computed(() => graph.nodes.find((n) => n.type === "output"));
+const warnings = computed<string[]>(() => {
+  const w: string[] = [];
+  if (!outputNode.value) w.push("缺少「输出」节点（计算结果汇点）");
+  else {
+    const connected = graph.edges.some(
+      (e) => e.target === outputNode.value!.id && e.targetHandle === "value",
+    );
+    if (!connected) w.push("「输出」节点的「值」端口未连接任何表达式");
+  }
+  return w;
+});
+
+// ===== 坐标计算 =====
+function portRelY(idx: number): number {
+  return HEADER_H + PORT_TOP + idx * PORT_GAP;
+}
+function portStyle(kind: "in" | "out", idx: number) {
+  const cy = portRelY(idx);
+  const left = kind === "in" ? PORT_INSET - DOT / 2 : NODE_W - PORT_INSET - DOT / 2;
+  return { top: cy - DOT / 2 + "px", left: left + "px" };
+}
+function portAbs(node: GNode, kind: "in" | "out", handle: string) {
+  const list = kind === "in" ? indInputHandles(node) : indOutputHandles(node);
+  const idx = list.indexOf(handle);
+  if (idx < 0) return null;
+  const cy = portRelY(idx);
+  const cx = kind === "in" ? PORT_INSET : NODE_W - PORT_INSET;
+  return { x: node.x + cx, y: node.y + cy };
+}
+function infoStyle(kind: "in" | "out", idx: number) {
+  const cy = portRelY(idx);
+  const top = cy - 7 + "px";
+  if (kind === "in") return { left: "22px", width: COL_W + "px", top };
+  return { right: "22px", width: COL_W + "px", top };
+}
+function portTitle(node: GNode, kind: "in" | "out", idx: number): string {
+  const label = indPortLabel(node, kind, idx);
+  const type = indPortType(node, kind, idx);
+  return type ? `${label}（${type}）` : label;
+}
+function nodeStyle(node: GNode) {
+  const inN = indInputHandles(node).length;
+  const outN = indOutputHandles(node).length;
+  const portN = Math.max(inN, outN, 1);
+  const h = HEADER_H + PORT_TOP + (portN - 1) * PORT_GAP + DOT + 14;
+  return {
+    left: node.x + "px",
+    top: node.y + "px",
+    width: NODE_W + "px",
+    minHeight: h + "px",
+    borderColor: NODE_META[node.type].color,
+  };
+}
+const svgW = computed(() => {
+  const maxX = graph.nodes.reduce((m, n) => Math.max(m, n.x + NODE_W), 0);
+  return Math.max(900, maxX + 200);
+});
+const svgH = computed(() => {
+  const maxY = graph.nodes.reduce((m, n) => {
+    const portN = Math.max(indInputHandles(n).length, indOutputHandles(n).length, 1);
+    const h = HEADER_H + PORT_TOP + (portN - 1) * PORT_GAP + DOT + 70;
+    return Math.max(m, n.y + h);
+  }, 0);
+  return Math.max(600, maxY + 200);
+});
+function edgePath(edge: any): string | null {
+  const s = nodeById(edge.source);
+  const t = nodeById(edge.target);
+  if (!s || !t) return null;
+  const a = portAbs(s, "out", edge.sourceHandle);
+  const b = portAbs(t, "in", edge.targetHandle);
+  if (!a || !b) return null;
+  const dx = Math.max(40, Math.abs(b.x - a.x) / 2);
+  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+}
+
+// ===== 节点摘要 =====
+function fieldLabel(key?: string): string {
+  if (!key) return "未选字段";
+  return fieldOptions.value.find((x) => x.value === key)?.label || key;
+}
+function nodeSummary(n: GNode): string {
+  const d = n.data || {};
+  switch (n.type) {
+    case "output":
+      return "结果输出";
+    case "value":
+      if (d.kind === "FIELD") return `字段·${fieldLabel(d.fieldKey)}`;
+      if (d.kind === "CONST") return `常量·${d.value ?? ""}`;
+      if (d.kind === "FORMULA") return `公式·${d.expr ?? ""}`;
+      if (d.kind === "OP") return OP_LABELS_FULL[d.op as string] || d.op || "";
+      if (d.kind === "VAR") return `变量·${d.name || ""}`;
+      return d.kind || "";
+    case "if":
+      return "条件分支(值返回)";
+    case "assign":
+      return `赋值→${d.name || ""}`;
+    default:
+      return "";
+  }
+}
+
+// ===== 操作 =====
+function select(id: string) {
+  selectedId.value = id;
+}
+function addNode(type: GNodeType) {
+  if (type === "output" && outputNode.value) {
+    ElMessage.warning("「输出」节点已存在，计算图只能有一个结果汇点");
+    select(outputNode.value.id);
+    return;
+  }
+  const n: GNode = {
+    id: uid(type),
+    type,
+    x: 300 + (graph.nodes.length % 6) * 28,
+    y: 60 + (graph.nodes.length % 12) * 22,
+    data: defaultData(type),
+  };
+  graph.nodes.push(n);
+  select(n.id);
+}
+function defaultData(type: GNodeType): Record<string, any> {
+  switch (type) {
+    case "output":
+      return {};
+    case "value":
+      return { kind: "CONST", value: "0" };
+    case "if":
+      return {};
+    case "assign":
+      return { name: "" };
+    default:
+      return {};
+  }
+}
+function removeNode(id: string) {
+  const i = graph.nodes.findIndex((n) => n.id === id);
+  if (i >= 0) graph.nodes.splice(i, 1);
+  graph.edges = graph.edges.filter((e) => e.source !== id && e.target !== id);
+  if (selectedId.value === id) selectedId.value = null;
+}
+function removeEdge(id: string) {
+  graph.edges = graph.edges.filter((e) => e.id !== id);
+}
+function onPortClick(nodeId: string, handle: string, kind: "in" | "out") {
+  if (kind === "out") {
+    pending.value =
+      pending.value && pending.value.nodeId === nodeId && pending.value.handle === handle
+        ? null
+        : { nodeId, handle };
+    return;
+  }
+  if (!pending.value) return;
+  if (pending.value.nodeId === nodeId) {
+    pending.value = null;
+    return;
+  }
+  const idx = graph.edges.findIndex((e) => e.target === nodeId && e.targetHandle === handle);
+  if (idx >= 0) graph.edges.splice(idx, 1);
+  graph.edges.push({
+    id: uid("e"),
+    source: pending.value.nodeId,
+    sourceHandle: pending.value.handle,
+    target: nodeId,
+    targetHandle: handle,
+  });
+  pending.value = null;
+}
+
+// ===== 拖拽 =====
+const drag = ref<{ id: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
+function startDrag(node: GNode, e: MouseEvent) {
+  select(node.id);
+  drag.value = { id: node.id, sx: e.clientX, sy: e.clientY, ox: node.x, oy: node.y };
+  window.addEventListener("mousemove", onDragMove);
+  window.addEventListener("mouseup", onDragUp);
+}
+function onDragMove(e: MouseEvent) {
+  if (!drag.value) return;
+  const n = nodeById(drag.value.id);
+  if (!n) return;
+  n.x = Math.max(0, drag.value.ox + (e.clientX - drag.value.sx));
+  n.y = Math.max(0, drag.value.oy + (e.clientY - drag.value.sy));
+}
+function onDragUp() {
+  drag.value = null;
+  window.removeEventListener("mousemove", onDragMove);
+  window.removeEventListener("mouseup", onDragUp);
+}
+function onCanvasDown(e: MouseEvent) {
+  if (e.target === e.currentTarget) {
+    selectedId.value = null;
+    pending.value = null;
+  }
+}
+
+// ===== 属性面板辅助 =====
+function onKindChange() {
+  const n = selectedNode.value;
+  if (!n || n.type !== "value") return;
+  const k = n.data.kind;
+  if (k === "OP" && !n.data.op) n.data.op = "ADD";
+  n.data.argLiterals = k === "OP" ? n.data.argLiterals || {} : {};
+  if (k !== "FIELD") n.data.fieldKey = undefined;
+  if (k !== "CONST") n.data.value = undefined;
+  if (k !== "FORMULA") n.data.expr = undefined;
+  if (k !== "OP") n.data.op = undefined;
+  if (k !== "VAR") n.data.name = undefined;
+}
+function onOpChange() {
+  if (selectedNode.value) selectedNode.value.data.argLiterals = {};
+}
+function setConstEmpty(kind: "dict" | "list") {
+  if (!selectedNode.value) return;
+  selectedNode.value.data.value = kind === "dict" ? "{}" : "[]";
+}
+
+function toggleSource() {
+  showSource.value = !showSource.value;
+}
+function onClear() {
+  graph.nodes = [];
+  graph.edges = [];
+  selectedId.value = null;
+  pending.value = null;
+}
+
+const sourceJson = computed(() =>
+  JSON.stringify({ nodes: graph.nodes, edges: graph.edges }, null, 2),
+);
+
+// ===== 加载 / 序列化（v-model） =====
+function loadFrom(str?: string | null) {
+  if (!str) {
+    graph.nodes = [];
+    graph.edges = [];
+  } else {
+    try {
+      const g = JSON.parse(str);
+      graph.nodes = Array.isArray(g.nodes) ? g.nodes : [];
+      graph.edges = Array.isArray(g.edges) ? g.edges : [];
+    } catch {
+      graph.nodes = [];
+      graph.edges = [];
+    }
+  }
+  selectedId.value = null;
+  pending.value = null;
+}
+loadFrom(props.modelValue);
+
+let emitTimer: any = null;
+function scheduleEmit() {
+  if (emitTimer) clearTimeout(emitTimer);
+  emitTimer = setTimeout(() => {
+    emit("update:modelValue", JSON.stringify({ nodes: graph.nodes, edges: graph.edges }));
+  }, 150);
+}
+watch(() => graph, scheduleEmit, { deep: true });
+// 外部 modelValue 变化时（如切换字段）重新加载，但避免与自身 emit 回环。
+watch(
+  () => props.modelValue,
+  (v) => {
+    const cur = JSON.stringify({ nodes: graph.nodes, edges: graph.edges });
+    if (v !== cur) loadFrom(v);
+  },
+);
+
+onMounted(() => {
+  /* 无需远程数据：字段由父组件以 availableFields 传入 */
+});
+</script>
+
+<style scoped>
+.ge {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #f5f6fa;
+}
+.ge-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
+  flex-wrap: wrap;
+}
+.ge-hint {
+  color: #909399;
+  font-size: 12px;
+  margin-left: auto;
+}
+.ge-connecting {
+  color: #e67e22;
+  font-size: 12px;
+  margin-left: auto;
+  font-weight: bold;
+}
+.ge-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.ge-palette {
+  flex: 0 0 auto;
+  width: clamp(150px, 11vw, 210px);
+  padding: 10px;
+  background: #fff;
+  border-right: 1px solid #e4e7ed;
+  overflow: auto;
+}
+.ge-palette-title {
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #303133;
+}
+.ge-palette-group {
+  margin-bottom: 12px;
+}
+.ge-palette-group-title {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 4px;
+}
+.ge-palette-item {
+  border: 1px solid #e4e7ed;
+  border-left: 5px solid #ccc;
+  border-radius: 5px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  background: #fafafa;
+  cursor: pointer;
+  user-select: none;
+}
+.ge-palette-item:hover {
+  background: #ecf5ff;
+}
+.ge-canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+  background: #eef0f4;
+  background-image: radial-gradient(#d5d8de 1px, transparent 1px);
+  background-size: 22px 22px;
+  user-select: none;
+}
+.ge-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.ge-edge {
+  fill: none;
+  stroke: #7f8c8d;
+  stroke-width: 2;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.ge-edge:hover {
+  stroke: #e74c3c;
+  stroke-width: 3;
+}
+.ge-node {
+  position: absolute;
+  box-sizing: border-box;
+  background: #fff;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  cursor: default;
+  z-index: 1;
+}
+.ge-node-sel {
+  outline: 2px solid #409eff;
+  z-index: 10;
+}
+.ge-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 6px 6px 0 0;
+  color: #fff;
+  font-weight: bold;
+  cursor: grab;
+  user-select: none;
+}
+.ge-node-del {
+  cursor: pointer;
+  font-size: 12px;
+}
+.ge-node-cap {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #909399;
+  word-break: break-all;
+}
+.ge-port {
+  position: absolute;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #34495e;
+  cursor: crosshair;
+  z-index: 2;
+}
+.ge-port-info {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  pointer-events: none;
+  z-index: 3;
+}
+.ge-port-info-out {
+  text-align: right;
+  align-items: flex-end;
+}
+.ge-port-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  color: #34495e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ge-port-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.ge-port-info-out .ge-port-row {
+  justify-content: flex-end;
+}
+.ge-port-type {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 13px;
+  color: #409eff;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.ge-port-info-out .ge-port-name {
+  color: #c0392b;
+}
+.ge-port-hot {
+  border-color: #e67e22;
+  background: #fef0e6;
+}
+.ge-port:hover {
+  background: #409eff;
+  border-color: #409eff;
+}
+.ge-panel {
+  flex: 0 0 auto;
+  width: clamp(300px, 21vw, 400px);
+  padding: 12px;
+  background: #fff;
+  border-left: 1px solid #e4e7ed;
+  overflow: auto;
+}
+.ge-sel-title {
+  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #303133;
+}
+.ge-sel-empty {
+  color: #909399;
+  font-size: 12px;
+}
+.ge-tip {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+  background: #f4f4f5;
+  padding: 6px 8px;
+  border-radius: 5px;
+  margin-top: 4px;
+}
+.ge-warn {
+  margin-bottom: 8px;
+}
+.ge-source-title {
+  font-weight: bold;
+  margin-bottom: 6px;
+  color: #303133;
+}
+.json-box {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  max-height: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+</style>

@@ -1,0 +1,1033 @@
+<template>
+  <div class="it-manager">
+    <div class="mm-toolbar">
+      <h2 class="mm-title">产业类型管理</h2>
+      <div class="mm-actions">
+        <el-button
+          type="primary"
+          :disabled="!authStore.can('industryType:manage')"
+          @click="openCreate"
+          >新建产业类型</el-button
+        >
+        <el-input
+          v-model="searchText"
+          placeholder="搜索名称 / 编号"
+          clearable
+          style="width: 200px"
+        />
+      </div>
+    </div>
+
+    <el-alert
+      v-if="!loading && types.length === 0"
+      type="info"
+      show-icon
+      :closable="false"
+      title="暂无产业类型"
+      description="产业类型完全由你自定义。新建产业类型后，可为其添加产业字段（如矿点数量、产能、月度产量等），这些字段会出现在公司数据与合同可视化编辑器中。"
+      style="margin-bottom: 12px"
+    />
+
+    <el-table
+      v-loading="loading"
+      :data="filteredTypes"
+      border
+      stripe
+      row-key="id"
+      style="width: 100%"
+    >
+      <el-table-column type="expand">
+        <template #default="{ row }">
+          <div class="expand-fields">
+            <div v-if="!row.fields || row.fields.length === 0" class="empty-tip">
+              该产业尚未定义字段
+            </div>
+            <el-table v-else :data="row.fields" size="small" border>
+              <el-table-column prop="name" label="字段名称" min-width="140" />
+              <el-table-column prop="fieldKey" label="字段键" min-width="140" />
+              <el-table-column prop="fieldType" label="类型" width="100" />
+              <el-table-column label="默认值" min-width="100">
+                <template #default="{ row: f }">{{ f.defaultValue ?? "—" }}</template>
+              </el-table-column>
+              <el-table-column label="计算字段" width="120">
+                <template #default="{ row: f }">
+                  <el-tag v-if="f.isCalculated" size="small" type="warning">公式</el-tag>
+                  <span v-else>—</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="formula" label="计算配置" min-width="160">
+                <template #default="{ row: f }">{{ formulaDisplay(f) }}</template>
+              </el-table-column>
+              <el-table-column label="配置" min-width="200">
+                <template #default="{ row: f }">{{ configSummary(f) }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="code" label="编号" width="90" />
+      <el-table-column prop="name" label="产业名称" min-width="180" />
+      <el-table-column label="说明" min-width="220">
+        <template #default="{ row }">{{ row.description || "—" }}</template>
+      </el-table-column>
+      <el-table-column label="字段数" width="90">
+        <template #default="{ row }">{{ row.fields?.length || 0 }}</template>
+      </el-table-column>
+      <el-table-column label="公司数" width="90">
+        <template #default="{ row }">{{ row._count?.companies ?? 0 }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="280" fixed="right">
+        <template #default="{ row }">
+          <el-button size="small" @click="openTypeDetail(row)">详情</el-button>
+          <el-button size="small" @click="openFields(row)">字段</el-button>
+          <el-button
+            size="small"
+            type="primary"
+            :disabled="!authStore.can('industryType:manage')"
+            @click="openEdit(row)"
+            >编辑</el-button
+          >
+          <el-button
+            size="small"
+            type="danger"
+            :disabled="!authStore.can('industryType:manage')"
+            @click="handleDelete(row)"
+            >删除</el-button
+          >
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <!-- 新建 / 编辑产业类型 -->
+    <el-dialog append-to-body
+      v-model="showForm"
+      :title="editingId ? '编辑产业类型' : '新建产业类型'"
+      width="520px"
+    >
+      <el-form :model="form" label-width="90px">
+        <el-form-item label="产业名称" required>
+          <el-input v-model="form.name" placeholder="如：新能源产业" />
+        </el-form-item>
+        <el-form-item label="编号">
+          <el-input-number v-model="form.code" :min="1" :controls="false" style="width: 100%" />
+          <div class="hint">留空则自动分配（当前最大编号 +1）</div>
+        </el-form-item>
+        <el-form-item label="说明">
+          <el-input
+            v-model="form.description"
+            type="textarea"
+            :rows="3"
+            placeholder="该产业的职责说明"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showForm = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 产业字段管理 -->
+    <el-dialog append-to-body v-model="showFields" :title="`产业字段 · ${fieldTarget?.name || ''}`" width="900px">
+      <el-table v-loading="fieldLoading" :data="fields" border size="small">
+        <el-table-column prop="name" label="字段名称" min-width="130" />
+        <el-table-column prop="fieldKey" label="字段键" min-width="130" />
+        <el-table-column prop="fieldType" label="类型" width="90" />
+        <el-table-column label="默认值" width="100">
+          <template #default="{ row }">{{ row.defaultValue ?? "—" }}</template>
+        </el-table-column>
+        <el-table-column label="计算配置" min-width="150">
+          <template #default="{ row }">{{ formulaDisplay(row) }}</template>
+        </el-table-column>
+        <el-table-column label="配置" min-width="200">
+          <template #default="{ row }">{{ configSummary(row) }}</template>
+        </el-table-column>
+        <el-table-column prop="sortOrder" label="排序" width="70" />
+        <el-table-column label="展示" width="80">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.visible !== false"
+              :disabled="!authStore.can('industryType:manage')"
+              @change="(v: any) => toggleFieldVisible(row, v)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="220" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="openFieldDetail(row)">详情</el-button>
+            <template v-if="row.isCalculated">
+              <el-button
+                size="small"
+                type="primary"
+                :disabled="!authStore.can('industryType:manage')"
+                @click="openGraphFullscreen(row)"
+                >编辑蓝图</el-button
+              >
+            </template>
+            <template v-else>
+              <el-button
+                size="small"
+                :disabled="!authStore.can('industryType:manage')"
+                @click="editField(row)"
+                >编辑</el-button
+              >
+            </template>
+            <el-button
+              size="small"
+              type="danger"
+              :disabled="!authStore.can('industryType:manage')"
+              @click="deleteField(row)"
+              >删除</el-button
+            >
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-divider>{{ fieldForm.id ? "编辑字段" : "添加字段" }}</el-divider>
+      <el-form
+        :model="fieldForm"
+        label-width="90px"
+        :disabled="!authStore.can('industryType:manage')"
+        @submit.prevent
+      >
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="字段名称" required>
+              <el-input v-model="fieldForm.name" placeholder="如：矿点数量" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="字段键" required>
+              <el-input v-model="fieldForm.fieldKey" placeholder="如：mineCount" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="类型">
+              <el-select
+                v-model="fieldForm.fieldType"
+                style="width: 100%"
+                @change="onFieldTypeChange"
+              >
+                <el-option label="数值 NUMBER" value="NUMBER" />
+                <el-option label="文本 STRING" value="STRING" />
+                <el-option label="布尔 BOOLEAN" value="BOOLEAN" />
+                <el-option label="字典 DICTIONARY" value="DICTIONARY" />
+                <el-option label="列表 LIST" value="LIST" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <!-- 字典字段配置 -->
+        <el-row v-if="fieldForm.fieldType === 'DICTIONARY'" :gutter="12">
+          <el-col :span="24">
+            <el-form-item label="值类型">
+              <el-select v-model="fieldForm.config.valueType" style="width: 200px">
+                <el-option label="数值 NUMBER" value="NUMBER" />
+                <el-option label="文本 STRING" value="STRING" />
+                <el-option label="布尔 BOOLEAN" value="BOOLEAN" />
+              </el-select>
+              <span class="hint">字典中每个键对应的值的类型</span>
+            </el-form-item>
+            <el-form-item label="字典项">
+              <div v-for="(e, idx) in fieldForm.config.entries" :key="idx" class="dict-row">
+                <el-input
+                  v-model="e.key"
+                  placeholder="key（字母/数字/下划线）"
+                  style="width: 150px"
+                />
+                <el-input v-model="e.label" placeholder="显示名" style="width: 150px" />
+                <el-input v-model="e.defaultValue" placeholder="默认值" style="width: 140px" />
+                <el-button type="danger" size="small" @click="removeDictEntry(idx)">删</el-button>
+              </div>
+              <el-button size="small" native-type="button" @click="addDictEntry"
+                >+ 添加字典项</el-button
+              >
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <!-- 列表字段配置 -->
+        <el-row v-if="fieldForm.fieldType === 'LIST'" :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="列表项类型">
+              <el-select v-model="fieldForm.config.itemType" style="width: 100%">
+                <el-option label="数值 NUMBER" value="NUMBER" />
+                <el-option label="文本 STRING" value="STRING" />
+                <el-option label="布尔 BOOLEAN" value="BOOLEAN" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="默认值">
+              <el-input v-model="fieldForm.defaultValue" placeholder="可留空" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="排序">
+              <el-input-number
+                v-model="fieldForm.sortOrder"
+                :min="0"
+                :controls="false"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="计算字段">
+              <el-switch v-model="fieldForm.isCalculated" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="前台展示">
+              <el-switch v-model="fieldForm.visible" />
+              <span class="hint"
+                >关闭后该字段在公司管理、区域总览、合同编辑器等所有客户端界面均不显示（仍可被子合同引擎改写）</span
+              >
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item v-if="fieldForm.isCalculated" label="计算图">
+          <div style="width: 100%">
+            <el-button type="primary" @click="showGraphFullscreen = true">打开编辑器</el-button>
+            <div class="fb-readout" style="margin-top: 12px">
+              <div class="fb-readout-title">
+                当前产业计算图：{{ fieldForm.calcGraph ? "已配置" : "（未配置）" }}
+              </div>
+              <pre class="fb-json">{{ fieldForm.calcGraph || "（空）" }}</pre>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button v-if="fieldForm.id" @click="resetFieldForm">取消编辑</el-button>
+        <el-button
+          type="primary"
+          :loading="fieldSaving"
+          :disabled="!authStore.can('industryType:manage')"
+          @click="submitField"
+          >{{ fieldForm.id ? "保存修改" : "添加字段" }}</el-button
+        >
+      </template>
+    </el-dialog>
+
+    <!-- 全屏蓝图编辑器（计算字段）：左侧：字段细节；主区：蓝图画布 -->
+    <el-dialog
+      append-to-body
+      class="fs-dialog"
+      v-model="showGraphFullscreen"
+      fullscreen
+      :show-close="false"
+      title=""
+    >
+      <div class="fs-wrap">
+        <div class="fs-topbar">
+          <div class="fs-title">
+            <span class="fs-title-main">产业计算字段 · {{ fieldForm.name || "未命名字段" }}</span>
+            <el-tag v-if="fieldForm.isCalculated" size="small" type="warning">计算公式</el-tag>
+          </div>
+          <div class="fs-actions">
+            <el-button @click="showGraphFullscreen = false">关闭</el-button>
+            <el-button
+              type="primary"
+              :loading="fieldSaving"
+              :disabled="!authStore.can('industryType:manage')"
+              @click="submitField"
+              >保存</el-button
+            >
+          </div>
+        </div>
+        <div class="fs-main">
+          <!-- 左侧：字段细节 -->
+          <div class="fs-details">
+            <div class="fs-details-title">字段细节</div>
+            <el-form :model="fieldForm" label-width="72px" size="small" class="fs-details-form">
+              <el-form-item label="字段名称" required>
+                <el-input v-model="fieldForm.name" placeholder="如：矿点数量" />
+              </el-form-item>
+              <el-form-item label="字段键" required>
+                <el-input v-model="fieldForm.fieldKey" placeholder="如：mineCount" />
+              </el-form-item>
+              <el-form-item label="类型">
+                <el-select
+                  v-model="fieldForm.fieldType"
+                  style="width: 100%"
+                  @change="onFieldTypeChange"
+                >
+                  <el-option label="数值 NUMBER" value="NUMBER" />
+                  <el-option label="文本 STRING" value="STRING" />
+                  <el-option label="布尔 BOOLEAN" value="BOOLEAN" />
+                  <el-option label="字典 DICTIONARY" value="DICTIONARY" />
+                  <el-option label="列表 LIST" value="LIST" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="默认值">
+                <el-input v-model="fieldForm.defaultValue" placeholder="可留空" />
+              </el-form-item>
+              <el-form-item label="排序">
+                <el-input-number
+                  v-model="fieldForm.sortOrder"
+                  :min="0"
+                  :controls="false"
+                  style="width: 100%"
+                />
+              </el-form-item>
+              <el-form-item label="前台展示">
+                <el-switch v-model="fieldForm.visible" />
+              </el-form-item>
+              <el-form-item label="计算字段">
+                <el-switch v-model="fieldForm.isCalculated" />
+              </el-form-item>
+            </el-form>
+          </div>
+          <!-- 主区：蓝图编辑器 -->
+          <div class="fs-editor">
+            <IndustryFieldGraphEditor
+              v-model="fieldForm.calcGraph"
+              :available-fields="formulaFields"
+              @close="showGraphFullscreen = false"
+            />
+          </div>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 产业类型详情（只读） -->
+    <el-dialog
+      append-to-body
+      v-model="typeDetailVisible"
+      :title="`产业类型详情 · ${typeDetailRow?.name || ''}`"
+      width="820px"
+    >
+      <el-descriptions :column="2" border size="small">
+        <el-descriptions-item label="编号">{{ typeDetailRow?.code ?? "—" }}</el-descriptions-item>
+        <el-descriptions-item label="产业名称">{{ typeDetailRow?.name || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="字段数">{{ typeDetailRow?.fields?.length || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="公司数">{{ typeDetailRow?._count?.companies ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="说明" :span="2">{{ typeDetailRow?.description || "—" }}</el-descriptions-item>
+      </el-descriptions>
+      <el-divider content-position="left">字段列表</el-divider>
+      <el-table :data="typeDetailRow?.fields || []" border size="small" empty-text="该产业尚未定义字段">
+        <el-table-column prop="name" label="字段名称" min-width="130" />
+        <el-table-column prop="fieldKey" label="字段键" min-width="130" />
+        <el-table-column prop="fieldType" label="类型" width="90" />
+        <el-table-column label="默认值" width="100">
+          <template #default="{ row }">{{ row.defaultValue ?? "—" }}</template>
+        </el-table-column>
+        <el-table-column label="计算字段" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.isCalculated" size="small" type="warning">计算</el-tag>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="计算配置" min-width="150">
+          <template #default="{ row }">{{ formulaDisplay(row) }}</template>
+        </el-table-column>
+        <el-table-column label="配置" min-width="200">
+          <template #default="{ row }">{{ configSummary(row) }}</template>
+        </el-table-column>
+        <el-table-column prop="sortOrder" label="排序" width="70" />
+        <el-table-column label="展示" width="70">
+          <template #default="{ row }">{{ row.visible !== false ? "是" : "否" }}</template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 产业字段详情（只读） -->
+    <el-dialog
+      append-to-body
+      v-model="fieldDetailVisible"
+      :title="`字段详情 · ${fieldDetailRow?.name || ''}`"
+      width="620px"
+    >
+      <el-descriptions :column="1" border size="small">
+        <el-descriptions-item label="字段名称">{{ fieldDetailRow?.name || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="字段键">{{ fieldDetailRow?.fieldKey || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="类型">{{ fieldDetailRow?.fieldType || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="默认值">{{ fieldDetailRow?.defaultValue ?? "—" }}</el-descriptions-item>
+        <el-descriptions-item label="是否计算字段">
+          <el-tag v-if="fieldDetailRow?.isCalculated" size="small" type="warning">计算字段</el-tag>
+          <span v-else>否</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="计算配置">{{ formulaDisplay(fieldDetailRow) }}</el-descriptions-item>
+        <el-descriptions-item label="排序">{{ fieldDetailRow?.sortOrder ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="前台展示">{{ fieldDetailRow?.visible !== false ? "是" : "否" }}</el-descriptions-item>
+        <el-descriptions-item label="配置摘要">{{ configSummary(fieldDetailRow) }}</el-descriptions-item>
+      </el-descriptions>
+      <template v-if="fieldDetailRow?.isCalculated">
+        <el-divider content-position="left">产业计算图（JSON）</el-divider>
+        <pre class="detail-json">{{ fieldDetailRow?.calcGraph || "（空）" }}</pre>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, reactive } from "vue";
+import { useAuthStore } from "@/stores/auth";
+import { industryTypesApi } from "@/api";
+import { ElMessage, ElMessageBox } from "element-plus";
+import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
+import { useResourceChanged } from "@/realtime/useResourceChanged";
+
+const authStore = useAuthStore();
+
+const loading = ref(false);
+const saving = ref(false);
+const types = ref<any[]>([]);
+const searchText = ref("");
+const showForm = ref(false);
+const editingId = ref<number | null>(null);
+const form = reactive<any>({ name: "", code: undefined, description: "" });
+
+const showFields = ref(false);
+const fieldTarget = ref<any>(null);
+const fields = ref<any[]>([]);
+const fieldLoading = ref(false);
+const fieldSaving = ref(false);
+const showGraphFullscreen = ref(false);
+const typeDetailVisible = ref(false);
+const typeDetailRow = ref<any>(null);
+const fieldDetailVisible = ref(false);
+const fieldDetailRow = ref<any>(null);
+const fieldForm = reactive<any>({
+  id: null,
+  name: "",
+  fieldKey: "",
+  fieldType: "NUMBER",
+  config: {},
+  defaultValue: "",
+  isCalculated: false,
+  calcGraph: "",
+  sortOrder: 0,
+  visible: true,
+});
+
+const filteredTypes = computed(() => {
+  const kw = searchText.value.trim().toLowerCase();
+  if (!kw) return types.value;
+  return types.value.filter(
+    (t) => (t.name || "").toLowerCase().includes(kw) || String(t.code).includes(kw),
+  );
+});
+
+async function loadTypes() {
+  loading.value = true;
+  try {
+    const res: any = await industryTypesApi.list();
+    types.value = Array.isArray(res) ? res : res?.items || res?.data || [];
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "加载产业类型失败");
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function openCreate() {
+  editingId.value = null;
+  form.name = "";
+  form.code = undefined;
+  form.description = "";
+  showForm.value = true;
+}
+
+function openEdit(row: any) {
+  editingId.value = row.id;
+  form.name = row.name;
+  form.code = row.code;
+  form.description = row.description || "";
+  showForm.value = true;
+}
+
+async function submitForm() {
+  if (!form.name.trim()) {
+    ElMessage.warning("请填写产业名称");
+    return;
+  }
+  saving.value = true;
+  try {
+    const payload: any = {
+      name: form.name.trim(),
+      description: form.description || undefined,
+    };
+    if (form.code !== undefined && form.code !== null) payload.code = form.code;
+    if (editingId.value) {
+      await industryTypesApi.update(editingId.value, payload);
+      ElMessage.success("产业类型已更新");
+    } else {
+      await industryTypesApi.create(payload);
+      ElMessage.success("产业类型已创建");
+    }
+    showForm.value = false;
+    await loadTypes();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "保存失败");
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function handleDelete(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除产业类型「${row.name}」？其下的产业字段会一并删除，且不可恢复。`,
+      "删除确认",
+      { type: "warning", confirmButtonText: "确认删除" },
+    );
+    // 第二层确认（对标 CompetitionListView 的多层确认，产业类型降级为两层）
+    await ElMessageBox.confirm(
+      `再次确认：删除产业类型「${row.name}」后，其下所有产业字段及公司对应数值将一并清除，无法恢复。`,
+      "二次确认",
+      { type: "error", confirmButtonText: "我确定删除" },
+    );
+  } catch {
+    return;
+  }
+  try {
+    await industryTypesApi.remove(row.id);
+    ElMessage.success("已删除");
+    await loadTypes();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "删除失败");
+  }
+}
+
+// ============ 字段管理 ============
+
+// 可作为计算公式引用的「其它字段」：本产业类型的字段，排除正在编辑的自身
+const formulaFields = computed(() => {
+  const selfKey = (fieldForm.fieldKey || "").trim();
+  return (fields.value || [])
+    .filter((f: any) => f.fieldKey !== selfKey)
+    .map((f: any) => ({ fieldKey: f.fieldKey, name: f.name }));
+});
+// 产业计算图由 IndustryFieldGraphEditor 以 v-model 编辑（fieldForm.calcGraph 为 JSON 字符串）。
+
+
+// 不同字段类型的默认 config 结构
+function defaultConfig(type: string): any {
+  if (type === "DICTIONARY") return { entries: [], valueType: "NUMBER" };
+  if (type === "LIST") return { itemType: "STRING" };
+  return {};
+}
+
+function onFieldTypeChange(type: string) {
+  // 切换类型时重置 config（用户手动切换，不会覆盖正在编辑的已有配置）
+  fieldForm.config = defaultConfig(type);
+  fieldForm.defaultValue = "";
+}
+
+function addDictEntry() {
+  // 重建新数组再赋值：确保 setter 一定触发，v-for 依赖必定重渲染（避免任何响应式追踪丢失）
+  const arr = Array.isArray(fieldForm.config.entries) ? [...fieldForm.config.entries] : [];
+  arr.push({ key: "", label: "", defaultValue: "" });
+  fieldForm.config.entries = arr;
+}
+function removeDictEntry(idx: number) {
+  fieldForm.config.entries.splice(idx, 1);
+}
+
+// 克隆并规整后端返回的 config，便于表单编辑
+function cloneConfig(type: string, raw: any): any {
+  const cfg = raw || {};
+  if (type === "DICTIONARY")
+    return {
+      entries: Array.isArray(cfg.entries)
+        ? cfg.entries.map((e: any) => ({
+            key: e.key ?? "",
+            label: e.label ?? "",
+            defaultValue: e.defaultValue ?? "",
+          }))
+        : [],
+      valueType: cfg.valueType || "NUMBER",
+    };
+  if (type === "LIST") return { itemType: cfg.itemType || "STRING" };
+  return {};
+}
+
+// 字段配置的简要展示
+function configSummary(f: any): string {
+  const t = f.fieldType;
+  const cfg = f.config || {};
+  if (t === "DICTIONARY") {
+    const entries = Array.isArray(cfg.entries) ? cfg.entries : [];
+    const names = entries.map((e: any) => e.label || e.key).join("、");
+    return `字典(${cfg.valueType || "NUMBER"}): ${names || "（未定义项）"}`;
+  }
+  if (t === "LIST") return `列表(${cfg.itemType || "STRING"})`;
+  return "—";
+}
+
+// 规则列展示：计算字段显示可视化蓝图摘要，普通字段显示原始公式
+function formulaDisplay(f: any): string {
+  if (!f.isCalculated) return f.formula || "—";
+  try {
+    const g = JSON.parse(f.calcGraph || "{}");
+    const n = Array.isArray(g.nodes) ? g.nodes.length : 0;
+    return `可视化蓝图 (${n} 节点)`;
+  } catch {
+    return "可视化蓝图";
+  }
+}
+
+function resetFieldForm() {
+  fieldForm.id = null;
+  fieldForm.name = "";
+  fieldForm.fieldKey = "";
+  fieldForm.fieldType = "NUMBER";
+  fieldForm.config = {};
+  fieldForm.defaultValue = "";
+  fieldForm.isCalculated = false;
+  fieldForm.calcGraph = "";
+  fieldForm.sortOrder = 0;
+  fieldForm.visible = true;
+}
+
+async function openFields(row: any) {
+  fieldTarget.value = row;
+  resetFieldForm();
+  showFields.value = true;
+  await loadFields();
+}
+
+async function loadFields() {
+  if (!fieldTarget.value) return;
+  fieldLoading.value = true;
+  try {
+    const res: any = await industryTypesApi.listFields(fieldTarget.value.id);
+    fields.value = Array.isArray(res) ? res : res?.items || res?.data || [];
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "加载产业字段失败");
+  } finally {
+    fieldLoading.value = false;
+  }
+}
+
+function editField(row: any) {
+  fieldForm.id = row.id;
+  fieldForm.name = row.name;
+  fieldForm.fieldKey = row.fieldKey;
+  fieldForm.fieldType = row.fieldType;
+  fieldForm.config = cloneConfig(row.fieldType, row.config);
+  fieldForm.defaultValue = row.defaultValue || "";
+  fieldForm.isCalculated = !!row.isCalculated;
+  fieldForm.calcGraph = row.calcGraph || "";
+  fieldForm.sortOrder = row.sortOrder || 0;
+  fieldForm.visible = row.visible !== false;
+}
+
+// 计算字段：直接进入全屏蓝图编辑器（左上角设置字段细节，右侧画布组合计算）
+function openGraphFullscreen(row: any) {
+  editField(row);
+  showGraphFullscreen.value = true;
+}
+
+// 只读详情：产业类型（含其字段列表），无管理权限也可查看
+function openTypeDetail(row: any) {
+  typeDetailRow.value = row;
+  typeDetailVisible.value = true;
+}
+
+// 只读详情：单个产业字段
+function openFieldDetail(row: any) {
+  fieldDetailRow.value = row;
+  fieldDetailVisible.value = true;
+}
+
+async function submitField() {
+  if (!fieldForm.name.trim() || !fieldForm.fieldKey.trim()) {
+    ElMessage.warning("请填写字段名称与字段键");
+    return;
+  }
+  if (fieldForm.isCalculated && !fieldForm.calcGraph?.trim()) {
+    ElMessage.warning("计算字段必须配置产业计算图（可视化蓝图）");
+    return;
+  }
+  // 计算字段：校验产业计算图（恰好一个「输出」节点）
+  if (fieldForm.isCalculated) {
+    try {
+      const g = JSON.parse(fieldForm.calcGraph || "{}");
+      const nodes = Array.isArray(g.nodes) ? g.nodes : [];
+      const outs = nodes.filter((n: any) => n.type === "output");
+      if (outs.length !== 1) {
+        ElMessage.warning("产业计算图必须且只能有一个「输出」节点");
+        return;
+      }
+    } catch {
+      ElMessage.warning("产业计算图 JSON 解析失败，请检查后重试");
+      return;
+    }
+  }
+  // 构建并校验 config
+  let config: any = defaultConfig(fieldForm.fieldType);
+  if (fieldForm.fieldType === "DICTIONARY") {
+    const entries = (fieldForm.config.entries || [])
+      .filter((e: any) => (e.key || "").trim() && (e.label || "").trim())
+      .map((e: any) => ({
+        key: e.key.trim(),
+        label: e.label.trim(),
+        defaultValue: e.defaultValue ?? "",
+      }));
+    // 允许创建空字典字段（不强制至少一个字典项）；有填的项仍做清洗校验
+    config = { valueType: fieldForm.config.valueType || "NUMBER", entries };
+  } else if (fieldForm.fieldType === "LIST") {
+    config = { itemType: fieldForm.config.itemType || "STRING" };
+  }
+  fieldSaving.value = true;
+  try {
+    const payload: any = {
+      name: fieldForm.name.trim(),
+      fieldKey: fieldForm.fieldKey.trim(),
+      fieldType: fieldForm.fieldType,
+      config,
+      defaultValue: fieldForm.defaultValue || undefined,
+      isCalculated: fieldForm.isCalculated,
+      calcGraph: fieldForm.isCalculated ? fieldForm.calcGraph : null,
+      formula: null,
+      sortOrder: fieldForm.sortOrder ?? 0,
+      visible: fieldForm.visible !== false,
+    };
+    if (fieldForm.id) {
+      await industryTypesApi.updateField(fieldForm.id, payload);
+      ElMessage.success("字段已更新");
+    } else {
+      await industryTypesApi.createField(fieldTarget.value.id, payload);
+      ElMessage.success("字段已添加");
+    }
+    showGraphFullscreen.value = false;
+    resetFieldForm();
+    await loadFields();
+    await loadTypes();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "保存字段失败");
+  } finally {
+    fieldSaving.value = false;
+  }
+}
+
+async function deleteField(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除字段「${row.name}」？公司中该字段已录入的数值会一并删除。`,
+      "删除确认",
+      { type: "warning" },
+    );
+  } catch {
+    return;
+  }
+  try {
+    await industryTypesApi.removeField(row.id);
+    ElMessage.success("已删除");
+    await loadFields();
+    await loadTypes();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "删除字段失败");
+  }
+}
+
+// 即时切换字段的前台展示开关：隐藏字段不在任何客户端界面显示（公司管理 / 区域总览 / 合同编辑器等）
+async function toggleFieldVisible(row: any, val: any) {
+  const next = !!val;
+  try {
+    await industryTypesApi.updateField(row.id, { visible: next });
+    row.visible = next;
+    ElMessage.success(next ? "字段已设为展示" : "字段已隐藏");
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "切换展示状态失败");
+  }
+}
+
+onMounted(async () => {
+  await loadTypes();
+});
+
+useResourceChanged("industry-types", () => {
+  loadTypes();
+});
+</script>
+
+<style scoped>
+.it-manager {
+  padding: 16px;
+}
+.mm-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.mm-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.expand-fields {
+  padding: 10px 20px;
+}
+.empty-tip {
+  color: #909399;
+  font-size: 13px;
+  padding: 6px 0;
+}
+.empty-tip {
+  color: #909399;
+  font-size: 13px;
+  padding: 6px 0;
+}
+.hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.6;
+}
+.dict-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.ge-host {
+  width: 100%;
+  height: 520px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.fb-wrap {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.fb-readout {
+  flex: 1;
+  min-width: 280px;
+}
+.fb-readout-title {
+  font-size: 12px;
+  color: #606266;
+  margin: 4px 0;
+}
+.fb-json {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.fb-text {
+  background: #f4f4f5;
+  color: #303133;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.detail-json {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+/* ===== 全屏蓝图编辑器 ===== */
+.fs-dialog {
+  display: flex;
+  flex-direction: column;
+  background: #f5f6fa;
+  padding: 0;
+  overflow: hidden;
+}
+.fs-dialog :deep(.el-dialog__header) {
+  display: none;
+}
+.fs-dialog :deep(.el-dialog__body) {
+  position: relative;
+  height: 100%;
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+}
+.fs-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+.fs-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
+}
+.fs-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fs-title-main {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+.fs-actions {
+  display: flex;
+  gap: 10px;
+}
+.fs-main {
+  flex: 1;
+  display: flex;
+  position: relative;
+  min-height: 0;
+}
+.fs-details {
+  flex: 0 0 280px;
+  align-self: flex-start;
+  width: 280px;
+  max-height: 100%;
+  overflow: auto;
+  padding: 14px;
+  background: #fff;
+  border-right: 1px solid #e4e7ed;
+}
+.fs-details-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #303133;
+  font-size: 14px;
+}
+.fs-details-form {
+  margin-bottom: 0;
+}
+.fs-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+</style>

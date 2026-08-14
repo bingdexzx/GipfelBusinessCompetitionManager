@@ -1,0 +1,13 @@
+# 统一换行符为 LF，避免跨平台协作时的 CRLF 混乱
+* text=auto eol=lf
+
+# 二进制资源不归一化
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

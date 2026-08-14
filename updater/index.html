@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gipfel 商赛系统 · 发布助手</title>
+    <style>
+      :root {
+        --bg: #f5f7fa;
+        --card: #ffffff;
+        --border: #e4e7ed;
+        --text: #1f2329;
+        --sub: #909399;
+        --primary: #409eff;
+        --primary-d: #337ecc;
+        --success: #67c23a;
+        --danger: #f56c6c;
+        --warn-bg: #fdf6ec;
+        --code-bg: #f6f8fa;
+        --shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .wrap {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 32px 20px 60px;
+      }
+      header h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+      }
+      header p {
+        color: var(--sub);
+        margin: 0 0 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        padding: 22px 24px;
+        margin-bottom: 20px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px 18px;
+      }
+      .field { display: flex; flex-direction: column; }
+      .field.full { grid-column: 1 / -1; }
+      label {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      label .hint {
+        font-weight: 400;
+        color: var(--sub);
+        margin-left: 8px;
+      }
+      input[type="text"],
+      input[type="date"],
+      textarea {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 14px;
+        font-family: inherit;
+        color: var(--text);
+        background: #fff;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      input:focus,
+      textarea:focus {
+        border-color: var(--primary);
+      }
+      textarea {
+        resize: vertical;
+        min-height: 120px;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 13px;
+      }
+      .checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px 22px;
+        margin-top: 4px;
+      }
+      .checks label {
+        font-weight: 400;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 6px;
+      }
+      button {
+        border: none;
+        border-radius: 6px;
+        padding: 9px 22px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, opacity 0.15s;
+      }
+      .btn-primary { background: var(--primary); color: #fff; }
+      .btn-primary:hover { background: var(--primary-d); }
+      .btn-ghost {
+        background: #fff;
+        color: var(--primary);
+        border: 1px solid var(--primary);
+      }
+      .btn-ghost:hover { background: #ecf5ff; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .result-title {
+        font-size: 16px;
+        font-weight: 700;
+        margin: 0 0 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .badge {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 2px 10px;
+        border-radius: 12px;
+      }
+      .badge.preview { background: #ecf5ff; color: var(--primary); }
+      .badge.done { background: #f0f9eb; color: var(--success); }
+      .alert {
+        border-radius: 6px;
+        padding: 10px 14px;
+        margin-bottom: 14px;
+      }
+      .alert.error { background: #fef0f0; color: var(--danger); border: 1px solid #fde2e2; }
+      .alert.info { background: var(--warn-bg); color: #b45309; border: 1px solid #faecd8; }
+      .change {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 12px;
+        overflow: hidden;
+      }
+      .change-head {
+        background: #fafafa;
+        padding: 8px 12px;
+        font-weight: 600;
+        border-bottom: 1px solid var(--border);
+      }
+      .change-head .type {
+        font-weight: 400;
+        color: var(--sub);
+        margin-left: 8px;
+        font-size: 12px;
+      }
+      pre.code {
+        margin: 0;
+        padding: 12px 14px;
+        background: var(--code-bg);
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 12.5px;
+        line-height: 1.55;
+        overflow-x: auto;
+        white-space: pre;
+      }
+      .meta { color: var(--sub); margin: 2px 0 12px; }
+      .meta b { color: var(--text); }
+      .empty { color: var(--sub); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Gipfel 商赛系统 · 发布助手</h1>
+        <p>填写版本信息，先「预览」确认，再「发布」自动写入版本号与更新日志。</p>
+      </header>
+
+      <div class="card">
+        <div class="grid">
+          <div class="field">
+            <label>新版本号 <span class="hint" id="verHint">x.y.z</span></label>
+            <input type="text" id="version" placeholder="例如 1.1.0" />
+          </div>
+          <div class="field">
+            <label>发布日期</label>
+            <input type="date" id="date" />
+          </div>
+          <div class="field full">
+            <label>公告标题</label>
+            <input type="text" id="title" placeholder="留空则默认为「更新公告 v版本号」" />
+          </div>
+          <div class="field full">
+            <label>更新要点 <span class="hint">每行一条；以「- 」开头会自动转为列表项</span></label>
+            <textarea id="notes" placeholder="修复地图节点加载偶发失败&#10;- 优化仪表盘加载速度&#10;- 新增批量导出合同"></textarea>
+          </div>
+        </div>
+
+        <div class="checks" style="margin-top: 16px">
+          <label><input type="checkbox" id="optChangelog" checked /> 更新 CHANGELOG.md</label>
+          <label><input type="checkbox" id="optAnnouncement" checked /> 更新 in-app 公告</label>
+          <label><input type="checkbox" id="optForce" /> 跳过版本校验</label>
+          <label><input type="checkbox" id="optCommit" /> 写后 git 提交</label>
+        </div>
+
+        <div class="actions">
+          <button class="btn-ghost" id="btnPreview">预览</button>
+          <button class="btn-primary" id="btnRelease">发布</button>
+        </div>
+      </div>
+
+      <div class="card" id="resultCard" style="display: none">
+        <div class="result-title">
+          <span id="resultTitle">结果</span>
+          <span class="badge" id="resultBadge"></span>
+        </div>
+        <div id="resultBody"></div>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      function todayISO() {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+      }
+
+      function collectPayload(dryRun) {
+        const notes = $("notes")
+          .value.split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        return {
+          version: $("version").value.trim(),
+          title: $("title").value.trim(),
+          date: $("date").value.trim(),
+          notes,
+          noChangelog: !$("optChangelog").checked,
+          noAnnouncement: !$("optAnnouncement").checked,
+          force: $("optForce").checked,
+          commit: $("optCommit").checked,
+          dryRun,
+        };
+      }
+
+      function showError(msg) {
+        $("resultCard").style.display = "block";
+        $("resultTitle").textContent = "出错";
+        const b = $("resultBadge");
+        b.className = "badge";
+        b.textContent = "";
+        const body = $("resultBody");
+        body.innerHTML = "";
+        const a = document.createElement("div");
+        a.className = "alert error";
+        a.textContent = msg;
+        body.appendChild(a);
+      }
+
+      function renderResult(data, dryRun) {
+        $("resultCard").style.display = "block";
+        const titleEl = $("resultTitle");
+        const badge = $("resultBadge");
+        const body = $("resultBody");
+        body.innerHTML = "";
+
+        if (!data.ok) {
+          titleEl.textContent = "无法发布";
+          badge.className = "badge";
+          badge.textContent = "";
+          const a = document.createElement("div");
+          a.className = "alert error";
+          a.textContent = data.error || "未知错误";
+          body.appendChild(a);
+          return;
+        }
+
+        titleEl.textContent = "发布预览";
+        badge.className = "badge " + (dryRun ? "preview" : "done");
+        badge.textContent = dryRun ? "仅预览" : "已写入";
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.innerHTML =
+          `版本 <b>${data.version}</b>（当前 ${data.current}） · 标题 <b>${data.title}</b> · 日期 <b>${data.date}</b> · 要点 ${data.notes.length} 条`;
+        body.appendChild(meta);
+
+        if (!dryRun) {
+          const info = document.createElement("div");
+          info.className = "alert info";
+          info.textContent =
+            "已写入上述文件。" +
+            (data.committed ? " 已提交 git。" : "") +
+            (data.commitError ? " git 提交失败，请手动提交。" : "") +
+            " 发版后请运行 client 的 electron:build 打包，并重启/重部署服务端。";
+          body.appendChild(info);
+        }
+
+        if (!data.changes || data.changes.length === 0) {
+          const e = document.createElement("div");
+          e.className = "empty";
+          e.textContent = "无变更内容。";
+          body.appendChild(e);
+          return;
+        }
+
+        for (const c of data.changes) {
+          const box = document.createElement("div");
+          box.className = "change";
+
+          const head = document.createElement("div");
+          head.className = "change-head";
+          head.textContent = c.label;
+          const t = document.createElement("span");
+          t.className = "type";
+          t.textContent = c.type;
+          head.appendChild(t);
+          box.appendChild(head);
+
+          if (c.preview) {
+            const pre = document.createElement("pre");
+            pre.className = "code";
+            pre.textContent = c.preview;
+            box.appendChild(pre);
+          } else {
+            const pre = document.createElement("pre");
+            pre.className = "code";
+            pre.textContent = c.file;
+            box.appendChild(pre);
+          }
+          body.appendChild(box);
+        }
+      }
+
+      async function doAction(dryRun) {
+        const btnP = $("btnPreview");
+        const btnR = $("btnRelease");
+        btnP.disabled = true;
+        btnR.disabled = true;
+        try {
+          const res = await fetch("/api/release", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(collectPayload(dryRun)),
+          });
+          const data = await res.json();
+          renderResult(data, dryRun);
+        } catch (e) {
+          showError("请求失败：" + e.message);
+        } finally {
+          btnP.disabled = false;
+          btnR.disabled = false;
+        }
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        // 发布日期自动根据系统时间同步：初始填今天，用户未手动修改时每分钟续同步（覆盖跨午夜）。
+        let dateTouched = false;
+        $("date").addEventListener("input", () => {
+          dateTouched = true;
+        });
+        const syncDate = (iso) => {
+          if (dateTouched) return; // 用户手动改过则不再自动覆盖
+          $("date").value = iso || todayISO();
+        };
+        syncDate();
+        setInterval(syncDate, 60 * 1000);
+        fetch("/api/info")
+          .then((r) => r.json())
+          .then((d) => {
+            $("verHint").textContent = "当前 " + (d.currentVersion || "?") + " · 须更大";
+            // 优先采用服务端（发布实际执行环境）的系统日期，避免浏览器时区偏差。
+            if (d.today) syncDate(d.today);
+          })
+          .catch(() => {});
+        $("btnPreview").addEventListener("click", () => doAction(true));
+        $("btnRelease").addEventListener("click", () => doAction(false));
+      });
+    </script>
+  </body>
+</html>

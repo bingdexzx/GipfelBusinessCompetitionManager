@@ -1,0 +1,508 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int         @id @default(autoincrement())
+  username      String      @unique
+  passwordHash  String
+  role          String      @default("PLAYER")
+  displayName   String?
+  competitionId Int?
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  // 细粒度权限：JSON 数组，存放权限 key（如 ["data:material:edit","contract:execute"]）。
+  // 为 null 表示仅按 role 继承；SUPER_ADMIN 始终隐式拥有全部权限，不受此字段约束。
+  permissions   String?
+  // 公司审核范围：JSON 数组，存放该账号可作为管理员/审核员审核其合同的公司 id。
+  // 仅在与 contract:audit 权限配合时生效；为 null 表示无范围限制（通常仅超管/合同管理员用到）。
+  companyScopes String?
+  // 公司可见字段范围（company:view 专属）：JSON 数组，存放该账号可读取「全量（含未发布）字段」的公司 id。
+  // 仅在与 company:view 权限配合时生效；为 null 表示无范围限制（全部公司全量可读）。
+  // 与 companyScopes（contract:audit 审核范围）相互独立，分别控制「读」与「审」两类范围。
+  viewCompanyScopes String?
+  // 合同查看范围（contract:view 专属）：JSON 数组，存放该账号可查看的合同的参与方公司 id。
+  // 仅在与 contract:view 配合时生效（且不影响 contract:audit/execute/manage 等更高权限）；
+  // 为 null 表示无范围限制（可见全部合同）。与 companyScopes / viewCompanyScopes 相互独立。
+  contractViewCompanyScopes String?
+  // 强制改密标志：种子默认超管置 true，登录后未改密前禁止访问业务接口（安全加固）。
+  mustChangePassword Boolean @default(false)
+  // 单设备登录：每次登录自增，作为 JWT 内的「会话版本号」。
+  // 库内当前 tokenVersion 与 token 内携带的不一致即判定该 token 失效（被新设备登录顶掉）。
+  tokenVersion Int          @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model FiscalYear {
+  id            Int         @id @default(autoincrement())
+  competitionId Int
+  year          Int
+  status        String      @default("ACTIVE") // ACTIVE, CLOSED
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([competitionId, year])
+}
+
+model Competition {
+  id              Int                @id @default(autoincrement())
+  name            String             @unique
+  status          String             @default("ACTIVE")
+  fiscalYears     FiscalYear[]
+  users           User[]
+  companies       Company[]
+  regions         Region[]
+  consumerDemands ConsumerDemand[]
+  materials       Material[]
+  parts           Part[]
+  products        Product[]
+  techNodes       TechNode[]
+  mapNodeTypes    MapNodeType[]
+  pathTypes       PathType[]
+  mapNodes        MapNode[]
+  mapEdges        MapEdge[]
+  infrastructures Infrastructure[]
+  fuels           Fuel[]
+  vehicles        Vehicle[]
+  warehouses      Warehouse[]
+  productionLines ProductionLine[]
+  contracts       Contract[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model Material {
+  id                        Int            @id @default(autoincrement())
+  name                      String
+  origin                    String
+  carbonEmissionCoefficient Float
+  // 按地点（地图节点）价格：JSON 字符串 { [mapNodeId]: 价格 }。
+  // 原料价格完全按地点（节点）定价，无基础价格字段。
+  // 计算原料总价格时按参与方所在节点取对应价，未设地点价的节点按 0 计。
+  nodePrices               String   @default("{}")
+  type                      String   @default("NORMAL") // NORMAL, SPECIAL
+  competitionId             Int?
+  competition               Competition?   @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  partMaterials             PartMaterial[]
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model Part {
+  id               Int                     @id @default(autoincrement())
+  name             String
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  partMaterials    PartMaterial[]
+  productParts     ProductPart[]
+  techRequirements PartTechRequirement[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model PartMaterial {
+  partId     Int
+  materialId Int
+  ratio      Float
+  part       Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@id([partId, materialId])
+}
+
+model PartTechRequirement {
+  partId     Int
+  techNodeId Int
+  part       Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
+  techNode   TechNode @relation(fields: [techNodeId], references: [id], onDelete: Cascade)
+
+  @@id([partId, techNodeId])
+}
+
+model Product {
+  id               Int                        @id @default(autoincrement())
+  name             String
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  productParts     ProductPart[]
+  techRequirements ProductTechRequirement[]
+  consumerDemands  ConsumerDemand[]
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model ProductPart {
+  productId Int
+  partId    Int
+  ratio     Float
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  part      Part    @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@id([productId, partId])
+}
+
+model ProductTechRequirement {
+  productId  Int
+  techNodeId Int
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  techNode   TechNode @relation(fields: [techNodeId], references: [id], onDelete: Cascade)
+
+  @@id([productId, techNodeId])
+}
+
+model TechNode {
+  id                   Int                        @id @default(autoincrement())
+  name                 String
+  description          String?
+  tier                 Int                        @default(0)
+  researchCost         Float                      @default(0)
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  prerequisites        TechPrerequisite[]         @relation("NodePrerequisites")
+  requiredBy           TechPrerequisite[]         @relation("NodeRequiredBy")
+  partRequirements     PartTechRequirement[]
+  productRequirements  ProductTechRequirement[]
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model TechPrerequisite {
+  nodeId             Int
+  prerequisiteNodeId Int
+  node               TechNode @relation("NodePrerequisites", fields: [nodeId], references: [id], onDelete: Cascade)
+  prerequisite       TechNode @relation("NodeRequiredBy", fields: [prerequisiteNodeId], references: [id], onDelete: Cascade)
+
+  @@id([nodeId, prerequisiteNodeId])
+}
+
+model MapNodeType {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String?
+  color       String?
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  nodes       MapNode[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model PathType {
+  id          Int               @id @default(autoincrement())
+  name        String
+  description String?
+  color       String?
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  edges       MapEdge[]
+  vehicles    VehiclePathType[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model MapNode {
+  id         Int         @id @default(autoincrement())
+  name       String
+  region     String
+  nodeTypeId Int
+  x          Float       @default(0)
+  y          Float       @default(0)
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  nodeType   MapNodeType @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
+  edgesFrom  MapEdge[]   @relation("EdgeFrom")
+  edgesTo    MapEdge[]   @relation("EdgeTo")
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model MapEdge {
+  id         Int      @id @default(autoincrement())
+  fromNodeId Int
+  toNodeId   Int
+  distance   Float
+  pathTypeId Int
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  fromNode   MapNode  @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode     MapNode  @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+  pathType   PathType @relation(fields: [pathTypeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([fromNodeId, toNodeId])
+}
+
+model Infrastructure {
+  id                         Int      @id @default(autoincrement())
+  name                       String
+  footprint                  Float
+  employmentRateBonus        Float    @default(0)
+  populationBonus            Float    @default(0)
+  highQualityPopulationBonus Float    @default(0)
+  price                      Float
+  happinessIndexBonus        Float    @default(0)
+  perCapitaIncomeBonus       Float    @default(0)
+  carbonReductionBonus       Float    @default(0)
+  activationPrice            Float
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model Warehouse {
+  id       Int      @id @default(autoincrement())
+  name     String
+  capacity Float
+  price    Float
+  type     String   // MATERIAL, PART, PRODUCT
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model ProductionLine {
+  id         Int      @id @default(autoincrement())
+  name       String
+  price      Float
+  laborCount Int
+  maxPerYear Float
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model Fuel {
+  id            Int       @id @default(autoincrement())
+  name          String
+  pricePerLiter Float
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  vehicles      Vehicle[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model Vehicle {
+  id                   Int               @id @default(autoincrement())
+  name                 String
+  fuelId               Int
+  fuelConsumptionPerKm Float
+  maxCargo             Float
+  price                Float
+  carbonEmission       Float
+  competitionId    Int?
+  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  fuel                 Fuel              @relation(fields: [fuelId], references: [id])
+  vehiclePathTypes     VehiclePathType[]
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+model VehiclePathType {
+  vehicleId  Int
+  pathTypeId Int
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  pathType   PathType @relation(fields: [pathTypeId], references: [id], onDelete: Cascade)
+
+  @@id([vehicleId, pathTypeId])
+}
+
+// ============ 产业类型 ============
+model IndustryType {
+  id          Int             @id @default(autoincrement())
+  name        String
+  code        Int             @unique
+  description String?
+  icon        String?
+  fields      IndustryField[]
+  companies   Company[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model IndustryField {
+  id             Int                  @id @default(autoincrement())
+  industryTypeId Int
+  name           String
+  fieldKey       String
+  // 字段类型：STRING / NUMBER / BOOLEAN / DICTIONARY / LIST
+  // - DICTIONARY：键值字典，config 定义 entries（key/label/defaultValue）与 valueType
+  // - LIST：列表，config 定义 itemType（STRING/NUMBER/BOOLEAN）
+  fieldType      String               @default("NUMBER")
+  // 类型相关配置（JSON 字符串）：DICTIONARY -> { entries:[{key,label,defaultValue}], valueType }
+  // LIST -> { itemType }。其它类型可为空对象。
+  config         String               @default("{}")
+  defaultValue   String?
+  isCalculated   Boolean              @default(false)
+  calcGraph      String?              // 产业计算图（GGraph JSON）：isCalculated=true 时由该图在写入时级联重算本字段
+  formula        String?              // 旧公式引擎，已废弃（保留列以兼容历史数据）
+  sortOrder      Int                  @default(0)
+  // 字段是否在前台展示：false 时该字段不出现在公司管理 / 区域总览字段选择 / 合同编辑器字段目标等任何客户端展示中；
+  // 仅为展示层开关，合同引擎仍按 fieldKey 正常读写其 CompanyFieldValue。
+  visible        Boolean              @default(true)
+  industryType   IndustryType         @relation(fields: [industryTypeId], references: [id], onDelete: Cascade)
+  fieldValues    CompanyFieldValue[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([industryTypeId, fieldKey])
+}
+
+// ============ 区域（业务分组，含总览卡片配置） ============
+model Region {
+  id             Int       @id @default(autoincrement())
+  name           String
+  description    String?
+  // 区域为比赛级数据（无 competitionId 视为全局模板，通常不使用）；删除比赛级联删除其下区域
+  competitionId  Int?
+  competition    Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  // 总览卡片配置：JSON 字符串，元素结构见 README §9.11.2
+  // [{ id, displayName, companyId, industryFieldId }]
+  overviewCards  String    @default("[]")
+  companies      Company[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+// ============ 消费者需求（按区域记录的产品需求） ============
+model ConsumerDemand {
+  id            Int       @id @default(autoincrement())
+  // 比赛级数据，删除比赛时级联删除
+  competitionId Int?
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  region        String               // 区域名（对应地图区域）
+  productId     Int?                 // 关联产品（产品主数据）；产品删除时置空不级联
+  product       Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productType   String               // 产品名称（冗余存储，便于产品删除后仍可读）
+  quantity      Int      @default(0) // 产品数量
+  note          String?              // 备注
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([competitionId, region])
+}
+
+// ============ 公司（产业实例） ============
+model Company {
+  id             Int                  @id @default(autoincrement())
+  name           String
+  industryTypeId Int?
+  competitionId  Int?
+  status         String               @default("ACTIVE")
+  competition    Competition?         @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  industryType   IndustryType?        @relation(fields: [industryTypeId], references: [id])
+  // 区域归属：一个公司仅属一个区域；删除区域时 regionId 置空（SetNull），不级联删公司
+  regionId       Int?
+  region         Region?              @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  fieldValues    CompanyFieldValue[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+}
+
+model CompanyFieldValue {
+  id              Int            @id @default(autoincrement())
+  companyId       Int
+  industryFieldId Int
+  value           String
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  industryField   IndustryField  @relation(fields: [industryFieldId], references: [id])
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([companyId, industryFieldId])
+}
+
+// ============ 合同系统（新引擎：配置驱动，仅操作产业字段） ============
+// ContractType：合同类型模板（配置）。effects 为效果定义数组，引擎按类型执行。
+model ContractType {
+  id           Int       @id @default(autoincrement())
+  key          String    @unique // 唯一编码，如 LOAN / FUEL_PURCHASE / RND
+  name         String
+  description  String?
+  partyCount   Int       @default(2) // 2 或 3
+  partyRoles   String    // JSON: [{role:"A",label:"放款方",selectable:true,isHost:false}, ...]
+  inputSchema  String    // JSON: [{key,label,type,required,default?,enum?}]
+  effects      String    // JSON: 效果定义数组（见合同引擎文档）。仅支持 FIELD 效果。
+  conditions   String    @default("[]") // JSON: 前置检查数组（FIELD_COMPARE / INDUSTRY_IS）
+  graph        String?   // JSON: 可视化编辑器图结构（节点+连线+布局），可选
+  enabled      Boolean   @default(true)
+  contracts    Contract[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// Contract：合同实例。
+model Contract {
+  id              Int          @id @default(autoincrement())
+  competitionId   Int
+  contractTypeId  Int
+  name            String
+  status          String       @default("DRAFT") // DRAFT, EXECUTED, TERMINATED
+  parties         String       // JSON: [{role:"A",companyId:5,isHost:false}, ...]
+  inputs          String       @default("{}") // JSON: 已填写的输入参数
+  executionLog    String?      // JSON: 执行审计日志
+  executionResult String?      // JSON: 执行结果快照
+  signedAt        DateTime?
+  executedAt      DateTime?
+  competition     Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  contractType    ContractType @relation(fields: [contractTypeId], references: [id])
+  fieldEffects    ContractFieldEffect[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+// ContractFieldEffect：合同执行时对某产业字段造成的单次改写（叶子效果）的不可变记录。
+// 用于合同删除时「复原字段修改但不影响后续合同」：删合同时按 executedAt 顺序重放其余已执行合同
+// 的增量，从而精确撤销本合同的字段影响，且不动后续合同已落账的字段值。
+model ContractFieldEffect {
+  id              Int      @id @default(autoincrement())
+  contractId      Int
+  companyId       Int
+  industryFieldId Int
+  fieldKey        String
+  fieldName       String
+  op              String // ADD | SUB | SET（与合同引擎 FieldEffect.op 一致）
+  valueRaw        String // JSON：本次写入的增量值（执行期实际 newValue）
+  beforeRaw       String // JSON：写入前字段现值（即本合同中该字段的基线）
+  afterRaw        String // JSON：写入后字段现值
+  createdAt       DateTime @default(now())
+  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId])
+  @@index([companyId, industryFieldId])
+}

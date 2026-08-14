@@ -1,0 +1,20 @@
+node_modules/
+dist/
+dist-electron/
+release/
+*.db
+*.db-journal
+logs/
+.env
+.workbuddy/
+build_tmp*.log
+.DS_Store
+
+# 依赖 / 构建缓存（不要入库）
+.npmcache/
+server-npmcache/
+dist_check/
+# 数据库备份（不要入库）
+*.db.bak*
+# Prisma 迁移：本项目采用 `prisma db push` 流程，不维护 migrations 目录
+server/prisma/migrations/

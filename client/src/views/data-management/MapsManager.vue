@@ -1,0 +1,1889 @@
+<template>
+  <div class="maps-manager">
+    <!-- 顶部工具栏 -->
+    <div class="mm-toolbar">
+      <h2 class="mm-title">{{ authStore.can("data:map:edit") ? "地图管理" : "地图" }}</h2>
+      <div class="mm-actions">
+        <el-button type="primary" @click="fitCanvas">适应画布</el-button>
+        <el-button :loading="loading" @click="loadData">刷新数据</el-button>
+        <el-button
+          v-if="canEdit"
+          :type="connectMode ? 'warning' : 'default'"
+          @click="toggleConnect"
+        >
+          {{ connectMode ? "退出连线模式" : "连线模式" }}
+        </el-button>
+      </div>
+    </div>
+
+    <div v-if="!compStore.competitionId" class="no-comp-warning">
+      请先在「比赛管理」中选择一个比赛
+    </div>
+
+    <!-- 主体三栏布局 -->
+    <div class="mm-body">
+      <!-- 左侧节点列表 -->
+      <div v-if="canEdit" class="mm-left-panel">
+        <div class="panel-header">
+          <span class="panel-title">节点列表</span>
+          <el-button
+            v-if="authStore.can('data:map:edit')"
+            size="small"
+            type="primary"
+            @click="openCreateDialog"
+            >+ 新建</el-button
+          >
+        </div>
+        <el-input
+          v-model="nodeSearch"
+          placeholder="搜索节点..."
+          clearable
+          size="default"
+          class="panel-search"
+        />
+        <div class="node-list">
+          <div
+            v-for="node in filteredNodes"
+            :key="node.id"
+            class="node-item"
+            :class="{ active: selectedNode?.id === node.id }"
+            @click="focusNode(node)"
+            @dblclick="jumpToNode(node)"
+          >
+            <span class="node-color-dot" :style="{ background: getNodeColor(node) }"></span>
+            <span class="node-name">{{ node.name }}</span>
+            <span class="node-region">{{ node.region }}</span>
+          </div>
+          <el-empty v-if="filteredNodes.length === 0 && !loading" description="暂无节点" />
+        </div>
+      </div>
+
+      <!-- 中间 Konva 画布 -->
+      <div ref="canvasWrapper" class="mm-canvas-wrapper">
+        <v-stage
+          ref="stageRef"
+          :config="stageConfig"
+          @mousedown="handleStageMouseDown"
+          @mousemove="handleStageMouseMove"
+          @mouseup="handleStageMouseUp"
+          @dblclick="handleStageDblClick"
+          @contextmenu="handleStageContextMenu"
+          @wheel="handleStageWheel"
+        >
+          <!-- 边图层 -->
+          <v-layer>
+            <v-line
+              v-for="edge in edges"
+              :key="'e-' + edge.id"
+              :config="getEdgeConfig(edge)"
+              @click="selectEdge(edge)"
+              @contextmenu="handleContextEdgeDelete($event, edge)"
+            />
+          </v-layer>
+          <!-- 节点图层 -->
+          <v-layer>
+            <v-group
+              v-for="node in nodes"
+              :key="'g-' + node.id"
+              :config="getNodeGroupConfig(node)"
+              @dragstart="handleNodeDragStart(node)"
+              @dragmove="handleNodeDragMove(node)"
+              @dragend="handleNodeDragEnd(node)"
+              @click="selectNode(node)"
+              @dblclick="focusNode(node)"
+              @contextmenu="handleContextNodeMenu($event, node)"
+            >
+              <v-circle :config="getNodeCircleConfig(node)" />
+              <v-text :config="getNodeTextConfig(node)" />
+            </v-group>
+          </v-layer>
+        </v-stage>
+      </div>
+
+      <!-- 右侧属性面板 -->
+      <div v-if="canEdit" class="mm-right-panel">
+        <!-- 节点属性-->
+        <template v-if="selectedNode">
+          <div class="panel-header">
+            <span class="panel-title">节点属性</span>
+            <el-tag :color="getNodeColor(selectedNode)" effect="dark" size="small">
+              {{ getNodeTypeName(selectedNode.nodeTypeId) }}
+            </el-tag>
+          </div>
+          <el-form label-width="60px" size="default" class="panel-form">
+            <el-form-item label="名称">
+              <el-input v-model="nodeForm.name" />
+            </el-form-item>
+            <el-form-item label="区域">
+              <el-select
+                v-model="nodeForm.region"
+                filterable
+                allow-create
+                placeholder="选择或输入区域"
+                style="width: 100%"
+              >
+                <el-option v-for="r in regions" :key="r" :label="r" :value="r" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="类型">
+              <el-select v-model="nodeForm.nodeTypeId" style="width: 100%">
+                <el-option v-for="nt in nodeTypes" :key="nt.id" :label="nt.name" :value="nt.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="X坐标">
+              <el-input-number v-model="nodeForm.x" :precision="2" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="Y坐标">
+              <el-input-number v-model="nodeForm.y" :precision="2" style="width: 100%" />
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                type="primary"
+                size="small"
+                :loading="savingNode"
+                @click="saveNode"
+                >保存</el-button
+              >
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                type="danger"
+                size="small"
+                @click="deleteNode"
+                >删除</el-button
+              >
+            </el-form-item>
+          </el-form>
+        </template>
+
+        <!-- 边属性-->
+        <template v-else-if="selectedEdge">
+          <div class="panel-header">
+            <span class="panel-title">路径属性</span>
+            <el-tag :color="getEdgeColor(selectedEdge)" effect="dark" size="small">
+              {{ getPathTypeName(selectedEdge.pathTypeId) }}
+            </el-tag>
+          </div>
+          <el-form label-width="60px" size="default" class="panel-form">
+            <el-form-item label="起点">
+              <span class="form-text">{{ getNodeName(selectedEdge.fromNodeId) }}</span>
+            </el-form-item>
+            <el-form-item label="终点">
+              <span class="form-text">{{ getNodeName(selectedEdge.toNodeId) }}</span>
+            </el-form-item>
+            <el-form-item label="距离">
+              <el-input-number
+                v-model="edgeForm.distance"
+                :min="0"
+                :precision="0"
+                :controls="false"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="类型">
+              <el-select v-model="edgeForm.pathTypeId" style="width: 100%">
+                <el-option v-for="pt in pathTypes" :key="pt.id" :label="pt.name" :value="pt.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                type="primary"
+                size="small"
+                :loading="savingEdge"
+                @click="saveEdge"
+                >保存</el-button
+              >
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                type="danger"
+                size="small"
+                @click="deleteEdge"
+                >删除</el-button
+              >
+            </el-form-item>
+          </el-form>
+        </template>
+
+        <!-- 未选中 -->
+        <div v-else class="panel-empty">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="22" stroke="#C0C4CC" stroke-width="2" fill="none" />
+            <text
+              x="24"
+              y="30"
+              text-anchor="middle"
+              fill="#C0C4CC"
+              font-size="24"
+              font-family="serif"
+            >
+              i
+            </text>
+          </svg>
+          <p>点击节点或边查看属性</p>
+          <p class="hint">双击空白区域新建节点</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部 Tab 管理 -->
+    <div v-if="canEdit" class="mm-bottom">
+      <el-tabs v-model="bottomTab" type="border-card">
+        <!-- 节点类型管理 -->
+        <el-tab-pane label="节点类型管理" name="nodeTypes">
+          <div class="tab-toolbar">
+            <el-button
+              v-if="authStore.can('data:map:edit')"
+              type="primary"
+              size="small"
+              @click="openNodeTypeCreate"
+              >+ 新建类型</el-button
+            >
+          </div>
+          <el-table :data="nodeTypes" border stripe size="small" style="width: 100%">
+            <el-table-column label="颜色" width="70">
+              <template #default="{ row }">
+                <span class="color-block" :style="{ background: row.color }"></span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="name" label="名称" />
+            <el-table-column prop="description" label="描述" />
+            <el-table-column label="操作" width="240" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="showNodeTypeDetail(row)">详情</el-button>
+                <el-button
+                  v-if="authStore.can('data:map:edit')"
+                  size="small"
+                  @click="openNodeTypeEdit(row)"
+                  >编辑</el-button
+                >
+                <el-button
+                  v-if="authStore.can('data:map:edit')"
+                  size="small"
+                  type="danger"
+                  @click="deleteNodeType(row)"
+                  >删除</el-button
+                >
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <!-- 路径类型管理 -->
+        <el-tab-pane label="路径类型管理" name="pathTypes">
+          <div class="tab-toolbar">
+            <el-button
+              v-if="authStore.can('data:map:edit')"
+              type="primary"
+              size="small"
+              @click="openPathTypeCreate"
+              >+ 新建类型</el-button
+            >
+          </div>
+          <el-table :data="pathTypes" border stripe size="small" style="width: 100%">
+            <el-table-column label="颜色" width="70">
+              <template #default="{ row }">
+                <span class="color-block" :style="{ background: row.color }"></span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="name" label="名称" />
+            <el-table-column prop="description" label="描述" />
+            <el-table-column label="操作" width="240" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="showPathTypeDetail(row)">详情</el-button>
+                <el-button
+                  v-if="authStore.can('data:map:edit')"
+                  size="small"
+                  @click="openPathTypeEdit(row)"
+                  >编辑</el-button
+                >
+                <el-button
+                  v-if="authStore.can('data:map:edit')"
+                  size="small"
+                  type="danger"
+                  @click="deletePathType(row)"
+                  >删除</el-button
+                >
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <!-- 区域管理 -->
+        <el-tab-pane label="区域管理" name="regions">
+          <div class="tab-toolbar">
+            <el-button
+              v-if="authStore.can('data:map:edit')"
+              type="primary"
+              size="small"
+              @click="openRegionCreate"
+              >+ 新建区域</el-button
+            >
+          </div>
+          <el-table :data="regionsList" border stripe size="small" style="width: 100%">
+            <el-table-column prop="name" label="名称" />
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  v-if="authStore.can('data:map:edit')"
+                  size="small"
+                  type="danger"
+                  @click="removeRegion(row.name)"
+                  >删除</el-button
+                >
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+    </div>
+
+    <!-- 右键菜单 -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenu.visible"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      >
+        <template v-if="contextMenu.type === 'node'">
+          <div class="menu-item" @click="contextNodeEdit">编辑节点</div>
+          <div class="menu-item" @click="contextNodeDelete">删除节点</div>
+          <div class="menu-item" @click="contextMenu.visible = false">取消</div>
+        </template>
+        <template v-else-if="contextMenu.type === 'stage'">
+          <div class="menu-item" @click="openCreateAtContext">在此新建节点</div>
+          <div class="menu-item" @click="contextMenu.visible = false">取消</div>
+        </template>
+      </div>
+    </Teleport>
+
+    <!-- 新建节点对话框 -->
+    <el-dialog append-to-body
+      v-model="createDialogVisible"
+      title="新建节点"
+      width="480px"
+      @closed="resetCreateForm"
+    >
+      <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="80px">
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="createForm.name" placeholder="输入节点名称" />
+        </el-form-item>
+        <el-form-item label="区域" prop="region">
+          <el-select
+            v-model="createForm.region"
+            filterable
+            allow-create
+            placeholder="选择或输入区域"
+            style="width: 100%"
+          >
+            <el-option v-for="r in regions" :key="r" :label="r" :value="r" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="类型" prop="nodeTypeId">
+          <el-select v-model="createForm.nodeTypeId" placeholder="选择节点类型" style="width: 100%">
+            <el-option v-for="nt in nodeTypes" :key="nt.id" :label="nt.name" :value="nt.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="authStore.can('data:map:edit')"
+          type="primary"
+          :loading="creatingNode"
+          @click="handleCreateNode"
+          >确定</el-button
+        >
+      </template>
+    </el-dialog>
+
+    <!-- 节点类型编辑对话框 -->
+    <el-dialog append-to-body
+      v-model="nodeTypeDialogVisible"
+      :title="nodeTypeIsEdit ? '编辑节点类型' : '新建节点类型'"
+      width="480px"
+      @closed="resetNodeTypeForm"
+    >
+      <el-form ref="nodeTypeFormRef" :model="nodeTypeForm" :rules="typeRules" label-width="80px">
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="nodeTypeForm.name" placeholder="类型名称" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="nodeTypeForm.description" placeholder="类型描述" />
+        </el-form-item>
+        <el-form-item label="颜色">
+          <div class="color-picker-row">
+            <span
+              v-for="c in presetColors"
+              :key="c"
+              class="color-chip"
+              :class="{ active: nodeTypeForm.color === c }"
+              :style="{ background: c }"
+              @click="nodeTypeForm.color = c"
+            ></span>
+            <el-color-picker v-model="nodeTypeForm.color" size="small" />
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="nodeTypeDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="authStore.can('data:map:edit')"
+          type="primary"
+          :loading="saveNodeTypeLoading"
+          @click="handleSaveNodeType"
+          >确定</el-button
+        >
+      </template>
+    </el-dialog>
+
+    <!-- 路径类型编辑对话框 -->
+    <el-dialog append-to-body
+      v-model="pathTypeDialogVisible"
+      :title="pathTypeIsEdit ? '编辑路径类型' : '新建路径类型'"
+      width="480px"
+      @closed="resetPathTypeForm"
+    >
+      <el-form ref="pathTypeFormRef" :model="pathTypeForm" :rules="typeRules" label-width="80px">
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="pathTypeForm.name" placeholder="类型名称" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="pathTypeForm.description" placeholder="类型描述" />
+        </el-form-item>
+        <el-form-item label="颜色">
+          <div class="color-picker-row">
+            <span
+              v-for="c in presetColors"
+              :key="c"
+              class="color-chip"
+              :class="{ active: pathTypeForm.color === c }"
+              :style="{ background: c }"
+              @click="pathTypeForm.color = c"
+            ></span>
+            <el-color-picker v-model="pathTypeForm.color" size="small" />
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pathTypeDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="authStore.can('data:map:edit')"
+          type="primary"
+          :loading="savePathTypeLoading"
+          @click="handleSavePathType"
+          >确定</el-button
+        >
+      </template>
+    </el-dialog>
+
+    <!-- 节点类型详情对话框 -->
+    <el-dialog append-to-body v-model="nodeTypeDetailVisible" title="节点类型详情" width="500px">
+      <el-descriptions v-if="nodeTypeDetailData" :column="1" border>
+        <el-descriptions-item label="名称">{{ nodeTypeDetailData.name }}</el-descriptions-item>
+        <el-descriptions-item label="描述">{{
+          nodeTypeDetailData.description || "-"
+        }}</el-descriptions-item>
+        <el-descriptions-item label="颜色">
+          <span class="color-block" :style="{ background: nodeTypeDetailData.color }"></span>
+          {{ nodeTypeDetailData.color }}
+        </el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{
+          $formatTime(nodeTypeDetailData.createdAt)
+        }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{
+          $formatTime(nodeTypeDetailData.updatedAt)
+        }}</el-descriptions-item>
+      </el-descriptions>
+    </el-dialog>
+
+    <!-- 路径类型详情对话框 -->
+    <el-dialog append-to-body v-model="pathTypeDetailVisible" title="路径类型详情" width="500px">
+      <el-descriptions v-if="pathTypeDetailData" :column="1" border>
+        <el-descriptions-item label="名称">{{ pathTypeDetailData.name }}</el-descriptions-item>
+        <el-descriptions-item label="描述">{{
+          pathTypeDetailData.description || "-"
+        }}</el-descriptions-item>
+        <el-descriptions-item label="颜色">
+          <span class="color-block" :style="{ background: pathTypeDetailData.color }"></span>
+          {{ pathTypeDetailData.color }}
+        </el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{
+          $formatTime(pathTypeDetailData.createdAt)
+        }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{
+          $formatTime(pathTypeDetailData.updatedAt)
+        }}</el-descriptions-item>
+      </el-descriptions>
+    </el-dialog>
+
+    <!-- 区域新建对话框 -->
+    <el-dialog append-to-body
+      v-model="regionDialogVisible"
+      title="新建区域"
+      width="400px"
+      @closed="newRegionName = ''"
+    >
+      <el-form
+        ref="regionFormRef"
+        :model="{ name: newRegionName }"
+        :rules="regionRules"
+        label-width="80px"
+      >
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="newRegionName" placeholder="输入区域名称" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="regionDialogVisible = false">取消</el-button>
+        <el-button v-if="authStore.can('data:map:edit')" type="primary" @click="addRegion"
+          >确定</el-button
+        >
+      </template>
+    </el-dialog>
+
+    <!-- 连线创建对话框 -->
+    <el-dialog append-to-body v-model="edgeCreateDialogVisible" title="创建路径" width="400px">
+      <el-form
+        ref="edgeCreateFormRef"
+        :model="edgeCreateForm"
+        :rules="edgeCreateRules"
+        label-width="80px"
+      >
+        <el-form-item label="路径类型" prop="pathTypeId">
+          <el-select
+            v-model="edgeCreateForm.pathTypeId"
+            placeholder="选择路径类型"
+            style="width: 100%"
+          >
+            <el-option v-for="pt in pathTypes" :key="pt.id" :label="pt.name" :value="pt.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="距离">
+          <el-input-number
+            v-model="edgeCreateForm.distance"
+            :min="0"
+            :precision="0"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="edgeCreateDialogVisible = false">取消</el-button>
+        <el-button v-if="authStore.can('data:map:edit')" type="primary" @click="confirmCreateEdge"
+          >确定</el-button
+        >
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { mapsApi, regionsApi } from "@/api";
+import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
+import { useCompetitionStore } from "@/stores/competition";
+import { useCompetitionReload } from "@/composables/useCompetitionReload";
+import { useAuthStore } from "@/stores/auth";
+import { useResourceChanged } from "@/realtime/useResourceChanged";
+
+const NODE_RADIUS = 28;
+const compStore = useCompetitionStore();
+const authStore = useAuthStore();
+// 查看权限（无 data:map:edit）时只展示可拖拽/缩放的地图，隐藏所有编辑用外框与按钮
+const canEdit = computed(() => authStore.can("data:map:edit"));
+
+// ===================== 数据 =====================
+interface MapNode {
+  id: number;
+  name: string;
+  region: string;
+  nodeTypeId: number | null;
+  x: number;
+  y: number;
+}
+
+interface MapEdge {
+  id: number;
+  fromNodeId: number;
+  toNodeId: number;
+  distance: number;
+  pathTypeId: number | null;
+}
+
+interface NodeType {
+  id: number;
+  name: string;
+  description: string;
+  color: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface PathType {
+  id: number;
+  name: string;
+  description: string;
+  color: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+const nodes = ref<MapNode[]>([]);
+const edges = ref<MapEdge[]>([]);
+const nodeTypes = ref<NodeType[]>([]);
+const pathTypes = ref<PathType[]>([]);
+const regions = ref<string[]>([]); // 区域名称列表
+const regionIdMap = ref<Map<string, number>>(new Map()); // 区域名 -> Region 实体 id（无实体则为 null）
+const loading = ref(false);
+
+// ===================== 画布 =====================
+const canvasWrapper = ref<HTMLElement>();
+const stageRef = ref<any>(null);
+const stageSize = ref({ width: 800, height: 500 });
+const stageScale = ref(1);
+
+const stageConfig = computed(() => ({
+  width: stageSize.value.width,
+  height: stageSize.value.height,
+  scaleX: stageScale.value,
+  scaleY: stageScale.value,
+  draggable: false,
+}));
+
+let isPanning = false;
+let lastPointer = { x: 0, y: 0 };
+let stageOnMove = false;
+
+// ===================== 连线模式 =====================
+const connectMode = ref(false);
+const connectFrom = ref<MapNode | null>(null);
+let pendingFrom: MapNode | null = null;
+let pendingTo: MapNode | null = null;
+const edgeCreateDialogVisible = ref(false);
+const edgeCreateForm = reactive({ pathTypeId: null as number | null, distance: 0 });
+const edgeCreateFormRef = ref();
+const edgeCreateRules = {
+  pathTypeId: [{ required: true, message: "请选择路径类型", trigger: "change" }],
+};
+
+function toggleConnect() {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  connectMode.value = !connectMode.value;
+  connectFrom.value = null;
+}
+
+async function confirmCreateEdge() {
+  if (!edgeCreateFormRef.value) return;
+  const valid = await edgeCreateFormRef.value.validate().catch(() => false);
+  if (!valid) return;
+  if (!pendingFrom || !pendingTo) return;
+  try {
+    await mapsApi.edges.create({
+      competitionId: compStore.competitionId,
+      fromNodeId: pendingFrom.id,
+      toNodeId: pendingTo.id,
+      distance: edgeCreateForm.distance,
+      pathTypeId: edgeCreateForm.pathTypeId,
+    });
+    ElMessage.success("路径已创建");
+    edgeCreateDialogVisible.value = false;
+    await loadData();
+  } catch {
+    ElMessage.error("创建路径失败");
+  }
+}
+
+// ===================== 选中状态 =====================
+const selectedNode = ref<MapNode | null>(null);
+const selectedEdge = ref<MapEdge | null>(null);
+const nodeSearch = ref("");
+
+const filteredNodes = computed(() => {
+  if (!nodeSearch.value) return nodes.value;
+  const q = nodeSearch.value.toLowerCase();
+  return nodes.value.filter(
+    (n) => (n.name || "").toLowerCase().includes(q) || (n.region || "").toLowerCase().includes(q),
+  );
+});
+
+// ===================== 节点属性表单 =====================
+const nodeForm = reactive({ name: "", region: "", nodeTypeId: null as number | null, x: 0, y: 0 });
+const savingNode = ref(false);
+
+watch(selectedNode, (n) => {
+  if (n) {
+    nodeForm.name = n.name;
+    nodeForm.region = n.region;
+    nodeForm.nodeTypeId = n.nodeTypeId;
+    nodeForm.x = n.x;
+    nodeForm.y = n.y;
+  }
+});
+
+// ===================== 边属性表单 =====================
+const edgeForm = reactive({ distance: 0, pathTypeId: null as number | null });
+const savingEdge = ref(false);
+
+watch(selectedEdge, (e) => {
+  if (e) {
+    edgeForm.distance = e.distance;
+    edgeForm.pathTypeId = e.pathTypeId;
+  }
+});
+
+// ===================== 新建节点对话框 =====================
+const createDialogVisible = ref(false);
+const creatingNode = ref(false);
+const pendingCreatePos = ref({ x: 200, y: 200 });
+const createFormRef = ref();
+const createForm = reactive({ name: "", region: "", nodeTypeId: null as number | null });
+const createRules = {
+  name: [{ required: true, message: "请输入名称", trigger: "blur" }],
+  region: [{ required: true, message: "请选择区域", trigger: "blur" }],
+  nodeTypeId: [{ required: true, message: "请选择类型", trigger: "change" }],
+};
+
+// ===================== 右键菜单 =====================
+const contextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  type: "" as "node" | "stage" | "",
+  data: null as any,
+});
+
+// ===================== 底部 Tab =====================
+const bottomTab = ref("nodeTypes");
+
+// ===================== 区域管理 =====================
+const regionDialogVisible = ref(false);
+const newRegionName = ref("");
+const regionFormRef = ref();
+const regionRules = { name: [{ required: true, message: "请输入区域名称", trigger: "blur" }] };
+const regionsList = computed(() =>
+  regions.value.map((r) => ({ name: r, id: regionIdMap.value.get(r) ?? null })),
+);
+
+/** 从后端加载区域列表（地图节点所属区域 ∪ 区域实体无节点区域），并维护 regionIdMap。 */
+async function loadRegionsFromServer() {
+  if (!compStore.competitionId) {
+    regions.value = [];
+    regionIdMap.value = new Map();
+    return;
+  }
+  try {
+    const list: any[] = (await regionsApi.mapOverview(compStore.competitionId)) || [];
+    const map = new Map<string, number>();
+    const names: string[] = [];
+    for (const r of list) {
+      if (!r.region) continue;
+      if (!map.has(r.region)) {
+        map.set(r.region, r.id ?? null);
+        names.push(r.region);
+      }
+    }
+    regions.value = names;
+    regionIdMap.value = map;
+  } catch (e) {
+    console.error("Failed to load regions:", e);
+  }
+}
+
+function openRegionCreate() {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  newRegionName.value = "";
+  regionDialogVisible.value = true;
+}
+
+async function addRegion() {
+  if (!regionFormRef.value) return;
+  const valid = await regionFormRef.value.validate().catch(() => false);
+  if (!valid) return;
+  const v = newRegionName.value.trim();
+  if (regions.value.includes(v)) {
+    ElMessage.warning("区域名称已存在");
+    return;
+  }
+  try {
+    await regionsApi.create({
+      name: v,
+      competitionId: compStore.competitionId,
+      description: "",
+    });
+    await loadRegionsFromServer();
+    ElMessage.success("已新建区域");
+    newRegionName.value = "";
+    regionDialogVisible.value = false;
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "新建区域失败");
+  }
+}
+
+async function removeRegion(name: string) {
+  const id = regionIdMap.value.get(name);
+  if (!id) {
+    ElMessage.warning("该区域由地图节点定义，请在地图节点上移除其所属区域");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`删除区域「${name}」？该操作不可恢复。`, { type: "warning" });
+  } catch {
+    return;
+  }
+  try {
+    await regionsApi.remove(id, compStore.competitionId);
+    await loadRegionsFromServer();
+    ElMessage.success("已删除区域");
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "删除区域失败");
+  }
+}
+
+// ===================== 节点类型对话框 =====================
+const nodeTypeDialogVisible = ref(false);
+const nodeTypeIsEdit = ref(false);
+const nodeTypeEditingId = ref<number | null>(null);
+const saveNodeTypeLoading = ref(false);
+const nodeTypeFormRef = ref();
+const nodeTypeForm = reactive({ name: "", description: "", color: "#409EFF" });
+const typeRules = {
+  name: [{ required: true, message: "请输入名称", trigger: "blur" }],
+};
+
+// ===================== 路径类型对话框 =====================
+const pathTypeDialogVisible = ref(false);
+const pathTypeIsEdit = ref(false);
+const pathTypeEditingId = ref<number | null>(null);
+const savePathTypeLoading = ref(false);
+const pathTypeFormRef = ref();
+const pathTypeForm = reactive({ name: "", description: "", color: "#67C23A" });
+
+const nodeTypeDetailVisible = ref(false);
+const nodeTypeDetailData = ref<NodeType | null>(null);
+const pathTypeDetailVisible = ref(false);
+const pathTypeDetailData = ref<PathType | null>(null);
+
+const presetColors = ["#F56C6C", "#409EFF", "#67C23A", "#E6A23C", "#9C27B0", "#909399"];
+
+// ===================== 工具函数 =====================
+function getNodeById(id: number): MapNode | undefined {
+  return nodes.value.find((n) => n.id === id);
+}
+
+function getNodeName(id: number): string {
+  const n = getNodeById(id);
+  return n ? n.name : `#${id}`;
+}
+
+function getNodeType(id: number | null): NodeType | undefined {
+  return nodeTypes.value.find((nt) => nt.id === id);
+}
+
+function getNodeColor(node: MapNode): string {
+  const nt = getNodeType(node.nodeTypeId);
+  return nt?.color || "#A0A0A0";
+}
+
+function getNodeTypeName(id: number | null): string {
+  const nt = getNodeType(id);
+  return nt?.name || "未分类";
+}
+
+function getPathType(id: number | null): PathType | undefined {
+  return pathTypes.value.find((pt) => pt.id === id);
+}
+
+function getEdgeColor(edge: MapEdge): string {
+  const pt = getPathType(edge.pathTypeId);
+  return pt?.color || "#A0A0A0";
+}
+
+function getPathTypeName(id: number | null): string {
+  const pt = getPathType(id);
+  return pt?.name || "未分类";
+}
+
+function getNodeGroupConfig(node: MapNode) {
+  return {
+    id: `node-${node.id}`,
+    x: node.x,
+    y: node.y,
+    draggable: canEdit.value,
+  };
+}
+
+function getNodeCircleConfig(node: MapNode) {
+  return {
+    x: 0,
+    y: 0,
+    radius: NODE_RADIUS,
+    fill: getNodeColor(node),
+    stroke: selectedNode.value?.id === node.id ? "#1D2129" : "#fff",
+    strokeWidth: selectedNode.value?.id === node.id ? 3 : 2,
+    shadowColor: "rgba(0,0,0,0.15)",
+    shadowBlur: 6,
+    shadowOffsetY: 2,
+    hitStrokeWidth: 10,
+  };
+}
+
+function getNodeTextConfig(node: MapNode) {
+  return {
+    x: 0,
+    y: NODE_RADIUS + 14,
+    text: node.name,
+    fontSize: 12,
+    fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+    fill: selectedNode.value?.id === node.id ? "#1D2129" : "#4E5969",
+    align: "center",
+    width: NODE_RADIUS * 4,
+    offsetX: NODE_RADIUS * 2,
+    offsetY: 0,
+    listening: true,
+  };
+}
+
+function getEdgeConfig(edge: MapEdge) {
+  const from = getNodeById(edge.fromNodeId);
+  const to = getNodeById(edge.toNodeId);
+  const points = from && to ? [from.x, from.y, to.x, to.y] : [0, 0, 0, 0];
+  const isSelected = selectedEdge.value?.id === edge.id;
+  return {
+    id: `edge-${edge.id}`,
+    points,
+    stroke: getEdgeColor(edge),
+    strokeWidth: isSelected ? 4 : 2,
+    lineCap: "round",
+    hitStrokeWidth: 12,
+    name: `edge-${edge.id}`,
+  };
+}
+
+// ===================== 数据加载 =====================
+async function loadData() {
+  loading.value = true;
+  try {
+    if (!compStore.competitionId) {
+      nodes.value = [];
+      edges.value = [];
+      nodeTypes.value = [];
+      pathTypes.value = [];
+      regions.value = [];
+      regionIdMap.value = new Map();
+      return;
+    }
+    const res: any = await mapsApi.full({ competitionId: compStore.competitionId });
+    if (res) {
+      nodes.value = res.nodes || [];
+      edges.value = res.edges || [];
+      nodeTypes.value = res.nodeTypes || [];
+      pathTypes.value = res.pathTypes || [];
+      // 区域列表 = 地图节点「所属区域」去重 ∪ 区域实体中无节点的区域（用户新建、尚未归入节点）
+      await loadRegionsFromServer();
+    }
+  } catch (e) {
+    console.error("Failed to load maps:", e);
+    // handled by interceptor
+  } finally {
+    loading.value = false;
+  }
+}
+
+// ===================== 画布事件 =====================
+function getCanvasPos(e: any) {
+  const stage = stageRef.value?.getStage();
+  if (!stage) return { x: 0, y: 0 };
+  const pos = stage.getPointerPosition();
+  return { x: pos?.x || 0, y: pos?.y || 0 };
+}
+
+function handleStageMouseDown(e: any) {
+  // 点击空白区域开始平移
+  if (e.target === e.target.getStage()) {
+    isPanning = true;
+    lastPointer = getCanvasPos(e);
+  } else {
+    isPanning = false;
+  }
+}
+
+function handleStageMouseMove(e: any) {
+  if (!isPanning) return;
+  const pos = getCanvasPos(e);
+  const dx = pos.x - lastPointer.x;
+  const dy = pos.y - lastPointer.y;
+  const stage = stageRef.value?.getStage();
+  if (stage) {
+    stage.x(stage.x() + dx);
+    stage.y(stage.y() + dy);
+    stage.batchDraw();
+  }
+  lastPointer = pos;
+  stageOnMove = true;
+}
+
+function handleStageMouseUp() {
+  isPanning = false;
+  setTimeout(() => {
+    stageOnMove = false;
+  }, 50);
+}
+
+function handleStageDblClick(e: any) {
+  // 双击空白区域新建节点（仅编辑权限）
+  if (!canEdit.value) return;
+  if (e.target !== e.target.getStage()) return;
+  const pos = getCanvasPos(e);
+  pendingCreatePos.value = { x: pos.x, y: pos.y };
+  openCreateDialog();
+}
+
+function handleStageWheel(e: any) {
+  e.evt.preventDefault();
+  const scaleBy = 1.08;
+  const stage = stageRef.value?.getStage();
+  if (!stage) return;
+
+  const oldScale = stage.scaleX();
+  const pointer = stage.getPointerPosition();
+  if (!pointer) return;
+
+  const mousePointTo = {
+    x: (pointer.x - stage.x()) / oldScale,
+    y: (pointer.y - stage.y()) / oldScale,
+  };
+
+  const direction = e.evt.deltaY > 0 ? -1 : 1;
+  const newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
+  const clamped = Math.max(0.2, Math.min(5, newScale));
+
+  stageScale.value = clamped;
+
+  nextTick(() => {
+    const s = stageRef.value?.getStage();
+    if (!s) return;
+    const newPos = {
+      x: pointer.x - mousePointTo.x * clamped,
+      y: pointer.y - mousePointTo.y * clamped,
+    };
+    s.x(newPos.x);
+    s.y(newPos.y);
+    s.batchDraw();
+  });
+}
+
+function handleStageContextMenu(e: any) {
+  e.evt.preventDefault();
+  // 查看权限不展示右键菜单
+  if (!canEdit.value) return;
+  const pos = { x: e.evt.clientX, y: e.evt.clientY };
+  // 如果点在空白区域
+  if (e.target === e.target.getStage()) {
+    const canvasPos = getCanvasPos(e);
+    contextMenu.visible = true;
+    contextMenu.x = pos.x;
+    contextMenu.y = pos.y;
+    contextMenu.type = "stage";
+    contextMenu.data = canvasPos;
+  }
+}
+
+// ===================== 节点操作 =====================
+function selectNode(node: MapNode) {
+  if (stageOnMove) return;
+
+  // 连线模式
+  if (connectMode.value) {
+    if (!connectFrom.value) {
+      connectFrom.value = node;
+      ElMessage.info(`已选择起点: ${node.name}，请点击终点`);
+      return;
+    }
+    if (connectFrom.value.id === node.id) {
+      ElMessage.warning("不能连接自身");
+      return;
+    }
+    // 弹出连线编辑对话框
+    pendingFrom = connectFrom.value;
+    pendingTo = node;
+    edgeCreateForm.pathTypeId = null;
+    edgeCreateForm.distance = 0;
+    edgeCreateDialogVisible.value = true;
+    connectFrom.value = null;
+    return;
+  }
+
+  selectedEdge.value = null;
+  selectedNode.value = node;
+}
+
+function focusNode(node: MapNode) {
+  selectNode(node);
+  jumpToNode(node);
+}
+
+function jumpToNode(node: MapNode) {
+  const stage = stageRef.value?.getStage();
+  if (!stage) return;
+  const s = stageSize.value;
+  stage.x(s.width / 2 - node.x * stageScale.value);
+  stage.y(s.height / 2 - node.y * stageScale.value);
+  stage.batchDraw();
+}
+
+function handleNodeDragStart(node: MapNode) {
+  selectNode(node);
+}
+
+// 拖拽过程中实时同步位置：避免 Vue 响应式重渲染把节点拉回原位，
+// 同时让相连的地图边实时跟随移动。
+function handleNodeDragMove(node: MapNode) {
+  const grp = stageRef.value?.getStage()?.findOne(`#node-${node.id}`);
+  if (!grp) return;
+  node.x = grp.x();
+  node.y = grp.y();
+}
+
+async function handleNodeDragEnd(node: MapNode) {
+  const grp = stageRef.value?.getStage()?.findOne(`#node-${node.id}`);
+  if (!grp) return;
+  const x = grp.x();
+  const y = grp.y();
+  try {
+    await mapsApi.nodes.update(node.id, {
+      competitionId: compStore.competitionId,
+      x: Math.round(x),
+      y: Math.round(y),
+    });
+    node.x = x;
+    node.y = y;
+  } catch {
+    // revert
+    grp.x(node.x);
+    grp.y(node.y);
+  }
+}
+
+function handleContextNodeMenu(e: any, node: MapNode) {
+  e.evt.preventDefault();
+  // 查看权限不展示右键菜单
+  if (!canEdit.value) return;
+  selectNode(node);
+  contextMenu.visible = true;
+  contextMenu.x = e.evt.clientX;
+  contextMenu.y = e.evt.clientY;
+  contextMenu.type = "node";
+  contextMenu.data = node;
+}
+
+function contextNodeEdit() {
+  contextMenu.visible = false;
+  // 已选中，无需额外操作
+}
+
+function contextNodeDelete() {
+  contextMenu.visible = false;
+  deleteNode();
+}
+
+async function deleteNode() {
+  const node = selectedNode.value;
+  if (!node) return;
+  let impact: any = null;
+  try {
+    impact = await mapsApi.nodes.impact(node.id);
+  } catch {
+    impact = null;
+  }
+  try {
+    await confirmDeleteWithImpact(node.name ?? node.id, impact);
+    await mapsApi.nodes.remove(node.id, compStore.competitionId);
+    ElMessage.success("节点已删除");
+    selectedNode.value = null;
+    loadData();
+  } catch {
+    // cancelled or error
+  }
+}
+
+async function saveNode() {
+  const node = selectedNode.value;
+  if (!node) return;
+  savingNode.value = true;
+  try {
+    await mapsApi.nodes.update(node.id, {
+      competitionId: compStore.competitionId,
+      name: nodeForm.name,
+      region: nodeForm.region,
+      nodeTypeId: nodeForm.nodeTypeId,
+      x: nodeForm.x,
+      y: nodeForm.y,
+    });
+    ElMessage.success("节点已更新");
+    loadData();
+  } catch {
+    ElMessage.error("操作失败，请重试");
+    // handled by interceptor
+  } finally {
+    savingNode.value = false;
+  }
+}
+
+// ===================== 边操作 =====================
+function selectEdge(edge: MapEdge) {
+  if (stageOnMove) return;
+  selectedNode.value = null;
+  selectedEdge.value = edge;
+}
+
+function handleContextEdgeDelete(e: any, edge: MapEdge) {
+  e.evt.preventDefault();
+  selectEdge(edge);
+  deleteEdge();
+}
+
+async function deleteEdge() {
+  const edge = selectedEdge.value;
+  if (!edge) return;
+  let impact: any = null;
+  try {
+    impact = await mapsApi.edges.impact(edge.id);
+  } catch {
+    impact = null;
+  }
+  try {
+    await confirmDeleteWithImpact(`路径#${edge.id}`, impact);
+    await mapsApi.edges.remove(edge.id, compStore.competitionId);
+    ElMessage.success("路径已删除");
+    selectedEdge.value = null;
+    loadData();
+  } catch {
+    // cancelled or error
+  }
+}
+
+async function saveEdge() {
+  const edge = selectedEdge.value;
+  if (!edge) return;
+  savingEdge.value = true;
+  try {
+    await mapsApi.edges.update(edge.id, {
+      competitionId: compStore.competitionId,
+      distance: edgeForm.distance,
+      pathTypeId: edgeForm.pathTypeId,
+    });
+    ElMessage.success("路径已更新");
+    loadData();
+  } catch {
+    ElMessage.error("操作失败，请重试");
+    // handled by interceptor
+  } finally {
+    savingEdge.value = false;
+  }
+}
+
+// ===================== 新建节点 =====================
+function openCreateDialog() {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  createDialogVisible.value = true;
+}
+
+function openCreateAtContext() {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  contextMenu.visible = false;
+  pendingCreatePos.value = {
+    x: contextMenu.data?.x || 200,
+    y: contextMenu.data?.y || 200,
+  };
+  createDialogVisible.value = true;
+}
+
+function resetCreateForm() {
+  createForm.name = "";
+  createForm.region = "";
+  createForm.nodeTypeId = null;
+}
+
+async function handleCreateNode() {
+  if (!createFormRef.value) return;
+  await createFormRef.value.validate(async (valid: boolean) => {
+    if (!valid) return;
+    creatingNode.value = true;
+    try {
+      await mapsApi.nodes.create({
+        competitionId: compStore.competitionId,
+        name: createForm.name,
+        region: createForm.region || "",
+        nodeTypeId: createForm.nodeTypeId,
+        x: pendingCreatePos.value.x,
+        y: pendingCreatePos.value.y,
+      });
+      ElMessage.success("节点已创建");
+      createDialogVisible.value = false;
+      loadData();
+    } catch {
+      ElMessage.error("操作失败，请重试");
+      // handled by interceptor
+    } finally {
+      creatingNode.value = false;
+    }
+  });
+}
+
+// ===================== 画布适应 =====================
+function fitCanvas() {
+  const stage = stageRef.value?.getStage();
+  if (!stage) return;
+  stage.x(0);
+  stage.y(0);
+  stageScale.value = 1;
+
+  // 自动调整到节点范围
+  if (nodes.value.length > 0) {
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    nodes.value.forEach((n) => {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y > maxY) maxY = n.y;
+    });
+    const w = maxX - minX + NODE_RADIUS * 6;
+    const h = maxY - minY + NODE_RADIUS * 6;
+    if (w > 0 && h > 0) {
+      const scaleX = stageSize.value.width / w;
+      const scaleY = stageSize.value.height / h;
+      const s = Math.min(scaleX, scaleY, 1.5);
+      stageScale.value = s;
+      nextTick(() => {
+        const st = stageRef.value?.getStage();
+        if (!st) return;
+        st.x((stageSize.value.width - (minX + maxX) * s) / 2);
+        st.y((stageSize.value.height - (minY + maxY) * s) / 2);
+        st.batchDraw();
+      });
+    }
+  }
+}
+
+// ===================== 节点类型 CRUD =====================
+function openNodeTypeCreate() {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  nodeTypeIsEdit.value = false;
+  nodeTypeEditingId.value = null;
+  nodeTypeForm.name = "";
+  nodeTypeForm.description = "";
+  nodeTypeForm.color = "#409EFF";
+  nodeTypeDialogVisible.value = true;
+}
+
+function openNodeTypeEdit(row: NodeType) {
+  nodeTypeIsEdit.value = true;
+  nodeTypeEditingId.value = row.id;
+  nodeTypeForm.name = row.name;
+  nodeTypeForm.description = row.description;
+  nodeTypeForm.color = row.color;
+  nodeTypeDialogVisible.value = true;
+}
+
+function resetNodeTypeForm() {
+  nodeTypeFormRef.value?.resetFields();
+}
+
+async function handleSaveNodeType() {
+  if (!nodeTypeFormRef.value) return;
+  await nodeTypeFormRef.value.validate(async (valid: boolean) => {
+    if (!valid) return;
+    saveNodeTypeLoading.value = true;
+    try {
+      const body = {
+        name: nodeTypeForm.name,
+        description: nodeTypeForm.description,
+        color: nodeTypeForm.color,
+      };
+      if (nodeTypeIsEdit.value && nodeTypeEditingId.value) {
+        await mapsApi.nodeTypes.update(nodeTypeEditingId.value, {
+          ...body,
+          competitionId: compStore.competitionId,
+        });
+      } else {
+        await mapsApi.nodeTypes.create({ ...body, competitionId: compStore.competitionId });
+      }
+      ElMessage.success(nodeTypeIsEdit.value ? "节点类型已更新" : "节点类型已创建");
+      nodeTypeDialogVisible.value = false;
+      loadData();
+    } catch {
+      ElMessage.error("操作失败，请重试");
+      // handled by interceptor
+    } finally {
+      saveNodeTypeLoading.value = false;
+    }
+  });
+}
+
+async function deleteNodeType(row: NodeType) {
+  try {
+    let impact: any = null;
+    try {
+      impact = await mapsApi.nodeTypes.impact(row.id);
+    } catch {
+      // 取级联影响信息失败时不阻塞删除，按普通删除提示处理
+    }
+    await confirmDeleteWithImpact(row.name, impact, {
+      baseMessage: `确定删除节点类型"${row.name}"吗？该类型下的所有地图节点及其关联边将一并删除，且不可恢复。`,
+    });
+    await mapsApi.nodeTypes.remove(row.id, compStore.competitionId);
+    ElMessage.success("节点类型已删除");
+    loadData();
+  } catch {
+    // cancelled or error
+  }
+}
+
+// ===================== 路径类型 CRUD =====================
+function openPathTypeCreate() {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  pathTypeIsEdit.value = false;
+  pathTypeEditingId.value = null;
+  pathTypeForm.name = "";
+  pathTypeForm.description = "";
+  pathTypeForm.color = "#67C23A";
+  pathTypeDialogVisible.value = true;
+}
+
+function openPathTypeEdit(row: PathType) {
+  pathTypeIsEdit.value = true;
+  pathTypeEditingId.value = row.id;
+  pathTypeForm.name = row.name;
+  pathTypeForm.description = row.description;
+  pathTypeForm.color = row.color;
+  pathTypeDialogVisible.value = true;
+}
+
+function resetPathTypeForm() {
+  pathTypeFormRef.value?.resetFields();
+}
+
+async function handleSavePathType() {
+  if (!pathTypeFormRef.value) return;
+  await pathTypeFormRef.value.validate(async (valid: boolean) => {
+    if (!valid) return;
+    savePathTypeLoading.value = true;
+    try {
+      const body = {
+        name: pathTypeForm.name,
+        description: pathTypeForm.description,
+        color: pathTypeForm.color,
+      };
+      if (pathTypeIsEdit.value && pathTypeEditingId.value) {
+        await mapsApi.pathTypes.update(pathTypeEditingId.value, {
+          ...body,
+          competitionId: compStore.competitionId,
+        });
+      } else {
+        await mapsApi.pathTypes.create({ ...body, competitionId: compStore.competitionId });
+      }
+      ElMessage.success(pathTypeIsEdit.value ? "路径类型已更新" : "路径类型已创建");
+      pathTypeDialogVisible.value = false;
+      loadData();
+    } catch {
+      ElMessage.error("操作失败，请重试");
+      // handled by interceptor
+    } finally {
+      savePathTypeLoading.value = false;
+    }
+  });
+}
+
+async function deletePathType(row: PathType) {
+  try {
+    let impact: any = null;
+    try {
+      impact = await mapsApi.pathTypes.impact(row.id);
+    } catch {
+      // 取级联影响信息失败时不阻塞删除，按普通删除提示处理
+    }
+    await confirmDeleteWithImpact(row.name, impact, {
+      baseMessage: `确定删除路径类型"${row.name}"吗？使用该类型的所有地图边及载具通行配置将一并删除，且不可恢复。`,
+    });
+    await mapsApi.pathTypes.remove(row.id, compStore.competitionId);
+    ElMessage.success("路径类型已删除");
+    loadData();
+  } catch {
+    // cancelled or error
+  }
+}
+
+function showNodeTypeDetail(row: NodeType) {
+  nodeTypeDetailData.value = row;
+  nodeTypeDetailVisible.value = true;
+}
+
+function showPathTypeDetail(row: PathType) {
+  pathTypeDetailData.value = row;
+  pathTypeDetailVisible.value = true;
+}
+
+// ===================== 全局关闭右键菜单 =====================
+function closeContextMenu() {
+  contextMenu.visible = false;
+}
+
+// ===================== 初始化 =====================
+let resizeObserver: ResizeObserver | null = null;
+
+function updateStageSize() {
+  if (canvasWrapper.value) {
+    // 留一点余量避免滚动条
+    stageSize.value = {
+      width: canvasWrapper.value.clientWidth - 2,
+      height: canvasWrapper.value.clientHeight - 2,
+    };
+  }
+}
+
+onMounted(async () => {
+  await loadData();
+
+  updateStageSize();
+
+  resizeObserver = new ResizeObserver(() => {
+    updateStageSize();
+  });
+  if (canvasWrapper.value) {
+    resizeObserver.observe(canvasWrapper.value);
+  }
+
+  document.addEventListener("click", closeContextMenu);
+});
+
+// 切换比赛时先清空全部地图数据再重新拉取，避免停留在上一个比赛的旧数据。
+useCompetitionReload(loadData, () => {
+  nodes.value = [];
+  edges.value = [];
+  nodeTypes.value = [];
+  pathTypes.value = [];
+  regions.value = [];
+  regionIdMap.value = new Map();
+});
+
+// 监听删除事件，刷新地图
+useResourceChanged("map-nodes", () => {
+  loadData();
+});
+useResourceChanged("map-edges", () => {
+  loadData();
+});
+// 实时同步：地图节点类型 / 路径类型被增删改后，立即刷新（此前无订阅，地图编辑器不感知这两类变更）
+useResourceChanged("map-node-types", () => {
+  loadData();
+});
+useResourceChanged("path-types", () => {
+  loadData();
+});
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  document.removeEventListener("click", closeContextMenu);
+});
+</script>
+
+<style scoped>
+.maps-manager {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+  min-height: 600px;
+  background: #f5f7fa;
+}
+
+/* 工具栏 */
+.mm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 12px;
+  flex-shrink: 0;
+}
+.mm-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1f1f1f;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 主体 */
+.mm-body {
+  flex: 1;
+  display: flex;
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+/* 左侧面板 */
+.mm-left-panel {
+  width: 240px;
+  min-width: 200px;
+  background: #2c3544;
+  color: #e0e3e8;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px 0 0 8px;
+  overflow: hidden;
+}
+.mm-left-panel .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.mm-left-panel .panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #c8cdd5;
+}
+.panel-search {
+  margin: 10px 12px;
+}
+.panel-search :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+.panel-search :deep(.el-input__inner) {
+  color: #e0e3e8;
+}
+.panel-search :deep(.el-input__inner::placeholder) {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.node-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.node-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 13px;
+  color: #c8cdd5;
+}
+.node-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.node-item.active {
+  background: rgba(64, 158, 255, 0.15);
+  color: #fff;
+}
+.node-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.node-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-region {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+/* 画布区域 */
+.mm-canvas-wrapper {
+  flex: 1;
+  overflow: hidden;
+  background: #f0f2f5;
+  position: relative;
+}
+
+/* 右侧面板 */
+.mm-right-panel {
+  width: 280px;
+  min-width: 260px;
+  background: #fff;
+  border-left: 1px solid #e4e7ed;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 8px 8px 0;
+  overflow: hidden;
+}
+.mm-right-panel .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e4e7ed;
+}
+.mm-right-panel .panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f1f1f;
+}
+.panel-form {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.panel-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+.panel-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #c0c4cc;
+  gap: 8px;
+}
+.panel-empty p {
+  margin: 0;
+  font-size: 13px;
+}
+.panel-empty .hint {
+  font-size: 12px;
+  color: #d0d4dc;
+}
+
+.form-text {
+  color: #606266;
+  font-size: 13px;
+}
+
+/* 底部 */
+.mm-bottom {
+  flex-shrink: 0;
+  margin-top: 12px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+.mm-bottom :deep(.el-tabs--border-card) {
+  border: none;
+  box-shadow: none;
+}
+.mm-bottom :deep(.el-tabs--border-card > .el-tabs__header) {
+  background: #f5f7fa;
+  border-bottom: 1px solid #e4e7ed;
+}
+.tab-toolbar {
+  padding: 10px 0;
+  display: flex;
+  gap: 8px;
+}
+
+/* 颜色选择 */
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.color-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.color-chip:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+.color-chip.active {
+  border-color: #1d2129;
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px rgba(29, 33, 41, 0.2);
+}
+
+.color-block {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* 右键菜单 */
+.context-menu {
+  position: fixed;
+  z-index: 3000;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  min-width: 140px;
+  border: 1px solid #e4e7ed;
+}
+.menu-item {
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #303133;
+  transition: background 0.12s;
+}
+.menu-item:hover {
+  background: #f0f2f5;
+}
+
+/* Empty */
+.node-list :deep(.el-empty__description) {
+  color: rgba(255, 255, 255, 0.35);
+}
+.no-comp-warning {
+  text-align: center;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--color-warning-soft);
+  border: 1px solid rgba(var(--color-warning-soft-rgb), 0.3);
+  border-radius: 6px;
+  color: #b45309;
+  font-size: 13px;
+}
+</style>

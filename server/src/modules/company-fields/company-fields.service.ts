@@ -1,0 +1,431 @@
+import { Injectable, BadRequestException, NotFoundException, Logger } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
+import { RealtimeService } from "../../realtime/realtime.service";
+import { serverNowIso } from "../../common/sync";
+import { SetCompanyFieldValuesDto } from "./company-fields.dto";
+import { IndustryCalcEngineService } from "../industry-types/industry-calc-engine.service";
+
+// 基础标量类型按字段类型把任意输入转换为存储用的字符串
+function castScalar(type: "NUMBER" | "STRING" | "BOOLEAN", v: any): string {
+  if (type === "NUMBER") {
+    const n = typeof v === "number" ? v : parseFloat(v);
+    if (!Number.isFinite(n)) throw new BadRequestException(`数值非法：${v}`);
+    return String(n);
+  }
+  if (type === "BOOLEAN") {
+    if (typeof v === "boolean") return v ? "true" : "false";
+    if (v === "true" || v === "false") return v;
+    throw new BadRequestException(`布尔非法：${v}`);
+  }
+  return String(v);
+}
+
+// 把任意输入按产业字段定义序列化/校验为存储字符串
+function serializeFieldValue(field: any, raw: any): string {
+  const cfg = parseConfig(field.config);
+  switch (field.fieldType) {
+    case "NUMBER":
+    case "STRING":
+    case "BOOLEAN":
+      return castScalar(field.fieldType, raw);
+    case "DICTIONARY": {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        throw new BadRequestException(`字典字段「${field.fieldKey}」的值必须是对象`);
+      const entries: any[] = cfg.entries || [];
+      const valueType = cfg.valueType || "NUMBER";
+      // 字典键 = 定义项 与 已存储键值 的并集：既保留已存的自由键值（即使产业类型尚未定义该项），
+      // 也补齐定义项的默认值。避免"存了值却在落库时被丢弃"或"界面显示不出来"。
+      const keys = new Set<string>();
+      const defaults: Record<string, any> = {};
+      for (const e of entries) {
+        if (e && e.key) {
+          keys.add(e.key);
+          defaults[e.key] = e.defaultValue;
+        }
+      }
+      for (const k of Object.keys(raw)) keys.add(k);
+      const out: Record<string, any> = {};
+      for (const key of keys) {
+        const src = raw[key];
+        const val = src === undefined ? defaults[key] : src;
+        if (val === undefined) {
+          out[key] = valueType === "NUMBER" ? 0 : valueType === "BOOLEAN" ? false : "";
+        } else {
+          out[key] = castScalar(valueType, val);
+        }
+      }
+      return JSON.stringify(out);
+    }
+    case "LIST": {
+      if (!Array.isArray(raw))
+        throw new BadRequestException(`列表字段「${field.fieldKey}」的值必须是数组`);
+      const itemType = cfg.itemType || "STRING";
+      const out = raw.map((it: any) => castScalar(itemType, it));
+      return JSON.stringify(out);
+    }
+    default:
+      throw new BadRequestException(`未知字段类型：${field.fieldType}`);
+  }
+}
+
+function parseConfig(c: any): Record<string, any> {
+  if (c && typeof c === "object" && !Array.isArray(c)) return c;
+  if (typeof c === "string") {
+    try {
+      const o = JSON.parse(c);
+      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+@Injectable()
+export class CompanyFieldsService {
+  private readonly logger = new Logger(CompanyFieldsService.name);
+  constructor(
+    private prisma: PrismaService,
+    private realtime: RealtimeService,
+    private calcEngine: IndustryCalcEngineService,
+  ) {}
+
+  // 读取某公司（产业实例）的产业字段当前值。
+  // 支持增量查询：传入 updatedAfter 时仅回传「值变更(CompanyFieldValue.updatedAt 晚于基线)
+  // 或 定义变更(IndustryField.updatedAt 晚于基线，如可见性开关/新建/改名)」的字段（含 serverTime），
+  // 每个回传字段都携带其真实当前值；同时回传 existingIds（当前全部可见字段定义 id），
+  // 前端据此 diff 出被删除/被隐藏的字段。定义变更也回传，保证"关闭后再打开"等可见性变化能正确重新展示。
+  //
+  // publishedOnly=true 时（受限读权限：无 company:view/company:manage 的已登录角色）仅返回
+  // 「已发布到区域总览」的字段：即 (companyId, industryFieldId) 出现在任一 Region.overviewCards 中的字段；
+  // 未上总览的字段对其不可见（返回中既不含该字段值，也不计入 existingIds）。
+  async getValues(
+    companyId: number,
+    updatedAfter?: string,
+    publishedOnly = false,
+    includeHidden = false,
+  ) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: { industryType: { include: { fields: true } } },
+    });
+    if (!company) throw new NotFoundException("公司不存在");
+    if (!company.industryTypeId || !company.industryType) {
+      return {
+        industryTypeId: null,
+        fields: [],
+        existingIds: [],
+        serverTime: serverNowIso(),
+        incremental: !!updatedAfter,
+      };
+    }
+
+    // 受限读：收集本比赛「已上区域总览」的 (companyId, industryFieldId) 集合，仅这些字段对受限用户可见
+    const published =
+      publishedOnly && company.competitionId != null
+        ? await this.getPublishedFieldIds(company.competitionId)
+        : null;
+    const isPublished = (fieldCompanyId: number, fieldId: number) =>
+      !published || published.has(`${fieldCompanyId}:${fieldId}`);
+
+    // 默认仅返回 visible 字段：隐藏字段不在公司管理界面出现（纯展示层行为，合同引擎仍按 fieldKey 正常读写其 CompanyFieldValue）。
+    // includeHidden=true 时返回全部字段（含隐藏）——供「区域总览 → 添加数据框」字段选择使用：
+    // 隐藏字段仍可在区域总览被选中并发布（仅公司管理界面不展示），满足「产业类型管理处关闭显示、区域管理仍可选择」的需求。
+    const baseFields = company.industryType.fields;
+    const visibleFields = includeHidden
+      ? baseFields
+      : baseFields.filter((f: any) => f.visible !== false);
+    const fieldIds = visibleFields.map((f: any) => f.id);
+    // 取该公司全部可见字段的当前值（不过滤 updatedAt）：增量模式下需要真实当前值来"重新包含"
+    // 因定义变化（可见性开关 / 新建字段 / 改名）而重新出现的字段——这些字段的值本身未必近期变更。
+    const values = await this.prisma.companyFieldValue.findMany({
+      where: { companyId, industryFieldId: { in: fieldIds } },
+      include: { industryField: true },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    // existingIds：受限读时仅含已上总览的可见字段定义 id；全量读时含该产业类型全部可见字段定义 id。
+    // 用于前端 diff 删除（隐藏字段始终不计入，因为它们并未被删除、只是不展示）。
+    const existingIds = visibleFields
+      .filter((f: any) => isPublished(companyId, f.id))
+      .map((f: any) => f.id);
+
+    // 增量模式下，仅回传「值变更」或「定义变更（可见性 / 新建 / 改名，updatedAt 晚于基线）」的字段，减少体积；
+    // 这些字段都携带其真实当前值（不论值本身新旧），前端据此 upsert，并借 existingIds 删除隐藏/已移除字段。
+    // 关键修复：仅按"值变更时间"过滤会漏掉"重新展示的字段"（可见性开关不改动 CompanyFieldValue.updatedAt），
+    // 导致字段在前端本地增量副本中始终缺席、关闭后再打开无法重新展示。全量模式（无 updatedAfter）返回全部可见字段。
+    const baseline = updatedAfter ? new Date(updatedAfter) : null;
+    const baselineOk = baseline != null && !Number.isNaN(baseline.getTime());
+    const fields = visibleFields
+      .filter((f: any) => isPublished(companyId, f.id))
+      .filter((f: any) => {
+        if (!baselineOk) return true; // 全量模式
+        const v = values.find((x: any) => x.industryFieldId === f.id);
+        const valueRecent = !!v && new Date(v.updatedAt) > baseline!;
+        const defRecent = !!f.updatedAt && new Date(f.updatedAt) > baseline!;
+        return valueRecent || defRecent;
+      })
+      .map((f: any) => {
+        const v = values.find((x: any) => x.industryFieldId === f.id);
+        return {
+          id: f.id,
+          industryTypeId: company.industryTypeId,
+          fieldKey: f.fieldKey,
+          fieldType: f.fieldType,
+          name: f.name,
+          config: parseConfig(f.config),
+          isCalculated: !!f.isCalculated,
+          formula: f.formula,
+          value: v ? v.value : null,
+          updatedAt: v ? v.updatedAt : null,
+          // 透出 visible，便于前端（区域总览数据框下拉等）兜底过滤隐藏字段
+          visible: f.visible !== false,
+        };
+      });
+
+    return {
+      industryTypeId: company.industryTypeId,
+      fields,
+      existingIds,
+      serverTime: serverNowIso(),
+      incremental: !!updatedAfter,
+    };
+  }
+
+  // 收集某比赛内「已发布到区域总览」的 (companyId, industryFieldId) 集合。
+  // 判定依据：任一 Region 的 overviewCards（JSON，元素 {id, displayName, companyId, industryFieldId}）
+  // 中出现过的 (companyId, industryFieldId) 对，即视为公开可读。
+  private async getPublishedFieldIds(competitionId: number): Promise<Set<string>> {
+    const published = new Set<string>();
+    const regions = await this.prisma.region.findMany({
+      where: { competitionId },
+      select: { overviewCards: true },
+    });
+    for (const r of regions) {
+      let cards: any[] = [];
+      try {
+        const parsed = JSON.parse(r.overviewCards || "[]");
+        if (Array.isArray(parsed)) cards = parsed;
+      } catch {
+        cards = [];
+      }
+      for (const c of cards) {
+        if (
+          c &&
+          typeof c.companyId === "number" &&
+          typeof c.industryFieldId === "number"
+        ) {
+          published.add(`${c.companyId}:${c.industryFieldId}`);
+        }
+      }
+    }
+    return published;
+  }
+
+  // 批量写入某公司（产业实例）的产业字段值，按字段定义校验与序列化
+  async setValues(companyId: number, dto: SetCompanyFieldValuesDto) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: { industryType: { include: { fields: true } } },
+    });
+    if (!company) throw new NotFoundException("公司不存在");
+    if (!company.industryTypeId || !company.industryType)
+      throw new BadRequestException("该公司未设置产业类型，无法写入产业字段");
+
+    const fieldMap = new Map(company.industryType.fields.map((f: any) => [f.id, f]));
+
+    // 逐个校验，全部通过后再落库（事务）
+    const toUpsert: { industryFieldId: number; value: string }[] = [];
+    for (const item of dto.values) {
+      const field = fieldMap.get(item.industryFieldId);
+      if (!field)
+        throw new BadRequestException(`字段 #${item.industryFieldId} 不属于该公司所属产业类型`);
+      const value = serializeFieldValue(field, item.value);
+      toUpsert.push({ industryFieldId: field.id, value });
+    }
+
+    await this.prisma.$transaction(
+      toUpsert.map((u) =>
+        this.prisma.companyFieldValue.upsert({
+          where: {
+            companyId_industryFieldId: {
+              companyId,
+              industryFieldId: u.industryFieldId,
+            },
+          } as any,
+          create: { companyId, industryFieldId: u.industryFieldId, value: u.value },
+          update: { value: u.value },
+        }),
+      ),
+    );
+
+    // 写入时级联重算：本公司所属产业类型的全部 isCalculated 字段，按依赖拓扑排序后
+    // 用产业计算图重新求值并写回各自的 CompanyFieldValue（仅写本字段）。
+    try {
+      await this.recomputeCalculatedFields(companyId, company.industryType.fields);
+    } catch (err: any) {
+      // 重算出错（如计算图存在循环依赖）不应使本次普通字段写入失败；记录日志，交由用户修正计算图。
+      this.logger.warn(`公司 #${companyId} 计算字段级联重算失败：${err?.message || err}`);
+    }
+
+    // 强时效：公司产业字段写入后实时广播，同比赛前端（含公司详情页）即刻刷新
+    if (company.competitionId != null) {
+      this.realtime.broadcastToCompetition(company.competitionId, "company-field:changed", {
+        companyId,
+        competitionId: company.competitionId,
+      });
+    }
+    return { success: true, count: toUpsert.length };
+  }
+
+  /**
+   * 公开入口：供合同执行 / 复原后触发某公司的计算字段级联重算。
+   *
+   * 此前合同执行对产业字段是「直写」(contract-engine 直接 upsert CompanyFieldValue)，
+   * 绕过了本服务的 setValues，导致计算字段所依赖的基础字段被改写后，计算字段值陈旧且永不重算。
+   * 本方法让合同落账后也能触发与手动编辑一致的级联重算，仅做重算、不广播
+   * （广播由调用方按比赛统一发起，避免重复事件）。
+   */
+  async recomputeCalculatedFieldsForCompany(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: { industryType: { include: { fields: true } } },
+    });
+    if (!company || !company.industryTypeId || !company.industryType) return;
+    try {
+      await this.recomputeCalculatedFields(companyId, company.industryType.fields);
+    } catch (err: any) {
+      // 重算出错（如计算图存在循环依赖）不应使合同执行 / 复原失败；记录日志，交由用户修正计算图。
+      this.logger.warn(`公司 #${companyId} 计算字段级联重算失败：${err?.message || err}`);
+    }
+  }
+
+  /**
+   * 级联重算某公司的全部计算字段。
+   * @param fields 该公司所属产业类型的全部 IndustryField（含 isCalculated / calcGraph）
+   */
+  private async recomputeCalculatedFields(companyId: number, fields: any[]) {
+    const calcFields = (fields || []).filter(
+      (f: any) => f.isCalculated && f.calcGraph && f.calcGraph.trim(),
+    );
+    if (calcFields.length === 0) return;
+
+    // 当前公司已存值（含刚刚写入的普通字段），用于构建作用域。
+    const vals = await this.prisma.companyFieldValue.findMany({
+      where: { companyId },
+      include: { industryField: true },
+    });
+    const valByFieldId = new Map(vals.map((v: any) => [v.industryFieldId, v.value]));
+
+    // 作用域：fieldKey -> 已按字段类型解析的值；缺值回退字段 defaultValue。
+    const scope: Record<string, any> = {};
+    for (const f of fields) {
+      const stored =
+        valByFieldId.has(f.id) ? valByFieldId.get(f.id) : f.defaultValue;
+      scope[f.fieldKey] = this.typedFromStore(f, stored);
+    }
+
+    // 计算字段之间的依赖：A 依赖 B 当且仅当 A 的计算图读取 B.fieldKey 且 B 也是计算字段。
+    const fieldKeyById = new Map(calcFields.map((f: any) => [f.fieldKey, f]));
+    const deps: Record<string, Set<string>> = {};
+    for (const f of calcFields) {
+      const readKeys = this.calcEngine.getFieldDependencies(this.parseGraph(f.calcGraph));
+      const depSet = new Set<string>();
+      for (const k of readKeys) {
+        if (k !== f.fieldKey && fieldKeyById.has(k)) depSet.add(k); // 自引用忽略
+      }
+      deps[f.fieldKey] = depSet;
+    }
+
+    // 拓扑排序（Kahn）：detectCycles 在存在环时抛错。
+    const ordered = this.topoSortCalcFields(calcFields, deps);
+
+    // 按序求值并写回（每算完一个即刷新作用域，保证传递依赖正确）。
+    const toUpsert: { industryFieldId: number; value: string }[] = [];
+    for (const f of ordered) {
+      const graph = this.parseGraph(f.calcGraph);
+      const result = this.calcEngine.evaluate(graph, scope);
+      const store = serializeFieldValue(f, result);
+      toUpsert.push({ industryFieldId: f.id, value: store });
+      scope[f.fieldKey] = this.typedFromStore(f, store);
+    }
+    if (toUpsert.length === 0) return;
+    await this.prisma.$transaction(
+      toUpsert.map((u) =>
+        this.prisma.companyFieldValue.upsert({
+          where: { companyId_industryFieldId: { companyId, industryFieldId: u.industryFieldId } } as any,
+          create: { companyId, industryFieldId: u.industryFieldId, value: u.value },
+          update: { value: u.value },
+        }),
+      ),
+    );
+  }
+
+  // 解析 calcGraph（容错：非法 JSON 视为空图）。
+  private parseGraph(json: string): any {
+    try {
+      const g = JSON.parse(json);
+      return g && typeof g === "object" ? g : { nodes: [], edges: [] };
+    } catch {
+      return { nodes: [], edges: [] };
+    }
+  }
+
+  // 把存储字符串按字段类型还原为 JS 值，用于构建求值作用域。
+  private typedFromStore(field: any, stored: string | null | undefined): any {
+    const cfg = parseConfig(field.config);
+    switch (field.fieldType) {
+      case "NUMBER": {
+        const n = stored == null ? NaN : Number(stored);
+        return Number.isFinite(n) ? n : 0;
+      }
+      case "BOOLEAN":
+        return stored === "true";
+      case "STRING":
+        return stored == null ? "" : String(stored);
+      case "DICTIONARY": {
+        if (stored == null) return {};
+        try {
+          const o = JSON.parse(stored);
+          return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+        } catch {
+          return {};
+        }
+      }
+      case "LIST": {
+        if (stored == null) return [];
+        try {
+          const a = JSON.parse(stored);
+          return Array.isArray(a) ? a : [];
+        } catch {
+          return [];
+        }
+      }
+      default:
+        return stored == null ? "" : String(stored);
+    }
+  }
+
+  // Kahn 拓扑排序；存在环时抛 BadRequestException。返回有序的计算字段数组。
+  private topoSortCalcFields(calcFields: any[], deps: Record<string, Set<string>>): any[] {
+    const indeg: Record<string, number> = {};
+    for (const f of calcFields) indeg[f.fieldKey] = 0;
+    for (const f of calcFields) indeg[f.fieldKey] = deps[f.fieldKey]?.size || 0;
+    const queue = calcFields.filter((f) => indeg[f.fieldKey] === 0);
+    const ordered: any[] = [];
+    const byKey = new Map(calcFields.map((f: any) => [f.fieldKey, f]));
+    while (queue.length) {
+      const f = queue.shift()!;
+      ordered.push(f);
+      for (const g of calcFields) {
+        if (deps[g.fieldKey]?.has(f.fieldKey)) {
+          indeg[g.fieldKey]--;
+          if (indeg[g.fieldKey] === 0) queue.push(g);
+        }
+      }
+    }
+    if (ordered.length !== calcFields.length)
+      throw new BadRequestException("产业计算图之间存在循环依赖（计算字段互相引用）");
+    return ordered;
+  }
+}
