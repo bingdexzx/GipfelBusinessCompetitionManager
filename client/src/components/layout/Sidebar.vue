@@ -364,14 +364,14 @@ const activeMenu = computed(() => {
   position: relative;
 }
 .msg-badge {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
+  margin-left: auto;
 }
 .msg-badge :deep(.el-badge__content) {
   border: none;
   font-weight: 600;
+  position: static;
+  transform: none;
+  vertical-align: middle;
 }
 .sidebar-menu :deep(.el-menu-item.is-active)::before {
   content: "";
