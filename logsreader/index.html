@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>服务端日志分析 · logsreader</title>
+    <style>
+      :root {
+        --bg: #f5f7fa;
+        --panel: #ffffff;
+        --border: #e2e8f0;
+        --text: #1e293b;
+        --muted: #64748b;
+        --accent: #2563eb;
+        --accent-soft: #eff6ff;
+        --error: #e5484d;
+        --warn: #f5a623;
+        --info: #4b83c1;
+        --http: #8b5cf6;
+        --verbose: #14b8a6;
+        --debug: #94a3b8;
+        --silly: #cbd5e1;
+        --raw: #64748b;
+        --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      header {
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+      header .meta { color: var(--muted); font-size: 12px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; }
+      .dot.off { background: var(--error); }
+      .wrap { padding: 16px 20px 40px; display: grid; gap: 16px; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        padding: 14px 16px;
+      }
+      .panel h2 { font-size: 13px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+      .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 16px; align-items: end; }
+      .field { display: flex; flex-direction: column; gap: 4px; }
+      .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+      select, input[type="text"], input[type="datetime-local"], input[type="number"] {
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 7px 9px;
+        font-size: 13px;
+        background: #fff;
+        color: var(--text);
+        font-family: inherit;
+      }
+      select:focus, input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+      .levels { display: flex; flex-wrap: wrap; gap: 6px; }
+      .lvl { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 20px; cursor: pointer; user-select: none; font-size: 12px; }
+      .lvl input { display: none; }
+      .lvl .sw { width: 9px; height: 9px; border-radius: 50%; }
+      .lvl.active { border-color: var(--accent); background: var(--accent-soft); }
+      .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      button {
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        border-radius: 7px;
+        padding: 7px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      button:hover { border-color: var(--accent); }
+      button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+      button.primary:hover { filter: brightness(1.05); }
+      button.follow.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+      .status { color: var(--muted); font-size: 12px; }
+      .stats-grid { display: grid; grid-template-columns: 200px 1fr; gap: 20px; }
+      .lvl-counts { display: flex; flex-direction: column; gap: 6px; }
+      .lvl-row { display: flex; align-items: center; gap: 8px; }
+      .lvl-row .sw { width: 10px; height: 10px; border-radius: 3px; }
+      .lvl-row .name { width: 64px; color: var(--muted); }
+      .lvl-row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+      .bars { display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow-y: auto; }
+      .bar-row { display: grid; grid-template-columns: 160px 1fr 56px; gap: 8px; align-items: center; }
+      .bar-row .bl { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+      .bar-track { background: #f1f5f9; border-radius: 4px; height: 16px; overflow: hidden; }
+      .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
+      .bar-row .bv { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+      .timeline { width: 100%; overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      thead th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+      tbody td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+      tbody tr { cursor: pointer; }
+      tbody tr:hover { background: #f8fafc; }
+      tbody tr.expanded { background: var(--accent-soft); }
+      .badge { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; color: #fff; }
+      .msg { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 60px; overflow: hidden; }
+      tr.expanded .msg { max-height: none; }
+      .ctx { color: var(--muted); white-space: nowrap; }
+      .op { color: #7c3aed; white-space: nowrap; }
+      .ts { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .detail td { background: #0f172a; color: #e2e8f0; }
+      .detail pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; max-height: 360px; overflow: auto; }
+      .empty { color: var(--muted); padding: 30px; text-align: center; }
+      .hint { font-size: 11px; color: var(--muted); margin-left: 4px; }
+      @media (max-width: 720px) { .stats-grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="dot off" id="connDot"></span>
+      <h1>服务端日志分析</h1>
+      <span class="meta" id="logsDir"></span>
+    </header>
+
+    <div class="wrap">
+      <div class="panel">
+        <h2>筛选条件</h2>
+        <div class="filters">
+          <div class="field">
+            <label>日志文件</label>
+            <select id="fileSel"><option value="">（加载中…）</option></select>
+          </div>
+          <div class="field">
+            <label>级别 <span class="hint">不勾选=全部</span></label>
+            <div class="levels" id="levels"></div>
+          </div>
+          <div class="field">
+            <label>上下文 context</label>
+            <select id="ctxSel" multiple size="3"></select>
+          </div>
+          <div class="field">
+            <label>操作员 operator</label>
+            <select id="opSel" multiple size="3"></select>
+          </div>
+          <div class="field">
+            <label>自由搜索（消息/JSON）</label>
+            <input type="text" id="q" placeholder="关键词…" />
+          </div>
+          <div class="field">
+            <label>起始时间</label>
+            <input type="datetime-local" id="from" step="1" />
+          </div>
+          <div class="field">
+            <label>结束时间</label>
+            <input type="datetime-local" id="to" step="1" />
+          </div>
+          <div class="field">
+            <label>排序 / 条数</label>
+            <div style="display: flex; gap: 6px;">
+              <select id="order" style="flex: 1;">
+                <option value="desc">最新在前</option>
+                <option value="asc">最早在前</option>
+              </select>
+              <input type="number" id="limit" value="200" min="10" max="2000" style="width: 80px;" />
+            </div>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 14px;">
+          <button class="primary" id="runBtn">查询</button>
+          <button id="resetBtn">重置</button>
+          <button class="follow" id="followBtn">实时跟随</button>
+          <span class="status" id="status"></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>统计</h2>
+        <div class="stats-grid">
+          <div>
+            <div class="lvl-counts" id="lvlCounts"></div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">上下文 Top（按出现次数）</div>
+            <div class="bars" id="ctxBars"></div>
+          </div>
+        </div>
+        <div style="margin-top: 16px;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">时间线（堆叠：各级别数量）</div>
+          <div class="timeline" id="timeline"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>日志明细 <span class="hint" id="rowCount"></span></h2>
+        <table id="logTable">
+          <thead>
+            <tr>
+              <th style="width: 150px;">时间</th>
+              <th style="width: 70px;">级别</th>
+              <th style="width: 150px;">上下文</th>
+              <th style="width: 110px;">操作员</th>
+              <th>消息</th>
+            </tr>
+          </thead>
+          <tbody id="logBody">
+            <tr><td colspan="5" class="empty">点击「查询」加载日志</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const LEVEL_COLORS = {
+        error: "#e5484d", warn: "#f5a623", info: "#4b83c1", http: "#8b5cf6",
+        verbose: "#14b8a6", debug: "#94a3b8", silly: "#cbd5e1", raw: "#64748b",
+      };
+      const LEVELS = ["error", "warn", "info", "http", "verbose", "debug", "silly"];
+
+      const $ = (id) => document.getElementById(id);
+      let currentRows = [];
+      let followTimer = null;
+      let lastEndOffset = 0;
+
+      function dtToServer(v) {
+        if (!v) return null;
+        // "YYYY-MM-DDTHH:mm" -> "YYYY-MM-DD HH:mm:00"
+        return v.replace("T", " ") + ":00";
+      }
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function fmtNum(n) { return n.toLocaleString("en-US"); }
+
+      async function api(path, body) {
+        const r = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body || {}),
+        });
+        return r.json();
+      }
+
+      async function loadList() {
+        try {
+          const data = await api("/api/list");
+          $("logsDir").textContent = "日志目录: " + data.logsDir;
+          $("connDot").classList.remove("off");
+          const sel = $("fileSel");
+          sel.innerHTML = "";
+          if (!data.files.length) {
+            sel.innerHTML = '<option value="">（无日志文件）</option>';
+            return;
+          }
+          // 默认选最新的 app 日志
+          let def = data.files.find((f) => f.kind === "app") || data.files[0];
+          for (const f of data.files) {
+            const o = document.createElement("option");
+            o.value = f.name;
+            o.textContent = `${f.name}  (${fmtNum(f.size)} B)`;
+            if (f.name === def.name) o.selected = true;
+            sel.appendChild(o);
+          }
+        } catch (e) {
+          $("connDot").classList.add("off");
+          $("logsDir").textContent = "无法连接服务: " + e.message;
+        }
+      }
+
+      function buildPayload() {
+        const levels = [...document.querySelectorAll("#levels .lvl.active input")].map((i) => i.value);
+        const contexts = [...$("ctxSel").selectedOptions].map((o) => o.value);
+        const operators = [...$("opSel").selectedOptions].map((o) => o.value);
+        return {
+          files: [$("fileSel").value].filter(Boolean),
+          levels, contexts, operators,
+          q: $("q").value.trim(),
+          from: dtToServer($("from").value),
+          to: dtToServer($("to").value),
+          order: $("order").value,
+          limit: Number($("limit").value) || 200,
+        };
+      }
+
+      function renderLevels(active) {
+        const box = $("levels");
+        box.innerHTML = "";
+        const set = new Set(active.length ? active : LEVELS);
+        for (const lv of LEVELS) {
+          const el = document.createElement("label");
+          el.className = "lvl" + (set.has(lv) ? " active" : "");
+          el.innerHTML = `<input type="checkbox" value="${lv}" ${set.has(lv) ? "checked" : ""}/><span class="sw" style="background:${LEVEL_COLORS[lv]}"></span>${lv}`;
+          el.querySelector("input").addEventListener("change", (e) => {
+            el.classList.toggle("active", e.target.checked);
+          });
+          box.appendChild(el);
+        }
+      }
+
+      function renderStats(data) {
+        // level counts
+        const lc = $("lvlCounts");
+        lc.innerHTML = "";
+        const bl = data.byLevel || {};
+        const order = Object.keys(bl).sort((a, b) => LEVELS.indexOf(a) - LEVELS.indexOf(b));
+        for (const lv of order) {
+          const row = document.createElement("div");
+          row.className = "lvl-row";
+          row.innerHTML = `<span class="sw" style="background:${LEVEL_COLORS[lv] || "#94a3b8"}"></span><span class="name">${lv}</span><span class="val">${fmtNum(bl[lv])}</span>`;
+          lc.appendChild(row);
+        }
+        // context bars
+        const cb = $("ctxBars");
+        cb.innerHTML = "";
+        const cc = data.byContext || [];
+        const max = cc.length ? cc[0].count : 1;
+        for (const c of cc) {
+          const row = document.createElement("div");
+          row.className = "bar-row";
+          const pct = Math.max(2, (c.count / max) * 100);
+          row.innerHTML = `<span class="bl" title="${escapeHtml(c.context)}">${escapeHtml(c.context)}</span><span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span><span class="bv">${fmtNum(c.count)}</span>`;
+          cb.appendChild(row);
+        }
+        if (!cc.length) cb.innerHTML = '<span class="empty">无数据</span>';
+        renderTimeline(data.timeline || []);
+      }
+
+      function renderTimeline(timeline) {
+        const box = $("timeline");
+        if (!timeline.length) { box.innerHTML = '<span class="empty">无数据</span>'; return; }
+        const W = Math.max(640, timeline.length * 16);
+        const H = 170, padB = 22, padT = 8;
+        const colW = W / timeline.length;
+        const maxTotal = Math.max(1, ...timeline.map((t) => LEVELS.reduce((s, l) => s + (t[l] || 0), 0)));
+        const plotH = H - padB - padT;
+        let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="min-width:${W}px">`;
+        // y gridlines
+        for (let g = 0; g <= 4; g++) {
+          const y = padT + (plotH * g) / 4;
+          const val = Math.round((maxTotal * (4 - g)) / 4);
+          svg += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#eef2f7" stroke-width="1"/>`;
+          svg += `<text x="2" y="${y - 2}" font-size="9" fill="#94a3b8">${fmtNum(val)}</text>`;
+        }
+        timeline.forEach((t, i) => {
+          let y = padT;
+          const x = i * colW;
+          for (const lv of [...LEVELS].reverse()) {
+            const cnt = t[lv] || 0;
+            if (!cnt) continue;
+            const h = (cnt / maxTotal) * plotH;
+            svg += `<rect x="${x + 1}" y="${y}" width="${Math.max(0, colW - 2)}" height="${h}" fill="${LEVEL_COLORS[lv]}"/>`;
+            y += h;
+          }
+          // x labels: first, mid, last
+          if (i === 0 || i === timeline.length - 1 || i === Math.floor(timeline.length / 2)) {
+            svg += `<text x="${x + colW / 2}" y="${H - 6}" font-size="9" fill="#64748b" text-anchor="middle">${escapeHtml(t.bucket)}</text>`;
+          }
+        });
+        svg += `</svg>`;
+        box.innerHTML = svg;
+      }
+
+      function renderRows(rows) {
+        currentRows = rows;
+        const body = $("logBody");
+        body.innerHTML = "";
+        if (!rows.length) {
+          body.innerHTML = '<tr><td colspan="5" class="empty">没有匹配的日志</td></tr>';
+          return;
+        }
+        rows.forEach((row, idx) => {
+          const tr = document.createElement("tr");
+          const color = LEVEL_COLORS[row.level] || "#94a3b8";
+          tr.innerHTML = `
+            <td class="ts">${escapeHtml(row.timestamp || "")}</td>
+            <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
+            <td class="ctx">${escapeHtml(row.context || "")}</td>
+            <td class="op">${escapeHtml(row.operator || "")}</td>
+            <td class="msg">${escapeHtml(row.message || "")}</td>`;
+          tr.addEventListener("click", () => toggleDetail(tr, idx));
+          body.appendChild(tr);
+        });
+      }
+
+      function toggleDetail(tr, idx) {
+        const next = tr.nextElementSibling;
+        if (next && next.classList.contains("detail")) {
+          next.remove();
+          tr.classList.remove("expanded");
+          return;
+        }
+        const obj = currentRows[idx];
+        const detail = document.createElement("tr");
+        detail.className = "detail";
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.innerHTML = `<pre>${escapeHtml(JSON.stringify(obj, null, 2))}</pre>`;
+        detail.appendChild(td);
+        tr.classList.add("expanded");
+        tr.parentNode.insertBefore(detail, tr.nextSibling);
+      }
+
+      function fillFacets(facets) {
+        if (facets && facets.levels) renderLevels(facets.levels);
+        if (facets && facets.contexts) {
+          const sel = $("ctxSel");
+          const cur = new Set([...sel.selectedOptions].map((o) => o.value));
+          sel.innerHTML = "";
+          for (const c of facets.contexts) {
+            const o = document.createElement("option");
+            o.value = c; o.textContent = c;
+            if (cur.has(c)) o.selected = true;
+            sel.appendChild(o);
+          }
+        }
+        if (facets && facets.operators) {
+          const sel = $("opSel");
+          const cur = new Set([...sel.selectedOptions].map((o) => o.value));
+          sel.innerHTML = "";
+          for (const o of facets.operators) {
+            const opt = document.createElement("option");
+            opt.value = o; opt.textContent = o;
+            if (cur.has(o)) opt.selected = true;
+            sel.appendChild(opt);
+          }
+        }
+      }
+
+      async function doQuery(isFollow) {
+        const t0 = performance.now();
+        const payload = buildPayload();
+        if (isFollow) {
+          payload.follow = true;
+          payload.afterOffset = lastEndOffset;
+          payload.offset = 0;
+        }
+        try {
+          const data = await api("/api/query", payload);
+          if (!data.ok) { $("status").textContent = "错误: " + data.error; return; }
+          lastEndOffset = data.endOffset || 0;
+          fillFacets(data.facets);
+          renderStats(data);
+          if (isFollow) {
+            // 新行插入到顶部（最新在前时）
+            renderRows(data.rows.concat(currentRows).slice(0, Number($("limit").value) || 200));
+            $("status").textContent = `实时跟随中 · 新增 ${data.count} 条 · 已匹配 ${fmtNum(data.total)} · ${Math.round(performance.now() - t0)}ms`;
+          } else {
+            renderRows(data.rows);
+            $("status").textContent = `已匹配 ${fmtNum(data.total)} 条，显示 ${data.count} 条 · ${Math.round(performance.now() - t0)}ms`;
+            $("rowCount").textContent = `共 ${fmtNum(data.total)} 条`;
+          }
+        } catch (e) {
+          $("status").textContent = "查询失败: " + e.message;
+        }
+      }
+
+      function stopFollow() {
+        if (followTimer) { clearInterval(followTimer); followTimer = null; }
+        $("followBtn").classList.remove("on");
+        $("followBtn").textContent = "实时跟随";
+      }
+
+      $("runBtn").addEventListener("click", () => { stopFollow(); doQuery(false); });
+      $("resetBtn").addEventListener("click", () => {
+        stopFollow();
+        $("q").value = ""; $("from").value = ""; $("to").value = "";
+        $("ctxSel").selectedIndex = -1; $("opSel").selectedIndex = -1;
+        $("order").value = "desc"; $("limit").value = 200;
+        renderLevels([]);
+        doQuery(false);
+      });
+      $("followBtn").addEventListener("click", () => {
+        if (followTimer) { stopFollow(); return; }
+        $("followBtn").classList.add("on");
+        $("followBtn").textContent = "停止跟随";
+        doQuery(false);
+        followTimer = setInterval(() => doQuery(true), 2000);
+      });
+      // 回车触发查询
+      $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { stopFollow(); doQuery(false); } });
+
+      // init
+      renderLevels([]);
+      loadList().then(() => doQuery(false));
+    </script>
+  </body>
+</html>
