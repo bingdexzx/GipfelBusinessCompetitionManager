@@ -174,6 +174,10 @@
       .op { color: #7c3aed; white-space: nowrap; font-size: 12px; }
       .ts { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
       .file-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+      tbody tr.row-err { background: rgba(229,72,77,0.09); box-shadow: inset 3px 0 0 var(--error); }
+      tbody tr.row-err:hover { background: rgba(229,72,77,0.15); }
+      tbody tr.row-warn { background: rgba(245,166,35,0.08); box-shadow: inset 3px 0 0 var(--warn); }
+      tbody tr.row-warn:hover { background: rgba(245,166,35,0.13); }
       .detail td { background: var(--code-bg); padding: 0; }
       .detail .dh { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--code-bg); border-bottom: 1px solid #1e293b; }
       .detail .dh button { font-size: 11px; padding: 3px 10px; background: #1e293b; color: var(--code-fg); border-color: #334155; }
@@ -203,6 +207,11 @@
           <div class="field">
             <label>级别 <span class="hint">不勾选 = 全部</span></label>
             <div class="levels" id="levels"></div>
+            <div class="presets" style="margin-top: 6px;">
+              <span class="preset" data-lv="all">全部级别</span>
+              <span class="preset" data-lv="err">仅错误</span>
+              <span class="preset" data-lv="erraw">错误+警告</span>
+            </div>
           </div>
           <div class="field">
             <label>上下文 context</label>
@@ -543,6 +552,8 @@
         if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="empty">没有匹配的日志</td></tr>'; return; }
         rows.forEach((row, idx) => {
           const tr = document.createElement("tr");
+          if (row.level === "error") tr.className = "row-err";
+          else if (row.level === "warn") tr.className = "row-warn";
           const color = LEVEL_COLORS[row.level] || "#94a3b8";
           tr.innerHTML = `
             <td class="ts">${escapeHtml(row.timestamp || "")}</td>
@@ -620,6 +631,17 @@
         $("to").value = toLocalInput(now);
       }
 
+      // 级别快捷筛选：把当天的错误（/警告）单独过滤出来，避免被默认 200 条限制埋没。
+      function applyLevelPreset(mode) {
+        const want = mode === "all" ? LEVELS : mode === "err" ? ["error"] : ["error", "warn"];
+        document.querySelectorAll("#levels .lvl").forEach((el) => {
+          const inp = el.querySelector("input");
+          const on = want.includes(inp.value);
+          inp.checked = on;
+          el.classList.toggle("active", on);
+        });
+      }
+
       function exportCsv() {
         if (!currentRows.length) return;
         const cols = ["timestamp", "level", "context", "operator", "requestId", "ip", "message"];
@@ -653,7 +675,10 @@
         followTimer = setInterval(() => doQuery(true), 2000);
       });
       $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { stopFollow(); doQuery(false); } });
-      document.querySelectorAll(".preset").forEach((p) => p.addEventListener("click", () => setPreset(p.dataset.p)));
+      document.querySelectorAll(".preset[data-p]").forEach((p) => p.addEventListener("click", () => setPreset(p.dataset.p)));
+      document.querySelectorAll(".preset[data-lv]").forEach((p) =>
+        p.addEventListener("click", () => { applyLevelPreset(p.dataset.lv); stopFollow(); doQuery(false); })
+      );
 
       renderLevels([]);
       loadList().then(() => doQuery(false));
