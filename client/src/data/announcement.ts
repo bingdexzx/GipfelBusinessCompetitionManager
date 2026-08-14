@@ -23,6 +23,14 @@ export interface Announcement {
 
 export const announcements: Announcement[] = [
   {
+    version: "1.0.1",
+    title: "更新公告 v1.0.1",
+    date: "2026-08-14",
+    content: `
+      <p>-更新客户端包依赖</p>
+    `,
+  },
+  {
     version: "1.0.0",
     title: "更新公告",
     date: "2026-08-14",

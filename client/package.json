@@ -1,6 +1,6 @@
 {
   "name": "gipfel-business-competition-manager-client",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "商赛办赛辅助系统 - 客户端",
   "author": "Gipfel",
   "main": "dist-electron/main.js",
