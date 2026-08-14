@@ -93,7 +93,9 @@ export function useDashboardFields() {
         }
       }
 
-      if (compId != null) {
+      const canCompany =
+        authStore.isSuperAdmin || authStore.can("company:view");
+      if (compId != null && canCompany) {
         try {
           const compRes: any = await companiesApi.list({ competitionId: compId });
           const companies: any[] = extractItems(compRes)?.items ?? compRes?.data ?? [];
