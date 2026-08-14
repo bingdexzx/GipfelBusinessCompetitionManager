@@ -163,7 +163,11 @@
 
       table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
       thead th { text-align: left; padding: 9px 11px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
-      th.col-ts { width: 150px; } th.col-lv { width: 72px; } th.col-ctx { width: 150px; } th.col-op { width: 120px; }
+      th.col-ts { width: 150px; } th.col-lv { width: 72px; } th.col-ctx { width: 150px; } th.col-op { width: 120px; } th.col-sz { width: 132px; }
+      tbody td.sz { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 12px; }
+      .sz .up { color: #e5484d; }
+      .sz .down { color: #4b83c1; }
+      .sz .muted { color: var(--muted); }
       tbody td { padding: 7px 11px; border-bottom: 1px solid var(--border); vertical-align: top; }
       tbody tr { cursor: pointer; }
       tbody tr:hover { background: var(--accent-soft); }
@@ -297,6 +301,7 @@
             <div class="bars" id="ctxBars"></div>
           </div>
         </div>
+        <div class="pkt-stats" id="pktStats" style="margin-top: 14px;"></div>
         <div style="margin-top: 18px;">
           <div class="tl-head">
             <div style="font-size: 12px; color: var(--muted);">时间线（堆叠：各级别数量）</div>
@@ -319,10 +324,11 @@
               <th class="col-ctx">上下文</th>
               <th class="col-op">操作员</th>
               <th>消息</th>
+              <th class="col-sz">包大小</th>
             </tr>
           </thead>
           <tbody id="logBody">
-            <tr><td colspan="5" class="empty">点击「查询」加载日志</td></tr>
+            <tr><td colspan="6" class="empty">点击「查询」加载日志</td></tr>
           </tbody>
         </table>
       </div>
@@ -346,6 +352,14 @@
         return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
       }
       function fmtNum(n) { return (n == null ? 0 : n).toLocaleString("en-US"); }
+      function fmtBytes(n) {
+        if (n == null || isNaN(n) || n <= 0) return "-";
+        if (n < 1024) return n + " B";
+        const units = ["KB", "MB", "GB", "TB"];
+        let v = n / 1024, i = 0;
+        while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+        return (v < 10 ? v.toFixed(2) : v.toFixed(1)) + " " + units[i];
+      }
       function dtToServer(v) { return v ? v.replace("T", " ") + ":00" : null; }
       function pad(n) { return String(n).padStart(2, "0"); }
       function toLocalInput(d) {
@@ -532,6 +546,21 @@
         if (!cc.length) cb.innerHTML = '<span class="empty">无数据</span>';
         renderTimeline(data.timeline || []);
         updateLevelCounts(bl);
+
+        // 数据包大小合计（基于本次查询结果中的行）
+        const rows = data.rows || [];
+        let up = 0, down = 0, cnt = 0;
+        for (const r of rows) {
+          if (typeof r.requestBodySize === "number") up += r.requestBodySize;
+          if (typeof r.responseBodySize === "number") down += r.responseBodySize;
+          if (r.requestBodySize || r.responseBodySize) cnt++;
+        }
+        const pk = $("pktStats");
+        pk.innerHTML = `<span style="font-size:12px;color:var(--muted);">数据包大小合计：</span>`
+          + `<span class="up" style="color:#e5484d;font-weight:600;">↑ 上行 ${fmtBytes(up)}</span>`
+          + `<span style="margin:0 8px;color:var(--border);">|</span>`
+          + `<span class="down" style="color:#4b83c1;font-weight:600;">↓ 下行 ${fmtBytes(down)}</span>`
+          + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（本次查询含包大小记录 ${fmtNum(cnt)} 条）</span>`;
       }
 
       function renderTimeline(timeline) {
@@ -582,7 +611,7 @@
         currentRows = rows;
         const body = $("logBody");
         body.innerHTML = "";
-        if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="empty">没有匹配的日志</td></tr>'; return; }
+        if (!rows.length) { body.innerHTML = '<tr><td colspan="6" class="empty">没有匹配的日志</td></tr>'; return; }
         // 分批渲染：不限制条数后可能上万行，一次性建 DOM 会卡死浏览器。
         // 用渲染令牌避免在连续查询时旧批次把过期行塞进新表格。
         const myToken = ++renderToken;
@@ -598,12 +627,17 @@
             if (row.level === "error") tr.className = "row-err";
             else if (row.level === "warn") tr.className = "row-warn";
             const color = LEVEL_COLORS[row.level] || "#94a3b8";
+            const hasSz = (row.requestBodySize || row.responseBodySize);
+            const szHtml = hasSz
+              ? `<span class="up">↑${fmtBytes(row.requestBodySize)}</span> <span class="down">↓${fmtBytes(row.responseBodySize)}</span>`
+              : '<span class="muted">-</span>';
             tr.innerHTML = `
               <td class="ts">${escapeHtml(row.timestamp || "")}</td>
               <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
               <td class="ctx">${escapeHtml(row.context || "")}</td>
               <td class="op">${escapeHtml(row.operator || "")}</td>
-              <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>`;
+              <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>
+              <td class="sz">${szHtml}</td>`;
             tr.addEventListener("click", () => toggleDetail(tr, idx));
             body.appendChild(tr);
           }
@@ -619,7 +653,7 @@
         const detail = document.createElement("tr");
         detail.className = "detail";
         const td = document.createElement("td");
-        td.colSpan = 5;
+        td.colSpan = 6;
         td.innerHTML = `<div class="dh"><span style="color:var(--code-fg);font-size:11px;">完整记录 (${escapeHtml(obj.file || "")})</span><button type="button" id="copyBtn">复制 JSON</button></div><pre>${syntaxHighlight(JSON.stringify(obj, null, 2))}</pre>`;
         detail.appendChild(td);
         tr.classList.add("expanded");
@@ -707,7 +741,7 @@
 
       function exportCsv() {
         if (!currentRows.length) return;
-        const cols = ["timestamp", "level", "context", "operator", "requestId", "ip", "message"];
+        const cols = ["timestamp", "level", "context", "operator", "requestId", "ip", "message", "requestBodySize", "responseBodySize"];
         const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
         const lines = [cols.join(",")];
         for (const r of currentRows) lines.push(cols.map((c) => esc(r[c])).join(","));
