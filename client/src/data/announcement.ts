@@ -27,7 +27,9 @@ export const announcements: Announcement[] = [
     title: "更新公告 v1.0.1",
     date: "2026-08-14",
     content: `
-      <p>-更新客户端包依赖</p>
+      <ul>
+      <li>更新客户端包依赖</li>
+      </ul>
     `,
   },
   {
