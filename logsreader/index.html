@@ -84,6 +84,7 @@
       select, input[type="text"], input[type="datetime-local"], input[type="number"] {
         border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px;
         background: var(--panel); color: var(--text); font-family: inherit; width: 100%;
+        min-width: 0; /* 允许在 flex 子项中收缩，避免 datetime-local 等控件把网格格里内容撑出右侧边界 */
       }
       select:focus, input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
       .hint { font-size: 11px; color: var(--muted); font-weight: 400; }
@@ -227,9 +228,9 @@
           </div>
           <div class="field">
             <label>时间范围</label>
-            <div style="display: flex; gap: 6px;">
-              <input type="datetime-local" id="from" step="1" />
-              <input type="datetime-local" id="to" step="1" />
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <input type="datetime-local" id="from" step="1" placeholder="起始" />
+              <input type="datetime-local" id="to" step="1" placeholder="结束" />
             </div>
             <div class="presets">
               <span class="preset" data-p="today">今天</span>
