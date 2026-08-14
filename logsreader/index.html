@@ -270,13 +270,13 @@
               </div>
             </div>
             <div class="field">
-              <label>排序 / 条数</label>
+              <label>排序 / 条数 <span class="hint">空 = 不限制</span></label>
               <div style="display: flex; gap: 6px; min-width: 0;">
                 <select id="order" style="flex: 1; min-width: 0;">
                   <option value="desc">最新在前</option>
                   <option value="asc">最早在前</option>
                 </select>
-                <input type="number" id="limit" value="200" min="10" max="2000" style="width: 84px; min-width: 0;" />
+                <input type="number" id="limit" placeholder="不限" min="1" style="width: 84px; min-width: 0;" />
               </div>
             </div>
           </div>
@@ -500,7 +500,8 @@
           from: dtToServer($("from").value),
           to: dtToServer($("to").value),
           order: $("order").value,
-          limit: Number($("limit").value) || 200,
+          // 条数为空 = 不限制（显示全部匹配行）；仅当用户主动填写时才限制
+          limit: $("limit").value ? Number($("limit").value) : 0,
         };
       }
 
@@ -576,25 +577,39 @@
         box.innerHTML = svg;
       }
 
+      let renderToken = 0;
       function renderRows(rows) {
         currentRows = rows;
         const body = $("logBody");
         body.innerHTML = "";
         if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="empty">没有匹配的日志</td></tr>'; return; }
-        rows.forEach((row, idx) => {
-          const tr = document.createElement("tr");
-          if (row.level === "error") tr.className = "row-err";
-          else if (row.level === "warn") tr.className = "row-warn";
-          const color = LEVEL_COLORS[row.level] || "#94a3b8";
-          tr.innerHTML = `
-            <td class="ts">${escapeHtml(row.timestamp || "")}</td>
-            <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
-            <td class="ctx">${escapeHtml(row.context || "")}</td>
-            <td class="op">${escapeHtml(row.operator || "")}</td>
-            <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>`;
-          tr.addEventListener("click", () => toggleDetail(tr, idx));
-          body.appendChild(tr);
-        });
+        // 分批渲染：不限制条数后可能上万行，一次性建 DOM 会卡死浏览器。
+        // 用渲染令牌避免在连续查询时旧批次把过期行塞进新表格。
+        const myToken = ++renderToken;
+        let i = 0;
+        const BATCH = 600;
+        function step() {
+          if (myToken !== renderToken) return; // 已被新查询取代
+          const end = Math.min(i + BATCH, rows.length);
+          for (; i < end; i++) {
+            const idx = i;
+            const row = rows[idx];
+            const tr = document.createElement("tr");
+            if (row.level === "error") tr.className = "row-err";
+            else if (row.level === "warn") tr.className = "row-warn";
+            const color = LEVEL_COLORS[row.level] || "#94a3b8";
+            tr.innerHTML = `
+              <td class="ts">${escapeHtml(row.timestamp || "")}</td>
+              <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
+              <td class="ctx">${escapeHtml(row.context || "")}</td>
+              <td class="op">${escapeHtml(row.operator || "")}</td>
+              <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>`;
+            tr.addEventListener("click", () => toggleDetail(tr, idx));
+            body.appendChild(tr);
+          }
+          if (i < rows.length) requestAnimationFrame(step);
+        }
+        step();
       }
 
       function toggleDetail(tr, idx) {
@@ -635,18 +650,18 @@
           syncSeg();
           renderStats(data);
           if (isFollow) {
-            renderRows(data.rows.concat(currentRows).slice(0, Number($("limit").value) || 200));
-            $("statusText").textContent = `实时跟随中 · 新增 ${data.count} 条 · 已匹配 ${fmtNum(data.total)} · ${Math.round(performance.now() - t0)}ms`;
+            const cap = Number($("limit").value) || 0;
+            renderRows(data.rows.concat(currentRows).slice(0, cap || undefined));
+            const ms = Math.round(performance.now() - t0);
+            $("statusText").textContent = `实时跟随中 · 新增 ${data.count} 条 · 已匹配 ${fmtNum(data.total)} · ${ms}ms`;
           } else {
             renderRows(data.rows);
-            const totalErr = (data.byLevel && data.byLevel.error) || 0;
-            const shownErr = data.rows.filter((r) => r.level === "error").length;
-            const extra = totalErr - shownErr;
-            const base = `已匹配 ${fmtNum(data.total)} 条，显示 ${data.count} 条 · ${Math.round(performance.now() - t0)}ms`;
+            const ms = Math.round(performance.now() - t0);
             $("rowCount").textContent = `共 ${fmtNum(data.total)} 条`;
-            $("statusText").innerHTML = extra > 0
-              ? `${base} <span class="hint-err">（另有 ${fmtNum(extra)} 条 error 被条数限制遮挡，点「仅错误」查看）</span>`
-              : base;
+            let msg = `已匹配 ${fmtNum(data.total)} 条 · ${ms}ms`;
+            // 不再有显示条数限制；仅当结果极多时提示已完整分批渲染（非截断）
+            if (data.total > 5000) msg += `（已全部加载，大数据量已分批渲染）`;
+            $("statusText").textContent = msg;
           }
         } catch (e) {
           $("statusText").textContent = "查询失败: " + e.message;
@@ -669,7 +684,7 @@
         $("to").value = toLocalInput(now);
       }
 
-      // 级别快捷筛选：把当天的错误（/警告）单独过滤出来，避免被默认 200 条限制埋没。
+      // 级别快捷筛选：快速把错误（/警告）单独挑出来查看，无需在大量 info 中翻找。
       function applyLevelPreset(mode) {
         const want = mode === "all" ? LEVELS : mode === "err" ? ["error"] : ["error", "warn"];
         document.querySelectorAll("#levels .lvl").forEach((el) => {

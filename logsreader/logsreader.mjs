@@ -223,7 +223,10 @@ function runQuery(body) {
   const q = typeof body.q === "string" ? body.q.trim() : "";
   const from = body.from || null;
   const to = body.to || null;
-  const limit = Math.min(Number(body.limit) || 200, 2000);
+  // limit 为 0 / 空 / 非正数 时表示「不限制」（返回全部匹配行）。
+  // 仅保留一个极大的内部安全上限以防极端滥用导致 OOM，对真实日志等于无限制。
+  const rawLimit = Number(body.limit);
+  const limit = !rawLimit || rawLimit <= 0 ? Infinity : Math.min(rawLimit, 200000);
   const offset = Math.max(Number(body.offset) || 0, 0);
   const order = body.order === "asc" ? "asc" : "desc";
   const follow = !!body.follow;
