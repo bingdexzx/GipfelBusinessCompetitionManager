@@ -8,6 +8,7 @@ import {
   unsubscribeCompetition,
   onRealtime,
   offRealtime,
+  onReconnect,
 } from "@/realtime/socket";
 import { invalidateResource } from "@/api/cache";
 import { bindResourceChanged } from "@/realtime/resource-changed";
@@ -113,6 +114,17 @@ export const useCompetitionStore = defineStore("competition", () => {
     bindRealtime();
   }
 
+  // 断线自动重连成功后：服务端房间订阅随旧连接销毁，需重新订阅当前比赛房间以恢复广播；
+  // 同时回源刷新财年（断连期间财年可能被改动），使左上角财年在连接恢复后立即同步，而非等下次导航。
+  function handleReconnect() {
+    const cid = selected.value?.id;
+    if (cid) {
+      subscribeCompetition(cid);
+      loadFiscalYear(cid);
+    }
+    bindRealtime();
+  }
+
   // 校验当前比赛是否真实存在：服务端清库 / 删除后，本地可能残留一个指向
   // 已不存在比赛的引用（悬空选择），会导致顶部栏与列表显示不存在的内容。
   // 用原生 fetch 绕过本地缓存，避免读到 IndexedDB 中已删除的旧数据。
@@ -152,6 +164,9 @@ export const useCompetitionStore = defineStore("competition", () => {
   }
 
   loadFromStorage();
+
+  // 注册断线重连回调：重连成功后重订阅房间 + 回源刷新财年/比赛（见 handleReconnect）。
+  onReconnect(handleReconnect);
 
   return {
     selected,
