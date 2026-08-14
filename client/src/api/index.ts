@@ -297,9 +297,14 @@ export const messagesApi = {
     if (competitionId != null) params.competitionId = competitionId;
     return api.get("/messages/selectable-users", { params, cache: false });
   },
-  /** 发布消息。targetsAll 与 targetUserIds 取并集去重。 */
-  create: (data: { title: string; content: string; targetsAll?: boolean; targetUserIds?: number[] }) =>
-    api.post("/messages", data),
+  /** 发布消息。targetsAll 与 targetUserIds 取并集去重。超管可附加 competitionId 把范围收敛到指定比赛。 */
+  create: (data: {
+    title: string;
+    content: string;
+    targetsAll?: boolean;
+    targetUserIds?: number[];
+    competitionId?: number;
+  }) => api.post("/messages", data),
   /** 当前用户收件箱。 */
   inbox: (): Promise<InboxItem[]> => api.get("/messages/inbox", { cache: false }),
   /** 当前用户已发布消息。 */

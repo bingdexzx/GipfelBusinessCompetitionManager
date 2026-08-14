@@ -343,6 +343,9 @@ async function submitPublish() {
       content: publishForm.content.trim(),
       targetsAll: publishForm.targetsAll,
       targetUserIds: publishForm.targetUserIds,
+      // 超管经「按比赛筛选」选中的比赛 → 后端据此把「本比赛全体」/显式选人收敛到该比赛；
+      // 不选则为全部比赛（全站广播）。归属账号恒以自身比赛为准，此字段被忽略。
+      competitionId: publishForm.filterCompetitionId,
     });
     ElMessage.success("消息已发布");
     publishVisible.value = false;

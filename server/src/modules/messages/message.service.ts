@@ -48,7 +48,9 @@ export class MessageService {
   }
 
   async create(actor: Actor, dto: CreateMessageDto) {
-    const selectable = await this.getSelectableUsers(actor);
+    // 超管可经 dto.competitionId 把收件范围收敛到指定比赛；归属账号忽略该字段，
+    // 恒以自身 competitionId 为准。不传 competitionId 时超管作用于全部比赛（全站广播）。
+    const selectable = await this.getSelectableUsers(actor, dto.competitionId);
     const selectableIds = new Set(selectable.map((u) => u.id));
     const recipientIds = new Set<number>();
 
