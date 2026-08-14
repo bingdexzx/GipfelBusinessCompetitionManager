@@ -56,6 +56,7 @@
                   :preview-src-list="item.message.images.map(imgSrc)"
                   :initial-index="i"
                   fit="cover"
+                  preview-teleported="true"
                   class="msg-img"
                 />
               </div>
@@ -97,6 +98,7 @@
                   :preview-src-list="item.images.map(imgSrc)"
                   :initial-index="i"
                   fit="cover"
+                  preview-teleported="true"
                   class="msg-img"
                 />
               </div>
@@ -180,7 +182,7 @@
           <div class="img-uploader">
             <div class="img-grid">
               <div v-for="(img, i) in publishForm.images" :key="img.filename" class="img-thumb">
-                <el-image :src="imgSrc(img)" :preview-src-list="previewList" :initial-index="i" fit="cover" />
+                <el-image :src="imgSrc(img)" :preview-src-list="previewList" :initial-index="i" fit="cover" preview-teleported="true" />
                 <el-button
                   class="img-del"
                   :icon="Close"
