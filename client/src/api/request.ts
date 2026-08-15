@@ -264,7 +264,9 @@ async function fetchFullSync(url: string, config: any, params: Record<string, an
   let page = 1;
   let lastLen = ex.items.length;
   // 已知 total：拉到取满为止；未知 total（防御）：直到某页返回不足一页为止。
-  while (knownTotal == null ? lastLen === LARGE_PAGE_SIZE : items.length < knownTotal) {
+  // 最多迭代 100 次，防止异常数据导致无限循环。
+  const MAX_PAGES = 100;
+  while ((knownTotal == null ? lastLen === LARGE_PAGE_SIZE : items.length < knownTotal) && page < MAX_PAGES) {
     page++;
     const r: any = await (api as any).get(url, { ...config, params: { ...syncParams, page, pageSize: LARGE_PAGE_SIZE } });
     const rx = extractItems(r);
@@ -571,14 +573,16 @@ function _mutating(
     method === "delete"
       ? (api as any).delete(url, config)
       : (api as any)[method](url, data, config);
-  // 写成功后按资源失效本地全量副本，保证后续读取走全量同步拿到最新；
-  // 同时清空内存 memo，避免返回写失效前的陈旧增量数据（O3）。
+  // 写操作完成后（无论成败）清空内存 memo，避免 O3 窗口返回陈旧数据；
+  // 写成功时额外失效本地全量副本，保证后续读取走全量同步拿到最新。
   Promise.resolve(res).then(
     () => {
       invalidateResource(url);
       _resetMemo();
     },
-    () => {},
+    () => {
+      _resetMemo();
+    },
   );
   return res;
 }
@@ -624,7 +628,6 @@ export async function reconcileAllIncremental(): Promise<void> {
         }
         const seg = RESOURCE_TO_SEG[c.resource];
         if (!seg || seg === "maps") return; // 复合地图单独处理
-        if (c.rest.includes("_p=")) return; // 嵌套集合无独立增量接口，跳过（靠 5 分钟强制全量兜底）
         const baseline = await getBaseline(c.collectionKey);
         if (!baseline) return;
         const params: Record<string, any> = {};

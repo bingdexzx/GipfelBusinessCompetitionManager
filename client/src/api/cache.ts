@@ -49,6 +49,7 @@ export const SEG_TO_RESOURCE: Record<string, string> = {
   "path-types": "pathType",
   "tech-nodes": "techNode",
   regions: "region",
+  stocks: "stock", // 股票相关（含子路径 accounts/orders/holdings，由 _p= 区分集合）
   "company-fields": "companyField", // 公司产业字段（派生集合，由 request.ts 特殊处理）
   maps: "map", // 仅用于 /maps/full（复合地图由 request.ts 特殊处理）
 };
@@ -183,9 +184,9 @@ export async function patchFullItems(
     if (it && it.id != null) map.set(it.id, it);
   }
   let result = Array.from(map.values());
-  // 仅当 existingIds 为非空数组时才过滤：空数组 [] 视为「服务端未返回」而非「集合为空」，
-  // 避免误清空本地副本。真正的空集合由 existingIds 包含所有（可能为零个）实际 id 来体现。
-  if (existingIds && Array.isArray(existingIds) && existingIds.length > 0) {
+  // existingIds 为数组时（含空数组）视为服务端确认的全量 id 集合，
+  // 本地不在其中的条目即为已删除，应移除。仅 undefined/null 表示「服务端未返回」跳过过滤。
+  if (existingIds && Array.isArray(existingIds)) {
     const existSet = new Set(existingIds as number[]);
     result = result.filter((it) => it && existSet.has(it.id));
   }
@@ -421,7 +422,7 @@ export function extractItems(payload: unknown): { items: any[]; wrap: any | null
   return null;
 }
 
-/** 取响应中所有条目的最大 updatedAt（原始字符串，保留精度）；无 updatedAt 返回 null。 */
+/** 取响应中所有条目的最大 updatedAt（原始字符串，保留精度）；无 updatedAt 时返回当前时间 ISO 作为 fallback。 */
 export function maxUpdatedAtOf(payload: unknown): string | null {
   const ex = extractItems(payload);
   if (!ex) return null;
@@ -437,6 +438,8 @@ export function maxUpdatedAtOf(payload: unknown): string | null {
       }
     }
   }
+  // 无 updatedAt 的条目：用当前时间作为 fallback，确保基线被设置，后续增量请求能正常工作
+  if (maxStr == null) maxStr = new Date().toISOString();
   return maxStr;
 }
 

@@ -8,7 +8,7 @@
 // 使用原生 CustomEvent 而非第三方事件总线，零额外依赖。
 
 import { onRealtime } from "./socket";
-import { removeFullItemByResource } from "@/api/cache";
+import { removeFullItemByResource, SEG_TO_RESOURCE } from "@/api/cache";
 import { reconcileAllIncremental, bumpResourceEvent } from "@/api/request";
 
 let _bound = false;
@@ -43,7 +43,10 @@ export function bindResourceChanged() {
         void removeFullItemByResource(payload.resource, payload.id);
       }
       // O3：标记该资源「最近有变更」，使内存新鲜度窗口 memo 立即失效、触发刷新
+      // 同时 bump 原始名和映射名（如 "stocks" → "stock"），确保 memo 键匹配
       bumpResourceEvent(payload.resource);
+      const mappedResource = SEG_TO_RESOURCE[payload.resource];
+      if (mappedResource) bumpResourceEvent(mappedResource);
       // O4：同一资源短时间内的多次事件合并为一次广播，避免批量变更触发一连串组件重拉
       scheduleResourceReload(payload.resource, {
         resource: payload.resource,

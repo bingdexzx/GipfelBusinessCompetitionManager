@@ -360,10 +360,10 @@ export const stockApi = {
   // 资金账户
   listAccounts: (competitionId: number) => {
     const params: Record<string, unknown> = { competitionId };
-    return api.get("/stocks/accounts/list", { params, cache: false });
+    return api.get("/stocks/accounts/list", { params });
   },
   getAccount: (id: number) => api.get(`/stocks/accounts/${id}`),
-  accountHoldings: (id: number) => api.get(`/stocks/accounts/${id}/holdings`, { cache: false }),
+  accountHoldings: (id: number) => api.get(`/stocks/accounts/${id}/holdings`),
   createAccount: (data: any) => api.post("/stocks/accounts", data),
   updateAccount: (id: number, data: any) => api.patch(`/stocks/accounts/${id}`, data),
   removeAccount: (id: number) => api.delete(`/stocks/accounts/${id}`),
@@ -373,7 +373,7 @@ export const stockApi = {
     const params: Record<string, unknown> = { competitionId };
     if (stockId != null) params.stockId = stockId;
     if (fundsAccountId != null) params.fundsAccountId = fundsAccountId;
-    return api.get("/stocks/orders/list", { params, cache: false });
+    return api.get("/stocks/orders/list", { params });
   },
   placeOrder: (data: any) => api.post("/stocks/orders", data),
   cancelOrder: (id: number) => api.delete(`/stocks/orders/${id}`),
