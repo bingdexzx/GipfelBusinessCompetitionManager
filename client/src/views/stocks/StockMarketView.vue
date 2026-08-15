@@ -25,10 +25,12 @@
                 <div class="stock-name">{{ s.name }}</div>
                 <div class="stock-code">{{ s.code }}</div>
               </div>
-              <div class="stock-price">¥{{ fmt(s.currentPrice) }}</div>
-              <div class="stock-change" :class="changeClass(s.changePct)">
-                <div class="chg-pct">{{ s.changePct > 0 ? "+" : "" }}{{ fmt(s.changePct) }}%</div>
-                <div class="chg-price">{{ s.changePrice > 0 ? "+" : "" }}{{ fmt(s.changePrice) }}</div>
+              <div class="stock-center">
+                <div class="stock-price">¥{{ fmt(s.currentPrice) }}</div>
+                <div class="stock-change" :class="changeClass(s.changePct)">
+                  <span class="chg-pct">{{ s.changePct > 0 ? "+" : "" }}{{ fmt(s.changePct) }}%</span>
+                  <span class="chg-price">{{ s.changePrice > 0 ? "+" : "" }}{{ fmt(s.changePrice) }}</span>
+                </div>
               </div>
             </div>
             <div v-if="!loadingStocks && stocks.length === 0" class="empty-hint">暂无股票</div>
@@ -490,12 +492,18 @@ onUnmounted(() => {
   font-size: 20px;
   font-weight: 700;
   color: var(--color-text-primary, #303133);
+}
+.stock-center {
   flex: 1;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 .stock-change {
-  text-align: right;
-  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 .chg-pct {
   font-size: 15px;
@@ -503,7 +511,6 @@ onUnmounted(() => {
 }
 .chg-price {
   font-size: 12px;
-  margin-top: 2px;
 }
 .block-card {
   border-radius: var(--radius-md);
