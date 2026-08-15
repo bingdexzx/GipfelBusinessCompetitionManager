@@ -355,7 +355,25 @@ function renderChart() {
       { scale: true, splitLine: { lineStyle: { color: "#f0f0f0" } } },
       { gridIndex: 1, scale: true, axisLabel: { show: false }, splitLine: { show: false } },
     ],
-    tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "cross" },
+      formatter: (params: any) => {
+        if (!params || !params.length) return "";
+        let html = `<div style="font-weight:600;margin-bottom:2px">${params[0].axisValue}</div>`;
+        for (const p of params) {
+          if (p.seriesType !== "candlestick") continue;
+          const v = p.value || [];
+          // echarts 蜡烛图 value 为 [open, close, low, high]（个别版本带前导索引）
+          const [o, c, l, h] = v.length >= 5 ? [v[1], v[2], v[3], v[4]] : [v[0], v[1], v[2], v[3]];
+          html += `<div>开盘：¥${fmt(o)}</div>`;
+          html += `<div>收盘：¥${fmt(c)}</div>`;
+          html += `<div>最低：¥${fmt(l)}</div>`;
+          html += `<div>最高：¥${fmt(h)}</div>`;
+        }
+        return html;
+      },
+    },
     series: [
       {
         type: "candlestick",
