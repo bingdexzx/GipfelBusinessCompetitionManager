@@ -910,10 +910,15 @@ export class StockService {
 
     for (let i = 1; i <= levels; i++) {
       const offset = spreadPct * i;
-      // 买单：价格递减，数量递增（越远越深）
+      // 卖单：价格递增、数量递增（越远越深）
+      const sellPrice = Math.round(basePrice * (1 + offset) * 100) / 100;
+      const sellQty = baseQuantity * i;
+      const sellAmount = Math.round(sellPrice * sellQty * 100) / 100;
+      // 买单：价格递减；数量按「金额对称」放大——买价低于卖价，故低价多买，使买单金额 = 卖单金额，
+      // 保证做市商自身对买卖压力中性，不因卖价 > 买价而产生结构性卖压（否则理论价会被恒压低、持续阴跌）。
       const buyPrice = Math.round(basePrice * (1 - offset) * 100) / 100;
-      const buyQty = baseQuantity * i;
-      if (buyPrice > 0) {
+      const buyQty = buyPrice > 0 ? Math.round((sellAmount / buyPrice) * 1e6) / 1e6 : 0;
+      if (buyPrice > 0 && buyQty > 0) {
         orders.push({
           stockId: stock.id,
           fundsAccountId: mmAccount.id,
@@ -927,16 +932,13 @@ export class StockService {
         });
       }
 
-      // 卖单：价格递增，数量递增
-      const sellPrice = Math.round(basePrice * (1 + offset) * 100) / 100;
-      const sellQty = baseQuantity * i;
       orders.push({
         stockId: stock.id,
         fundsAccountId: mmAccount.id,
         side: "SELL",
         price: sellPrice,
         quantity: sellQty,
-        amount: Math.round(sellPrice * sellQty * 100) / 100,
+        amount: sellAmount,
         status: "PENDING",
         round: currentRound,
         competitionId,
@@ -991,13 +993,20 @@ export class StockService {
     });
     if (orders.length === 0) return null;
 
+    // 撮合（含 AI 做市商，提供流动性）：成交价由全部订单的最高买 / 最低卖决定。
     const match = computeMatch(
       orders.map((o) => ({ side: o.side as "BUY" | "SELL", price: o.price, quantity: o.quantity })),
     );
+    // 买卖压力（定价）：仅统计玩家订单，排除 AI 做市商——做市商「低买高卖」的对称挂单
+    // 不应引导价格方向，否则其卖单金额恒大于买单金额会导致股价被结构性压低、持续阴跌。
+    const playerOrders = orders.filter((o) => o.fundsAccount?.name !== "AI做市商");
+    const pressure = computeMatch(
+      playerOrders.map((o) => ({ side: o.side as "BUY" | "SELL", price: o.price, quantity: o.quantity })),
+    );
     const price = computePrice({
       lastClose: stock.currentPrice,
-      buyAmount: match.totalBuyAmount,
-      sellAmount: match.totalSellAmount,
+      buyAmount: pressure.totalBuyAmount,
+      sellAmount: pressure.totalSellAmount,
       happiness: this.effectiveHappiness(stock, fieldMap),
       currentCarbon: this.effectiveCarbon(stock, fieldMap),
       industryAvgCarbon: this.effectiveIndustryAvgCarbon(stock, fieldMap),
