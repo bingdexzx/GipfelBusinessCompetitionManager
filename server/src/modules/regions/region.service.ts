@@ -198,6 +198,28 @@ export class RegionService {
     return this.prisma.region.findFirst({ where });
   }
 
+  /**
+   * 解析「所在地」字段的存储值（地图节点名）为纯字符串。
+   * CompanyFieldValue.value 对 STRING 字段有两种存储格式并存：
+   *  - 公司详情页写入（company-fields.setValues）：纯字符串，如 "北京"；
+   *  - 合同引擎写入（contract-engine.applyFieldEffect）：JSON.stringify，如 "\"北京\""。
+   * 统一解析后再与节点名比较，避免直接拿 JSON 串比对导致「本地区公司」全部漏匹配。
+   */
+  private parseLocationValue(raw: any): string | null {
+    if (raw == null || raw === "") return null;
+    if (typeof raw !== "string") return String(raw);
+    const s = raw.trim();
+    if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+      try {
+        const p = JSON.parse(s);
+        if (typeof p === "string") return p;
+      } catch {
+        /* 解析失败则保留原串 */
+      }
+    }
+    return s;
+  }
+
   /** 该地图区域下的「当地公司」：公司所在地（location 字段存节点名）→ 节点 → 节点.region === regionName。 */
   async getLocalCompanies(competitionId: number | undefined, regionName: string) {
     const nodeWhere: any = { region: regionName };
@@ -223,8 +245,9 @@ export class RegionService {
       const locField = c.industryType?.fields?.find((f: any) => f.fieldKey === "location");
       if (!locField) continue;
       const cfv = c.fieldValues?.find((f: any) => f.industryFieldId === locField.id);
-      if (!cfv?.value) continue;
-      if (nodeNames.has(cfv.value)) {
+      const locName = this.parseLocationValue(cfv?.value);
+      if (!locName) continue;
+      if (nodeNames.has(locName)) {
         result.push({ id: c.id, name: c.name, industryTypeId: c.industryTypeId });
       }
     }
