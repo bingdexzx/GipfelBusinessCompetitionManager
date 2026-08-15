@@ -1,16 +1,12 @@
 <template>
   <div class="stock-market">
-    <div class="market-head">
-      <div>
-        <h2 class="page-title">股票行情</h2>
-        <p class="page-sub">
-          当前轮次以全部玩家挂单撮合后生成新价与 K 线；拥有「查看」权限即可选择资金账户买卖。
-        </p>
-      </div>
-      <div class="head-actions">
-        <el-tag type="info" effect="plain">轮次：{{ maxRound }}</el-tag>
-        <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
-      </div>
+    <h2 class="page-title">股票行情</h2>
+    <p class="page-sub">
+      当前轮次以全部玩家挂单撮合后生成新价与 K 线；拥有「查看」权限即可选择资金账户买卖。
+    </p>
+    <div class="toolbar">
+      <el-tag type="info" effect="plain">轮次：{{ maxRound }}</el-tag>
+      <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
     </div>
 
     <div class="market-body">
@@ -415,31 +411,19 @@ onUnmounted(() => {
 
 <style scoped>
 .stock-market {
-  padding: 18px 22px 28px;
-  height: 100%;
-  box-sizing: border-box;
-  overflow: auto;
-}
-.market-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 14px;
-}
-.page-title {
-  font-size: 20px;
-  font-weight: 700;
-  margin: 0;
+  width: 100%;
 }
 .page-sub {
   color: var(--color-text-tertiary, #92969e);
   font-size: 13px;
   margin: 4px 0 0;
 }
-.head-actions {
+.toolbar {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 10px;
+  margin-bottom: 16px;
 }
 .market-body {
   display: grid;
@@ -454,7 +438,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .block-card {
-  border-radius: var(--radius-sm, 10px);
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border, #ebeef5);
 }
 .card-title {

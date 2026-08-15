@@ -1,12 +1,10 @@
 <template>
   <div class="stock-manage">
-    <div class="manage-head">
-      <div>
-        <h2 class="page-title">股票管理</h2>
-        <p class="page-sub">
-          高级管理可增删股票并推进轮次；低级管理仅能管理「权限范围内公司 + 自己」的资金账户。
-        </p>
-      </div>
+    <h2 class="page-title">股票管理</h2>
+    <p class="page-sub">
+      高级管理可增删股票并推进轮次；低级管理仅能管理「权限范围内公司 + 自己」的资金账户。
+    </p>
+    <div class="toolbar">
       <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
     </div>
 
@@ -359,18 +357,7 @@ onMounted(reloadAll);
 
 <style scoped>
 .stock-manage {
-  padding: 18px 22px 28px;
-}
-.manage-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 14px;
-}
-.page-title {
-  font-size: 20px;
-  font-weight: 700;
-  margin: 0;
+  width: 100%;
 }
 .page-sub {
   color: var(--color-text-tertiary, #92969e);
@@ -378,9 +365,16 @@ onMounted(reloadAll);
   margin: 4px 0 0;
   max-width: 760px;
 }
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
 .block-card {
   margin-bottom: 16px;
-  border-radius: var(--radius-sm, 10px);
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border, #ebeef5);
 }
 .card-head {
