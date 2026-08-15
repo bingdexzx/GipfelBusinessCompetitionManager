@@ -5,6 +5,7 @@ import {
   IsIn,
   IsInt,
   Min,
+  Max,
   IsArray,
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
@@ -28,10 +29,11 @@ export class CreateStockDto {
   @Min(0)
   initNetProfit: number; // 初始净利润（万）
 
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  industryPE: number; // 行业 PE
+  industryPE?: number; // 行业 PB（可选）：联动模式由字段填充，随机模式由随机源生成；手动传入则作为随机源初始种子
 
   @Type(() => Number)
   @IsNumber()
@@ -51,6 +53,26 @@ export class CreateStockDto {
   @Type(() => Number)
   @IsInt()
   companyId?: number; // 关联商赛公司（可选）
+
+  // 行业 PB 联动：pbCompanyId 与 pbFieldId 须同时提供（联动模式），或同时留空（随机模式）。
+  @IsOptional()
+  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Type(() => Number)
+  @IsInt()
+  pbCompanyId?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Type(() => Number)
+  @IsInt()
+  pbFieldId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(20)
+  pbRandom?: number; // 随机源初始值（仅随机模式，留空则创建时自动生成 0~20）
 
   // 绑定区域总览卡片（实时引用）：JSON {region, cardId}，未绑定留空
   @IsOptional()
@@ -115,6 +137,26 @@ export class UpdateStockDto {
   @Type(() => Number)
   @IsInt()
   companyId?: number | null;
+
+  // 行业 PB 联动：pbCompanyId 与 pbFieldId 须同时提供或同时留空；清空二者即切回随机模式。
+  @IsOptional()
+  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Type(() => Number)
+  @IsInt()
+  pbCompanyId?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Type(() => Number)
+  @IsInt()
+  pbFieldId?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(20)
+  pbRandom?: number; // 随机源当前值（仅随机模式）
 
   // 绑定区域总览卡片（实时引用）：JSON {region, cardId}，未绑定留空
   @IsOptional()

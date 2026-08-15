@@ -587,6 +587,13 @@ model Stock {
   // —— 绑定区域总览卡片（实时引用）：JSON {region, cardId}，null/空 = 未绑定，使用上面的手动值 ——
   carbonFieldRef    String?  // 当前碳排绑定的区域总览卡片引用
   happinessFieldRef String?  // 当前幸福度绑定的区域总览卡片引用
+  // —— 行业 PB 动态化 ——
+  // industryPE 既是初始价公式的除数，也作为「有效 PB 缓存」：联动/随机得到的有效 PB 写入此列。
+  // 联动模式：pbCompanyId + pbFieldId 同时非空，PB 取该公司产业字段实时值。
+  // 随机模式：pbCompanyId 为空，PB 取自 pbRandom（0~20，每轮 ±2 游走）。
+  pbCompanyId      Int?      // PB 联动来源公司（null = 随机源模式）
+  pbFieldId        Int?      // 绑定的该公司产业字段 id（联动模式有效）
+  pbRandom         Float?    // 随机源当前值（0~20，随机模式有效）
   // —— 派生 / 运行时字段 ——
   initPrice        Float     // 初始价 = ROUND(initNetProfit*10000/totalShares/industryPE, 2)
   currentPrice     Float     // 当前价（最新收盘价），初始 = initPrice

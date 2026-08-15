@@ -346,6 +346,12 @@ export const stockApi = {
   },
   get: (id: number) => api.get(`/stocks/${id}`),
   candles: (id: number) => api.get(`/stocks/${id}/candles`, { cache: false }),
+  /** PB 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段（cache:false 避免过期）。 */
+  pbSources: (competitionId?: number) => {
+    const params: Record<string, unknown> = {};
+    if (competitionId != null) params.competitionId = competitionId;
+    return api.get("/stocks/pb-sources", { params, cache: false });
+  },
   create: (data: any) => api.post("/stocks", data),
   update: (id: number, data: any) => api.patch(`/stocks/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>

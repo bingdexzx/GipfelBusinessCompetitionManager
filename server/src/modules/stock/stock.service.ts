@@ -106,13 +106,129 @@ export class StockService {
     return stock.happiness;
   }
 
-  /** 给股票对象附加有效碳排 / 幸福度（绑定字段时取实时值）。 */
-  private decorateEffective(stock: any, map: Map<string, number | null>): any {
+  /** 给股票对象附加有效碳排 / 幸福度（绑定字段时取实时值）与有效 PB。 */
+  private decorateEffective(stock: any, map: Map<string, number | null>, pbMap?: Map<number, number>): any {
     return {
       ...stock,
       effectiveCurrentCarbon: this.effectiveCarbon(stock, map),
       effectiveHappiness: this.effectiveHappiness(stock, map),
+      effectivePb: pbMap?.get(stock.id) ?? stock.industryPE,
+      pbMode: stock.pbCompanyId && stock.pbFieldId ? "linked" : "random",
     };
+  }
+
+  // ---------------- 行业 PB 动态化 ----------------
+
+  /** 将 PB 值钳制到 [0, 20] 并保留两位小数。 */
+  private clampPb(v: number): number {
+    if (!Number.isFinite(v)) return this.randomPb();
+    const c = Math.min(20, Math.max(0, v));
+    return Math.round(c * 100) / 100;
+  }
+
+  /** 生成一个 0~20 的随机 PB（保留两位小数）。 */
+  private randomPb(): number {
+    return Math.round(Math.random() * 20 * 100) / 100;
+  }
+
+  /**
+   * 解析股票的有效 PB 与联动字段。
+   * - 联动模式（pbCompanyId + pbFieldId 同时非空）：PB 取该公司产业字段实时值，pbRandom 置空。
+   * - 随机模式（二者均空）：PB 取自 pbRandom（dto.pbRandom 优先，其次 dto.industryPE 作种子，否则沿用/随机生成）。
+   * item 为 null 表示创建；否则表示原有股票（用于沿用未变更的字段与随机源）。
+   */
+  private async computePbData(item: any | null, dto: any): Promise<{
+    industryPE: number;
+    pbCompanyId: number | null;
+    pbFieldId: number | null;
+    pbRandom: number | null;
+  }> {
+    const pbCompanyId = dto.pbCompanyId !== undefined ? (dto.pbCompanyId ?? null) : (item?.pbCompanyId ?? null);
+    const pbFieldId = dto.pbFieldId !== undefined ? (dto.pbFieldId ?? null) : (item?.pbFieldId ?? null);
+
+    if ((pbCompanyId && !pbFieldId) || (!pbCompanyId && pbFieldId)) {
+      throw new BadRequestException("PB 联动需同时选择公司与绑定字段，或二者均不填（随机模式）");
+    }
+
+    let pbRandom: number | null = item?.pbRandom ?? null;
+    let industryPE: number;
+
+    if (pbCompanyId && pbFieldId) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: pbCompanyId },
+        select: { industryTypeId: true },
+      });
+      const field = await this.prisma.industryField.findUnique({
+        where: { id: pbFieldId },
+        select: { industryTypeId: true },
+      });
+      if (!company || !field || company.industryTypeId !== field.industryTypeId) {
+        throw new BadRequestException("绑定的产业字段不属于该公司所属产业类型");
+      }
+      const fv = await this.prisma.companyFieldValue.findFirst({
+        where: { companyId: pbCompanyId, industryFieldId: pbFieldId },
+      });
+      const v = fv?.value != null ? Number(fv.value) : NaN;
+      industryPE = Number.isFinite(v) && v > 0 ? v : (item?.industryPE ?? this.randomPb());
+      pbRandom = null; // 联动模式不使用随机源
+    } else {
+      let seed: number | null = null;
+      if (dto.pbRandom !== undefined && dto.pbRandom !== null) seed = dto.pbRandom;
+      else if (dto.industryPE !== undefined && dto.industryPE !== null) seed = dto.industryPE;
+      else if (pbRandom === null) seed = this.randomPb();
+      pbRandom = seed !== null ? this.clampPb(seed) : this.randomPb();
+      industryPE = pbRandom;
+    }
+
+    return { industryPE, pbCompanyId, pbFieldId, pbRandom };
+  }
+
+  /** 批量计算股票的有效 PB：联动模式读实时字段值，随机模式用缓存 industryPE。 */
+  private async resolveEffectivePbs(stocks: any[]): Promise<Map<number, number>> {
+    const map = new Map<number, number>();
+    const linked = stocks.filter((s) => s.pbCompanyId && s.pbFieldId);
+    if (linked.length) {
+      const companyIds = [...new Set(linked.map((s) => s.pbCompanyId))];
+      const fieldIds = [...new Set(linked.map((s) => s.pbFieldId))];
+      const fvs = await this.prisma.companyFieldValue.findMany({
+        where: { companyId: { in: companyIds }, industryFieldId: { in: fieldIds } },
+      });
+      const valMap = new Map<string, number>();
+      for (const fv of fvs) {
+        const n = fv.value != null ? Number(fv.value) : NaN;
+        if (Number.isFinite(n)) valMap.set(`${fv.companyId}:${fv.industryFieldId}`, n);
+      }
+      for (const s of linked) {
+        const v = valMap.get(`${s.pbCompanyId}:${s.pbFieldId}`);
+        map.set(s.id, v != null ? v : s.industryPE);
+      }
+    }
+    for (const s of stocks) {
+      if (!map.has(s.id)) map.set(s.id, s.industryPE);
+    }
+    return map;
+  }
+
+  /** 推进一轮时更新 PB：联动模式刷新实时字段值，随机模式做 ±2 随机游走并钳制到 [0,20]。 */
+  private async applyPbRound(stock: any): Promise<void> {
+    if (stock.pbCompanyId && stock.pbFieldId) {
+      const fv = await this.prisma.companyFieldValue.findFirst({
+        where: { companyId: stock.pbCompanyId, industryFieldId: stock.pbFieldId },
+      });
+      const v = fv?.value != null ? Number(fv.value) : NaN;
+      const industryPE = Number.isFinite(v) && v > 0 ? v : stock.industryPE;
+      if (industryPE !== stock.industryPE) {
+        await this.prisma.stock.update({ where: { id: stock.id }, data: { industryPE } });
+      }
+    } else {
+      const prev = stock.pbRandom ?? this.randomPb();
+      const step = Math.random() * 4 - 2; // [-2, 2]
+      const next = this.clampPb(prev + step);
+      await this.prisma.stock.update({
+        where: { id: stock.id },
+        data: { pbRandom: next, industryPE: next },
+      });
+    }
   }
 
   /**
@@ -153,10 +269,10 @@ export class StockService {
     const baseWhere = competitionId ? { competitionId } : {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     const fieldMap = await this.resolveFieldValueMap(competitionId);
-    const decorate = (items: any[]) => items.map((s) => this.decorateEffective(s, fieldMap));
     if (incremental) {
       const items = await this.prisma.stock.findMany({ where, orderBy: { code: "asc" } });
-      const decorated = decorate(items);
+      const pbMap = await this.resolveEffectivePbs(items);
+      const decorated = items.map((s) => this.decorateEffective(s, fieldMap, pbMap));
       const existingIds = requireExistingIds
         ? (await this.prisma.stock.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
@@ -167,13 +283,40 @@ export class StockService {
       this.prisma.stock.findMany({ where, skip, take: pageSize, orderBy: { code: "asc" } }),
       this.prisma.stock.count({ where }),
     ]);
-    return { items: decorate(items), total, page, pageSize };
+    const pbMap = await this.resolveEffectivePbs(items);
+    return { items: items.map((s) => this.decorateEffective(s, fieldMap, pbMap)), total, page, pageSize };
+  }
+
+  /** PB 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段。 */
+  async listPbSources(competitionId?: number): Promise<{ companies: any[] }> {
+    if (!competitionId) return { companies: [] };
+    const companies = await this.prisma.company.findMany({
+      where: { competitionId },
+      select: { id: true, name: true, industryTypeId: true },
+      orderBy: { name: "asc" },
+    });
+    const result: any[] = [];
+    for (const c of companies) {
+      // 无产业类型的公司没有可绑定字段，直接给空字段列表（同时避免 industryTypeId 为 null 触发的类型错误）
+      if (c.industryTypeId == null) {
+        result.push({ id: c.id, name: c.name, industryTypeId: null, fields: [] });
+        continue;
+      }
+      const fields = await this.prisma.industryField.findMany({
+        where: { industryTypeId: c.industryTypeId, fieldType: "NUMBER" },
+        select: { id: true, fieldKey: true, name: true, fieldType: true },
+        orderBy: { sortOrder: "asc" },
+      });
+      result.push({ id: c.id, name: c.name, industryTypeId: c.industryTypeId, fields });
+    }
+    return { companies: result };
   }
 
   async findOneStock(id: number) {
     const item = await this.prisma.stock.findUnique({ where: { id } });
     if (!item) throw new NotFoundException("股票不存在");
-    return item;
+    const pbMap = await this.resolveEffectivePbs([item]);
+    return this.decorateEffective(item, new Map(), pbMap);
   }
 
   async getCandles(stockId: number) {
@@ -198,19 +341,23 @@ export class StockService {
     if (dto.happinessFieldRef && !this.parseFieldRef(dto.happinessFieldRef)) {
       throw new BadRequestException("happinessFieldRef 格式非法，应为 JSON {region, cardId}");
     }
-    const initPrice = computeInitPrice(dto.initNetProfit, dto.totalShares, dto.industryPE);
+    const pb = await this.computePbData(null, dto);
+    const initPrice = computeInitPrice(dto.initNetProfit, dto.totalShares, pb.industryPE);
     const stock = await this.prisma.stock.create({
       data: {
         code: dto.code,
         name: dto.name,
         totalShares: dto.totalShares,
         initNetProfit: dto.initNetProfit,
-        industryPE: dto.industryPE,
+        industryPE: pb.industryPE,
         currentCarbon: dto.currentCarbon,
         industryAvgCarbon: dto.industryAvgCarbon,
         happiness: dto.happiness,
         carbonFieldRef: dto.carbonFieldRef ?? null,
         happinessFieldRef: dto.happinessFieldRef ?? null,
+        pbCompanyId: pb.pbCompanyId,
+        pbFieldId: pb.pbFieldId,
+        pbRandom: pb.pbRandom,
         initPrice,
         currentPrice: initPrice,
         round: 0,
@@ -243,18 +390,26 @@ export class StockService {
       }
       data.happinessFieldRef = dto.happinessFieldRef ?? null;
     }
-    // 修改股本 / 净利润 / 行业 PE 会重算初始价
-    const recompute =
-      dto.totalShares !== undefined || dto.initNetProfit !== undefined || dto.industryPE !== undefined;
-    if (recompute) {
+    // 行业 PB 联动 / 随机：变更时重新解析有效 PB 并写入 industryPE（按需求不重算初始价）
+    const pbChanged =
+      dto.pbCompanyId !== undefined || dto.pbFieldId !== undefined || dto.pbRandom !== undefined;
+    let effectivePE = item.industryPE;
+    if (pbChanged) {
+      const pb = await this.computePbData(item, dto);
+      data.pbCompanyId = pb.pbCompanyId;
+      data.pbFieldId = pb.pbFieldId;
+      data.pbRandom = pb.pbRandom;
+      data.industryPE = pb.industryPE;
+      effectivePE = pb.industryPE;
+    }
+    // 修改股本 / 净利润会重算初始价（行业 PE 现由 PB 联动/随机派生，重算时取最新有效 PB）
+    if (dto.totalShares !== undefined || dto.initNetProfit !== undefined) {
       const totalShares = dto.totalShares ?? item.totalShares;
       const initNetProfit = dto.initNetProfit ?? item.initNetProfit;
-      const industryPE = dto.industryPE ?? item.industryPE;
-      data.initPrice = computeInitPrice(initNetProfit, totalShares, industryPE);
+      data.initPrice = computeInitPrice(initNetProfit, totalShares, effectivePE);
     }
     if (dto.totalShares !== undefined) data.totalShares = dto.totalShares;
     if (dto.initNetProfit !== undefined) data.initNetProfit = dto.initNetProfit;
-    if (dto.industryPE !== undefined) data.industryPE = dto.industryPE;
     const updated = await this.prisma.stock.update({ where: { id }, data });
     this.realtime.emitResourceChanged("stocks", updated.id, updated.competitionId ?? null, "updated");
     return updated;
@@ -460,6 +615,7 @@ export class StockService {
     const fieldMap = await this.resolveFieldValueMap(competitionId);
     const results: any[] = [];
     for (const stock of stocks) {
+      await this.applyPbRound(stock);
       const r = await this.advanceOneStock(stock, competitionId, fieldMap);
       if (r) results.push(r);
     }

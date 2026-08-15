@@ -51,6 +51,16 @@ export class StockController {
     );
   }
 
+  // PB 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段（须置于 :id 之前）
+  @Get("pb-sources")
+  pbSources(
+    @CurrentUser() user: ReqUser,
+    @Query("competitionId") competitionId?: string,
+  ) {
+    const cid = competitionId ? parseInt(competitionId) : user.competitionId ?? undefined;
+    return this.service.listPbSources(cid);
+  }
+
   @Get(":id")
   findOne(@Param("id", ParseIntPipe) id: number) {
     return this.service.findOneStock(id);

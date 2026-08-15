@@ -27,7 +27,13 @@
         </el-table-column>
         <el-table-column prop="round" label="轮次" width="64" align="center" />
         <el-table-column prop="totalShares" label="总股本(万)" min-width="100" align="right" />
-        <el-table-column prop="industryPE" label="行业PB" min-width="85" align="right" />
+        <el-table-column label="有效PB" min-width="110" align="right">
+          <template #default="{ row }">
+            <span>{{ fmt(row.effectivePb ?? row.industryPE) }}</span>
+            <el-tag v-if="row.pbMode === 'linked'" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
+            <el-tag v-else size="small" type="info" effect="plain" class="bind-tag">随机</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="幸福度" min-width="95" align="right">
           <template #default="{ row }">
             <span>{{ fmt(row.effectiveHappiness ?? row.happiness) }}</span>
@@ -95,9 +101,25 @@
         <el-form-item label="初始净利润(万)" required>
           <el-input-number v-model="stockForm.initNetProfit" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="行业PB" required>
-          <el-input-number v-model="stockForm.industryPE" :min="0" :precision="2" style="width: 100%" />
+        <el-form-item label="PB 关联公司">
+          <el-select
+            v-model="stockForm.pbCompanyId"
+            placeholder="不选择 = 随机源模式"
+            clearable
+            style="width: 100%"
+            @change="onPbCompanyChange"
+          >
+            <el-option v-for="c in pbCompanies" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
         </el-form-item>
+        <el-form-item v-if="stockForm.pbCompanyId" label="PB 绑定字段" required>
+          <el-select v-model="stockForm.pbFieldId" placeholder="选择该公司的数值型产业字段" clearable style="width: 100%">
+            <el-option v-for="f in pbFieldsForSelectedCompany" :key="f.id" :label="(f.name || f.fieldKey) + '（' + f.fieldType + '）'" :value="f.id" />
+          </el-select>
+        </el-form-item>
+        <div v-if="!stockForm.pbCompanyId" class="pb-hint muted">
+          随机模式：未选择关联公司时，PB 在 0~20 间随机生成，每推进一轮按 ±2 步长随机游走。
+        </div>
         <el-form-item label="碳排绑定字段">
           <el-select v-model="stockForm.carbonRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
             <el-option label="不绑定（手动输入）" value="" />
@@ -128,10 +150,9 @@
           <el-input-number v-else v-model="stockForm.happiness" :min="0" :max="100" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-alert
-          v-if="!stockForm.id && previewInitPrice > 0"
           type="info"
           :closable="false"
-          :title="`初始价将自动计算为 ${fmt(previewInitPrice)} 元/股`"
+          title="初始价由系统按「净利润×10000 / 总股本 / 有效PB」自动计算，无需手动填写。"
         />
       </el-form>
       <template #footer>
@@ -221,7 +242,27 @@ const loadingStocks = ref(false);
 const loadingAccounts = ref(false);
 
 const stockDialogVisible = ref(false);
-const stockForm = ref<any>({ code: "", name: "", totalShares: 0, initNetProfit: 0, industryPE: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "" });
+const stockForm = ref<any>({ code: "", name: "", totalShares: 0, initNetProfit: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "", pbCompanyId: null, pbFieldId: null });
+
+// PB 联动下拉数据源：比赛内公司及其可绑定的数值型产业字段
+const pbCompanies = ref<any[]>([]);
+const pbFieldsForSelectedCompany = computed(() => {
+  const c = pbCompanies.value.find((x: any) => x.id === stockForm.value.pbCompanyId);
+  return c?.fields || [];
+});
+async function loadPbSources() {
+  if (!compStore.competitionId) return;
+  try {
+    const res = await stockApi.pbSources(compStore.competitionId);
+    pbCompanies.value = res.companies || [];
+  } catch {
+    pbCompanies.value = [];
+  }
+}
+function onPbCompanyChange() {
+  // 切换关联公司时清空已选字段（字段属于具体公司，不能跨公司复用）
+  stockForm.value.pbFieldId = null;
+}
 
 // 区域总览卡片（用于绑定股票碳排/幸福度到区域总览字段）
 const regionOverview = ref<any[]>([]);
@@ -307,11 +348,6 @@ const happinessLiveText = computed(() => {
   if (!c.valid) return "字段失效";
   return c.value == null ? "—" : fmt(c.value);
 });
-const previewInitPrice = computed(() => {
-  const { initNetProfit, totalShares, industryPE } = stockForm.value;
-  if (!totalShares || !industryPE) return 0;
-  return Math.round((initNetProfit * 10000) / totalShares / industryPE * 100) / 100;
-});
 
 const accountDialogVisible = ref(false);
 const accountForm = ref<any>({ id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000 });
@@ -364,13 +400,15 @@ async function loadRegionOverview() {
   }
 }
 async function reloadAll() {
-  await Promise.all([reloadStocks(), reloadAccounts(), reloadCompanies(), loadRegionOverview()]);
+  await Promise.all([reloadStocks(), reloadAccounts(), reloadCompanies(), loadRegionOverview(), loadPbSources()]);
 }
 
 function openStockDialog(row?: any) {
   stockForm.value = row
-    ? { ...row, carbonRefSel: resolveRefSel(row.carbonFieldRef), happinessRefSel: resolveRefSel(row.happinessFieldRef) }
-    : { code: "", name: "", totalShares: 0, initNetProfit: 0, industryPE: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "" };
+    ? { ...row, carbonRefSel: resolveRefSel(row.carbonFieldRef), happinessRefSel: resolveRefSel(row.happinessFieldRef), pbCompanyId: row.pbCompanyId ?? null, pbFieldId: row.pbFieldId ?? null }
+    : { code: "", name: "", totalShares: 0, initNetProfit: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "", pbCompanyId: null, pbFieldId: null };
+  // 确保 PB 联动下拉数据源就绪（编辑已关联股票时字段选项依赖它）
+  if (!pbCompanies.value.length) loadPbSources();
   stockDialogVisible.value = true;
 }
 async function saveStock() {
@@ -381,13 +419,14 @@ async function saveStock() {
     name: f.name,
     totalShares: f.totalShares,
     initNetProfit: f.initNetProfit,
-    industryPE: f.industryPE,
     currentCarbon: f.currentCarbon,
     industryAvgCarbon: f.industryAvgCarbon,
     happiness: f.happiness,
     companyId: f.companyId || null,
     carbonFieldRef: buildRefJson(f.carbonRefSel),
     happinessFieldRef: buildRefJson(f.happinessRefSel),
+    pbCompanyId: f.pbCompanyId || null,
+    pbFieldId: f.pbFieldId || null,
     competitionId: compStore.competitionId,
   };
   try {
@@ -508,6 +547,11 @@ onMounted(reloadAll);
 }
 .muted {
   color: var(--color-text-tertiary, #92969e);
+}
+.pb-hint {
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .bound-value {
   display: flex;
