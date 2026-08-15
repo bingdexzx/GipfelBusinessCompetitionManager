@@ -147,7 +147,15 @@ export function useDashboardFields() {
     return fieldMap.value.get(refKey(ref))?.value;
   }
 
-  watch(() => compStore.competitionId, () => load(), { immediate: true });
+  // 同时监听「登录态是否就绪」：authStore.user 初始为 null，需等 fetchProfile 异步返回后
+  // 才有 isSuperAdmin / 权限，进而决定 canRegion / canCompany。若仅在 competitionId 变化时触发，
+  // 仪表盘挂载时若 profile 尚未加载，load() 会因权限判定为 false 而拉不到任何字段；
+  // 待 profile 就绪后又不再触发，导致首屏空白、必须手动「刷新数据」才出数。
+  watch(
+    [() => compStore.competitionId, () => authStore.user?.id],
+    () => load(),
+    { immediate: true },
+  );
 
   return { fields, loading, load, valueOf, refKey };
 }
