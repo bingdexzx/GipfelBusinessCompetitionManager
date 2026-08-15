@@ -135,7 +135,13 @@
       destroy-on-close
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="80px">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="formRules"
+        label-width="80px"
+        @submit.prevent="handleSubmit"
+      >
         <el-form-item label="名称" prop="name"><el-input v-model="form.name" /></el-form-item>
       </el-form>
       <template #footer>
