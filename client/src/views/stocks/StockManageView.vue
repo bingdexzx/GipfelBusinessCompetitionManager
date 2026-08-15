@@ -1,9 +1,6 @@
 <template>
   <div class="stock-manage">
     <h2 class="page-title">股票管理</h2>
-    <p class="page-sub">
-      高级管理可增删股票并推进轮次；低级管理仅能管理「权限范围内公司 + 自己」的资金账户。
-    </p>
     <div class="toolbar">
       <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
     </div>
@@ -358,12 +355,6 @@ onMounted(reloadAll);
 <style scoped>
 .stock-manage {
   width: 100%;
-}
-.page-sub {
-  color: var(--color-text-tertiary, #92969e);
-  font-size: 13px;
-  margin: 4px 0 0;
-  max-width: 760px;
 }
 .toolbar {
   display: flex;
