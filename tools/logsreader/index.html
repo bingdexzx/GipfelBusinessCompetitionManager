@@ -797,7 +797,18 @@
           if (isFollow) {
             // 实时跟随：新行插入顶部（最新在前），currentRows 仍为 matched 顶部，停止后可无缝续接分页
             following = true;
-            renderStats(data);
+            // 仅在有新行时更新统计和 facets，避免无新行时的不必要渲染开销
+            if (data.rows.length > 0) {
+              renderStats(data);
+            } else {
+              // 无新行时仅更新慢请求统计（轻量操作）
+              const pk = $("pktStats");
+              const pkt = data.pktTotals || { up: 0, down: 0, cnt: 0 };
+              if (data.slowCount > 0) {
+                const existing = pk.querySelector(".slow-count");
+                if (existing) existing.textContent = `⚠ 慢请求 ${fmtNum(data.slowCount)} 条`;
+              }
+            }
             prependRows(data.rows);
             const cap = Number($("limit").value) || 0;
             if (cap && currentRows.length > cap) {
@@ -913,13 +924,27 @@
         doQuery(false);
       });
       $("exportBtn").addEventListener("click", exportCsv);
-      $("followBtn").addEventListener("click", () => {
+      $("followBtn").addEventListener("click", async () => {
         if (followTimer) { stopFollow(); return; }
         $("followBtn").classList.add("on");
         $("followBtn").textContent = "停止跟随";
         $("liveDot").classList.add("on");
-        doQuery(false);
-        followTimer = setInterval(() => doQuery(true), 2000);
+        // 先执行一次普通查询加载初始数据，等待完成后再启动 follow 定时器
+        // 避免竞态：follow 查询在初始查询完成前执行导致 lastEndOffset 未初始化
+        await doQuery(false);
+        // 仅在未被用户停止的情况下启动定时器（doQuery 可能因错误被中断）
+        if ($("followBtn").classList.contains("on")) {
+          let followBusy = false; // 防抖：避免多个 follow 请求并发
+          followTimer = setInterval(async () => {
+            if (followBusy) return;
+            followBusy = true;
+            try {
+              await doQuery(true);
+            } finally {
+              followBusy = false;
+            }
+          }, 2000);
+        }
       });
       $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { stopFollow(); doQuery(false); } });
       document.querySelectorAll(".preset[data-p]").forEach((p) => p.addEventListener("click", () => setPreset(p.dataset.p)));
