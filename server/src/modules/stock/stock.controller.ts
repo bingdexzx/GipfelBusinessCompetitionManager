@@ -54,7 +54,7 @@ export class StockController {
     );
   }
 
-  // PB 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段（须置于 :id 之前）
+  // PE 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段（须置于 :id 之前）
   @Get("pb-sources")
   pbSources(
     @CurrentUser() user: ReqUser,

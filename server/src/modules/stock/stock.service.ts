@@ -106,7 +106,7 @@ export class StockService {
     return stock.happiness;
   }
 
-  /** 给股票对象附加有效碳排 / 幸福度（绑定字段时取实时值）与有效 PB。 */
+  /** 给股票对象附加有效碳排 / 幸福度（绑定字段时取实时值）与有效 PE。 */
   private decorateEffective(stock: any, map: Map<string, number | null>, pbMap?: Map<number, number>): any {
     return {
       ...stock,
@@ -117,24 +117,24 @@ export class StockService {
     };
   }
 
-  // ---------------- 行业 PB 动态化 ----------------
+  // ---------------- 行业 PE 动态化 ----------------
 
-  /** 将 PB 值钳制到 [0, 20] 并保留两位小数。 */
+  /** 将 PE 值钳制到 [0, 20] 并保留两位小数。 */
   private clampPb(v: number): number {
     if (!Number.isFinite(v)) return this.randomPb();
     const c = Math.min(20, Math.max(0, v));
     return Math.round(c * 100) / 100;
   }
 
-  /** 生成一个 0~20 的随机 PB（保留两位小数）。 */
+  /** 生成一个 0~20 的随机 PE（保留两位小数）。 */
   private randomPb(): number {
     return Math.round(Math.random() * 20 * 100) / 100;
   }
 
   /**
-   * 解析股票的有效 PB 与联动字段。
-   * - 联动模式（pbCompanyId + pbFieldId 同时非空）：PB 取该公司产业字段实时值，pbRandom 置空。
-   * - 随机模式（二者均空）：PB 取自 pbRandom（dto.pbRandom 优先，其次 dto.industryPE 作种子，否则沿用/随机生成）。
+   * 解析股票的有效 PE 与联动字段。
+   * - 联动模式（pbCompanyId + pbFieldId 同时非空）：PE 取该公司产业字段实时值，pbRandom 置空。
+   * - 随机模式（二者均空）：PE 取自 pbRandom（dto.pbRandom 优先，其次 dto.industryPE 作种子，否则沿用/随机生成）。
    * item 为 null 表示创建；否则表示原有股票（用于沿用未变更的字段与随机源）。
    */
   private async computePbData(item: any | null, dto: any): Promise<{
@@ -147,7 +147,7 @@ export class StockService {
     const pbFieldId = dto.pbFieldId !== undefined ? (dto.pbFieldId ?? null) : (item?.pbFieldId ?? null);
 
     if ((pbCompanyId && !pbFieldId) || (!pbCompanyId && pbFieldId)) {
-      throw new BadRequestException("PB 联动需同时选择公司与绑定字段，或二者均不填（随机模式）");
+      throw new BadRequestException("PE 联动需同时选择公司与绑定字段，或二者均不填（随机模式）");
     }
 
     let pbRandom: number | null = item?.pbRandom ?? null;
@@ -183,7 +183,7 @@ export class StockService {
     return { industryPE, pbCompanyId, pbFieldId, pbRandom };
   }
 
-  /** 批量计算股票的有效 PB：联动模式读实时字段值，随机模式用缓存 industryPE。 */
+  /** 批量计算股票的有效 PE：联动模式读实时字段值，随机模式用缓存 industryPE。 */
   private async resolveEffectivePbs(stocks: any[]): Promise<Map<number, number>> {
     const map = new Map<number, number>();
     const linked = stocks.filter((s) => s.pbCompanyId && s.pbFieldId);
@@ -210,10 +210,10 @@ export class StockService {
   }
 
   /**
-   * 推进一轮时更新 PB 并据最新有效 PB 实时重算初始价：
+   * 推进一轮时更新 PE 并据最新有效 PE 实时重算初始价：
    * - 联动模式刷新实时字段值；
    * - 随机模式做 ±2 随机游走并钳制到 [0,20]。
-   * 两种模式下初始价均按 computeInitPrice(净利润, 总股本, 有效PB) 实时重算（满足"每轮根据字段数据重算初始价"需求）。
+   * 两种模式下初始价均按 computeInitPrice(净利润, 总股本, 有效PE) 实时重算（满足"每轮根据字段数据重算初始价"需求）。
    */
   private async applyPbRound(stock: any): Promise<void> {
     let industryPE: number;
@@ -232,7 +232,7 @@ export class StockService {
       industryPE = next;
       pbRandom = next;
     }
-    // 每轮根据当轮有效 PB 实时重算初始价
+    // 每轮根据当轮有效 PE 实时重算初始价
     const initPrice = computeInitPrice(stock.initNetProfit, stock.totalShares, industryPE);
     const data: Record<string, unknown> = { industryPE, initPrice };
     if (pbRandom !== (stock.pbRandom ?? null)) data.pbRandom = pbRandom;
@@ -295,7 +295,7 @@ export class StockService {
     return { items: items.map((s) => this.decorateEffective(s, fieldMap, pbMap)), total, page, pageSize };
   }
 
-  /** PB 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段。 */
+  /** PE 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段。 */
   async listPbSources(competitionId?: number): Promise<{ companies: any[] }> {
     if (!competitionId) return { companies: [] };
     const companies = await this.prisma.company.findMany({
@@ -398,7 +398,7 @@ export class StockService {
       }
       data.happinessFieldRef = dto.happinessFieldRef ?? null;
     }
-    // 行业 PB 联动 / 随机：变更时重新解析有效 PB 并写入 industryPE（按需求不重算初始价）
+    // 行业 PE 联动 / 随机：变更时重新解析有效 PE 并写入 industryPE（按需求不重算初始价）
     const pbChanged =
       dto.pbCompanyId !== undefined || dto.pbFieldId !== undefined || dto.pbRandom !== undefined;
     let effectivePE = item.industryPE;
@@ -410,7 +410,7 @@ export class StockService {
       data.industryPE = pb.industryPE;
       effectivePE = pb.industryPE;
     }
-    // 修改股本 / 净利润会重算初始价（行业 PE 现由 PB 联动/随机派生，重算时取最新有效 PB）
+    // 修改股本 / 净利润会重算初始价（行业 PE 现由 PE 联动/随机派生，重算时取最新有效 PE）
     if (dto.totalShares !== undefined || dto.initNetProfit !== undefined) {
       const totalShares = dto.totalShares ?? item.totalShares;
       const initNetProfit = dto.initNetProfit ?? item.initNetProfit;

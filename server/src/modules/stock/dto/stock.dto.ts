@@ -33,7 +33,7 @@ export class CreateStockDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  industryPE?: number; // 行业 PB（可选）：联动模式由字段填充，随机模式由随机源生成；手动传入则作为随机源初始种子
+  industryPE?: number; // 行业 PE（可选）：联动模式由字段填充，随机模式由随机源生成；手动传入则作为随机源初始种子
 
   @Type(() => Number)
   @IsNumber()
@@ -54,7 +54,7 @@ export class CreateStockDto {
   @IsInt()
   companyId?: number; // 关联商赛公司（可选）
 
-  // 行业 PB 联动：pbCompanyId 与 pbFieldId 须同时提供（联动模式），或同时留空（随机模式）。
+  // 行业 PE 联动：pbCompanyId 与 pbFieldId 须同时提供（联动模式），或同时留空（随机模式）。
   @IsOptional()
   @Transform(({ value }) => (value === "" || value === null ? undefined : value))
   @Type(() => Number)
@@ -138,7 +138,7 @@ export class UpdateStockDto {
   @IsInt()
   companyId?: number | null;
 
-  // 行业 PB 联动：pbCompanyId 与 pbFieldId 须同时提供或同时留空；清空二者即切回随机模式。
+  // 行业 PE 联动：pbCompanyId 与 pbFieldId 须同时提供或同时留空；清空二者即切回随机模式。
   // null 表示「清空绑定、切回随机」，不能像创建时那样把 null 转 undefined（否则清空被当成"未传"而沿用旧绑定值）。
   @IsOptional()
   @Transform(({ value }) => (value === "" ? undefined : value))
