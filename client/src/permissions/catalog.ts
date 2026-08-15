@@ -191,6 +191,28 @@ export const PERMISSION_CATALOG: PermissionDomain[] = [
       { key: "message:manage", action: "manage", label: "管理（发布 / 删除消息）" },
     ],
   },
+  {
+    key: "stock",
+    label: "股票系统",
+    group: "股票",
+    actions: [
+      {
+        key: "stock:view",
+        action: "view",
+        label: "查看行情（行情界面 / 选购 / 买卖）",
+      },
+      {
+        key: "stock:edit",
+        action: "edit",
+        label: "低级管理（管所选公司 + 自己的资金账户）",
+      },
+      {
+        key: "stock:manage",
+        action: "manage",
+        label: "高级管理（看全部 / 增删股票 / 推进轮次）",
+      },
+    ],
+  },
 ];
 
 /** 所有合法权限 key */

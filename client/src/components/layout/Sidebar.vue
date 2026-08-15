@@ -178,6 +178,19 @@
         />
       </el-menu-item>
 
+      <el-menu-item v-if="authStore.can('stock:view')" index="/stocks">
+        <el-icon><TrendCharts /></el-icon>
+        <span>股票行情</span>
+      </el-menu-item>
+
+      <el-menu-item
+        v-if="authStore.canAny(['stock:edit', 'stock:manage'])"
+        index="/stock-management"
+      >
+        <el-icon><Coin /></el-icon>
+        <span>股票管理</span>
+      </el-menu-item>
+
       <el-menu-item
         v-if="authStore.canAny(['company:view', 'company:manage'])"
         index="/companies"

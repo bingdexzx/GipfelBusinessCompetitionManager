@@ -29,6 +29,10 @@ model User {
   // 仅在与 contract:view 配合时生效（且不影响 contract:audit/execute/manage 等更高权限）；
   // 为 null 表示无范围限制（可见全部合同）。与 companyScopes / viewCompanyScopes 相互独立。
   contractViewCompanyScopes String?
+  // 股票系统管理范围（stock:edit 低级管理专属）：JSON 数组，存放该账号可管理的「公司」id。
+  // 仅在与 stock:edit 配合时生效；为 null 表示无范围限制（通常仅超管/高级管理用到）。
+  // 低级管理据此只能管理：上述公司名下的资金账户 + 自己的用户资金账户；高级管理(stock:manage)不受限。
+  stockCompanyScopes String?
   // 强制改密标志：种子默认超管置 true，登录后未改密前禁止访问业务接口（安全加固）。
   mustChangePassword Boolean @default(false)
   // 单设备登录：每次登录自增，作为 JWT 内的「会话版本号」。
@@ -73,6 +77,12 @@ model Competition {
   warehouses      Warehouse[]
   productionLines ProductionLine[]
   contracts       Contract[]
+  // 股票系统
+  stocks                Stock[]
+  stockFundsAccounts    StockFundsAccount[]
+  stockOrders           StockOrder[]
+  stockHoldings         StockHolding[]
+  stockCandles          StockCandle[]
   // 地图背景图（每比赛一张）：JSON 字符串 { url, filename, width, height }，null 表示未设置。
   // 由管理端「地图管理」上传，作为整张地图编辑器的背景图层（覆盖节点包围盒、不影响节点/边坐标）。
   mapBackground   String?
@@ -434,6 +444,7 @@ model Company {
   regionId       Int?
   region         Region?              @relation(fields: [regionId], references: [id], onDelete: SetNull)
   fieldValues    CompanyFieldValue[]
+  stocks         Stock[]              // 关联的上市股票（股票系统）
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 }
@@ -550,4 +561,110 @@ model MessageRecipient {
 
   @@unique([messageId, userId])
   @@index([userId])
+}
+
+// ============ 股票系统 ============
+// 行情与交易按「轮次」推进：每轮玩家下单（BUY/SELL），高级管理点「下一轮」汇总订单→撮合→按 Excel 逻辑算新价并生成一根 K 线。
+// Stock：一只股票（对应一只上市商赛公司）。创建时填入 Excel「基础信息」表的字段，初始价由公式自动算。
+model Stock {
+  id               Int       @id @default(autoincrement())
+  code             String    // 股票代码
+  name             String    // 公司名称
+  // —— 创建股票时填入的基础信息（Excel「基础信息」表前 8 列）——
+  totalShares      Float     // 总股本（万股）
+  initNetProfit    Float     // 初始净利润（万）
+  industryPE       Float     // 行业 PE
+  currentCarbon    Float     // 当前碳排
+  industryAvgCarbon Float    // 行业碳排均值
+  happiness        Float     // 当前幸福度
+  // —— 派生 / 运行时字段 ——
+  initPrice        Float     // 初始价 = ROUND(initNetProfit*10000/totalShares/industryPE, 2)
+  currentPrice     Float     // 当前价（最新收盘价），初始 = initPrice
+  round            Int       @default(0) // 已完成轮次（已生成的 K 线数）
+  companyId        Int?      // 关联商赛公司（可选，用于低级管理范围匹配与展示）
+  company          Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  competitionId    Int?
+  competition      Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  orders           StockOrder[]
+  holdings         StockHolding[]
+  candles          StockCandle[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([competitionId, code])
+}
+
+// 资金账户：现金账户，用于买卖任意股票。ownerType=COMPANY 时归属某公司，=USER 时归属某用户。
+model StockFundsAccount {
+  id            Int       @id @default(autoincrement())
+  name          String    // 资金账户名（比赛内唯一）
+  ownerType     String    // COMPANY | USER
+  companyId     Int?      // ownerType=COMPANY 时指向 Company.id（低级管理范围据此限定）
+  userId        Int?      // ownerType=USER 时指向 User.id（自己的账户）
+  cashBalance   Float     @default(1000000) // 现金余额（元）
+  competitionId Int?
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  orders        StockOrder[]
+  holdings       StockHolding[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([competitionId, name])
+}
+
+// 持仓：某资金账户持有某股票的数量与成本价。
+model StockHolding {
+  id            Int       @id @default(autoincrement())
+  fundsAccountId Int
+  stockId       Int
+  shares        Float     // 持股数量（股）
+  costPrice     Float     // 成本价（元/股）
+  fundsAccount  StockFundsAccount @relation(fields: [fundsAccountId], references: [id], onDelete: Cascade)
+  stock         Stock     @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  competitionId Int?
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([fundsAccountId, stockId])
+}
+
+// 订单：玩家在某轮对某股票下的买卖委托。PENDING 在「下一轮」撮合后变 FILLED / CANCELLED。
+model StockOrder {
+  id            Int       @id @default(autoincrement())
+  stockId       Int
+  fundsAccountId Int
+  side          String    // BUY | SELL
+  price         Float     // 委托价（元/股）
+  quantity      Float     // 委托数量（股）
+  amount        Float     // 金额 = price * quantity
+  status        String    @default("PENDING") // PENDING | FILLED | CANCELLED
+  round         Int       @default(0) // 下单所属轮次
+  fundsAccount  StockFundsAccount @relation(fields: [fundsAccountId], references: [id], onDelete: Cascade)
+  stock         Stock     @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  competitionId Int?
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([competitionId, stockId, round, status])
+}
+
+// K 线：每轮每股票一根。close = 本轮最终价（限幅 ±10% 后的理论价）。
+model StockCandle {
+  id            Int       @id @default(autoincrement())
+  stockId       Int
+  round         Int       // 轮次（第几根 K 线，从 1 开始）
+  open          Float
+  high          Float
+  low           Float
+  close         Float
+  changePct     Float     // 涨跌幅 % = (close-open)/open*100
+  stock         Stock     @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  competitionId Int?
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([stockId, round])
 }

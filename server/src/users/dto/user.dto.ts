@@ -52,6 +52,11 @@ export class CreateUserDto {
   @IsArray()
   @IsInt({ each: true })
   contractViewCompanyScopes?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  stockCompanyScopes?: number[];
 }
 
 export class UpdateUserDto {
@@ -82,6 +87,11 @@ export class UpdateUserDto {
   @IsArray()
   @IsInt({ each: true })
   contractViewCompanyScopes?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  stockCompanyScopes?: number[];
 }
 
 export class UpdatePasswordDto {

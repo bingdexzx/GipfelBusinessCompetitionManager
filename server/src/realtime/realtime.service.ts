@@ -27,6 +27,11 @@ export const MODEL_TO_RESOURCE: Record<string, string> = {
   Contract: "contracts",
   Product: "products",
   PathType: "path-types",
+  Stock: "stocks",
+  StockFundsAccount: "stocks",
+  StockOrder: "stocks",
+  StockHolding: "stocks",
+  StockCandle: "stocks",
 };
 
 // 模块级单例引用：PrismaService 的审计中间件需要广播删除事件，但不宜与 PrismaModule

@@ -42,6 +42,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       companyScopes: parseCompanyScopes(u.companyScopes),
       viewCompanyScopes: parseCompanyScopes(u.viewCompanyScopes),
       contractViewCompanyScopes: parseCompanyScopes(u.contractViewCompanyScopes),
+      stockCompanyScopes: parseCompanyScopes(u.stockCompanyScopes),
     };
   }
 }

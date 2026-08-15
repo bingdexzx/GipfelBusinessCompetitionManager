@@ -230,6 +230,22 @@ const router = createRouter({
           component: () => import("@/views/companies/CompanyDetailView.vue"),
           meta: { title: "公司详情", requiresPermission: "company:view" },
         },
+        {
+          path: "stocks",
+          name: "Stocks",
+          component: () => import("@/views/stocks/StockMarketView.vue"),
+          meta: { title: "股票行情", requiresPermission: "stock:view" },
+        },
+        {
+          path: "stock-management",
+          name: "StockManagement",
+          component: () => import("@/views/stocks/StockManageView.vue"),
+          meta: {
+            title: "股票管理",
+            requiresPermission: "stock:edit",
+            managePermission: "stock:manage",
+          },
+        },
       ],
     },
   ],

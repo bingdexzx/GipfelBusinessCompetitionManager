@@ -15,6 +15,8 @@ export interface UserInfo {
   companyScopes?: number[];
   /** 公司查看范围：仅持 company:view 的账号，仅在范围内公司可见全量 / 可列示 */
   viewCompanyScopes?: number[];
+  /** 股票系统管理范围（stock:edit 低级管理专属）：仅可在范围内公司的资金账户 + 自己的账户操作 */
+  stockCompanyScopes?: number[];
   /** 归属比赛 id：归属比赛的账号（PLAYER/COMPETITION_ADMIN 等）非空，登录后自动锁定该比赛；
    *  超管 / 未分配账号为空（null），保持手动选择。 */
   competitionId?: number | null;
@@ -36,9 +38,16 @@ export const useAuthStore = defineStore("auth", () => {
     const owned = user.value?.permissions ?? [];
     if (owned.includes(perm)) return true;
     const colon = perm.lastIndexOf(":");
-    if (colon !== -1 && perm.slice(colon + 1) === "view") {
+    if (colon !== -1) {
       const domain = perm.slice(0, colon);
-      if (owned.some((p) => p === domain || p.startsWith(domain + ":"))) return true;
+      const action = perm.slice(colon + 1);
+      if (action === "view") {
+        // 读是某域内最弱能力：持有该域任意能力即视为可读
+        if (owned.some((p) => p === domain || p.startsWith(domain + ":"))) return true;
+      } else if (action === "edit") {
+        // 编辑可由管理满足（与后端 hasPermission 一致）
+        if (owned.includes(`${domain}:manage`)) return true;
+      }
     }
     return false;
   }

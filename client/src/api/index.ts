@@ -335,3 +335,50 @@ export const messagesApi = {
   /** 删除已发布消息。 */
   remove: (id: number) => api.delete(`/messages/${id}`),
 };
+
+// ===================== 股票系统 =====================
+export const stockApi = {
+  // 股票列表 / 详情 / K线
+  list: (page = 1, pageSize = 100, competitionId?: number) => {
+    const params: Record<string, unknown> = { page, pageSize };
+    if (competitionId != null) params.competitionId = competitionId;
+    return api.get("/stocks", { params });
+  },
+  get: (id: number) => api.get(`/stocks/${id}`),
+  candles: (id: number) => api.get(`/stocks/${id}/candles`, { cache: false }),
+  create: (data: any) => api.post("/stocks", data),
+  update: (id: number, data: any) => api.patch(`/stocks/${id}`, data),
+  remove: (id: number, competitionId?: number | null) =>
+    api.delete(`/stocks/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
+
+  // 资金账户
+  listAccounts: (competitionId: number) => {
+    const params: Record<string, unknown> = { competitionId };
+    return api.get("/stocks/accounts/list", { params });
+  },
+  getAccount: (id: number) => api.get(`/stocks/accounts/${id}`),
+  accountHoldings: (id: number) => api.get(`/stocks/accounts/${id}/holdings`, { cache: false }),
+  createAccount: (data: any) => api.post("/stocks/accounts", data),
+  updateAccount: (id: number, data: any) => api.patch(`/stocks/accounts/${id}`, data),
+  removeAccount: (id: number) => api.delete(`/stocks/accounts/${id}`),
+
+  // 订单
+  listOrders: (competitionId: number, stockId?: number) => {
+    const params: Record<string, unknown> = { competitionId };
+    if (stockId != null) params.stockId = stockId;
+    return api.get("/stocks/orders/list", { params, cache: false });
+  },
+  placeOrder: (data: any) => api.post("/stocks/orders", data),
+  cancelOrder: (id: number) => api.delete(`/stocks/orders/${id}`),
+
+  // 持仓
+  listHoldings: (competitionId: number, accountId?: number) => {
+    const params: Record<string, unknown> = { competitionId };
+    if (accountId != null) params.accountId = accountId;
+    return api.get("/stocks/holdings/list", { params, cache: false });
+  },
+
+  // 推进轮次（高级管理）
+  advanceRound: (competitionId: number, dto: { stockIds?: number[] } = {}) =>
+    api.post(`/stocks/advance-round?competitionId=${competitionId}`, dto),
+};

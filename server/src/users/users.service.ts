@@ -21,6 +21,7 @@ export interface UserView {
   companyScopes: number[];
   viewCompanyScopes: number[];
   contractViewCompanyScopes: number[];
+  stockCompanyScopes: number[];
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -39,6 +40,7 @@ export class UsersService {
     companyScopes?: any;
     viewCompanyScopes?: any;
     contractViewCompanyScopes?: any;
+    stockCompanyScopes?: any;
     createdAt?: Date;
     updatedAt?: Date;
   }): UserView {
@@ -52,6 +54,7 @@ export class UsersService {
       companyScopes: parseCompanyScopes((user as any).companyScopes),
       viewCompanyScopes: parseCompanyScopes((user as any).viewCompanyScopes),
       contractViewCompanyScopes: parseCompanyScopes((user as any).contractViewCompanyScopes),
+      stockCompanyScopes: parseCompanyScopes((user as any).stockCompanyScopes),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -117,6 +120,7 @@ export class UsersService {
         companyScopes: this.sanitizeScopes(dto.companyScopes),
         viewCompanyScopes: this.sanitizeScopes(dto.viewCompanyScopes),
         contractViewCompanyScopes: this.sanitizeScopes(dto.contractViewCompanyScopes),
+        stockCompanyScopes: this.sanitizeScopes(dto.stockCompanyScopes),
       } as any,
     });
     return this.toView(user);
@@ -139,6 +143,8 @@ export class UsersService {
       data.viewCompanyScopes = this.sanitizeScopes(dto.viewCompanyScopes);
     if (dto.contractViewCompanyScopes !== undefined)
       data.contractViewCompanyScopes = this.sanitizeScopes(dto.contractViewCompanyScopes);
+    if (dto.stockCompanyScopes !== undefined)
+      data.stockCompanyScopes = this.sanitizeScopes(dto.stockCompanyScopes);
     const user = await this.prisma.user.update({ where: { id }, data });
     return this.toView(user);
   }

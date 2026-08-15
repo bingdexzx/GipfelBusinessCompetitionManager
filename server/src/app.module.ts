@@ -30,6 +30,7 @@ import { ContractsModule } from "./modules/contracts/contracts.module";
 import { RegionsModule } from "./modules/regions/region.module";
 import { ConsumerDemandsModule } from "./modules/consumer-demands/consumer-demand.module";
 import { MessagesModule } from "./modules/messages/message.module";
+import { StockModule } from "./modules/stock/stock.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 
 @Module({
@@ -66,6 +67,7 @@ import { RealtimeModule } from "./realtime/realtime.module";
     RegionsModule,
     ConsumerDemandsModule,
     MessagesModule,
+    StockModule,
     RealtimeModule,
   ],
 })
