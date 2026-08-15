@@ -296,7 +296,7 @@ export class RegionService {
    * 取某区域总览卡片的实时字段值，供外部模块「绑定区域总览字段」实时引用。
    * 找不到区域 / 卡片 / 卡片失效时返回 null。
    */
-  async getCardValue(competitionId: number | undefined, region: string, cardId: number): Promise<number | null> {
+  async getCardValue(competitionId: number | undefined, region: string, cardId: string): Promise<number | null> {
     const overview = await this.getMapOverview(competitionId);
     const regionEntry = overview.find((r) => r.region === region);
     if (!regionEntry) return null;

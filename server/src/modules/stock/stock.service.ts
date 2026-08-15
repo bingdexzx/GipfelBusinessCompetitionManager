@@ -44,14 +44,17 @@ export class StockService {
 
   /**
    * 解析绑定引用字符串（JSON {region, cardId}）。空 / 非法返回 null。
-   * 非法非空串（无法解析为 {region:string, cardId:number}）视为格式错误。
+   * cardId 为区域总览卡片 id（字符串，如 "c-1690000000000-123"），兼容历史数字写法（自动转为字符串）。
+   * 非法非空串（无法解析为 {region:string, cardId:string|number}）视为格式错误。
    */
-  private parseFieldRef(raw?: string | null): { region: string; cardId: number } | null {
+  private parseFieldRef(raw?: string | null): { region: string; cardId: string } | null {
     if (!raw) return null;
     try {
       const v = JSON.parse(raw);
-      if (v && typeof v.region === "string" && typeof v.cardId === "number") {
-        return { region: v.region, cardId: v.cardId };
+      const region = v?.region;
+      const cardId = v?.cardId;
+      if (typeof region === "string" && (typeof cardId === "string" || typeof cardId === "number")) {
+        return { region, cardId: String(cardId) };
       }
     } catch {
       /* 解析失败 */

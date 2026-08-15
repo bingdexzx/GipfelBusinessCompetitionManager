@@ -251,7 +251,7 @@ const regionCards = computed(() => {
 function findCard(sel: string): any | null {
   if (!sel) return null;
   const [region, cardIdStr] = sel.split("::");
-  const cardId = Number(cardIdStr);
+  const cardId = cardIdStr; // 卡片 id 为字符串（如 "c-1690000000000-123"），不可转 number
   for (const r of regionOverview.value) {
     if (r.region === region) {
       const c = r.cards.find((x: any) => x.id === cardId);
@@ -263,11 +263,15 @@ function findCard(sel: string): any | null {
   }
   return null;
 }
-function parseRef(refJson?: string | null): { region: string; cardId: number } | null {
+function parseRef(refJson?: string | null): { region: string; cardId: string } | null {
   if (!refJson) return null;
   try {
     const v = JSON.parse(refJson);
-    if (v && typeof v.region === "string" && typeof v.cardId === "number") return v;
+    const region = v?.region;
+    const cardId = v?.cardId;
+    if (typeof region === "string" && (typeof cardId === "string" || typeof cardId === "number")) {
+      return { region, cardId: String(cardId) };
+    }
   } catch {
     /* 忽略 */
   }
@@ -280,7 +284,9 @@ function resolveRefSel(refJson?: string | null): string {
 function buildRefJson(sel: string): string | null {
   if (!sel) return null;
   const [region, cardIdStr] = sel.split("::");
-  return JSON.stringify({ region, cardId: Number(cardIdStr) });
+  // 卡片 id 为字符串（如 "c-1690000000000-123"），原 Number() 会转成 NaN → 序列化后 cardId:null 触发 400
+  if (!cardIdStr) return null;
+  return JSON.stringify({ region, cardId: cardIdStr });
 }
 
 const carbonBound = computed(() => !!stockForm.value.carbonRefSel);
