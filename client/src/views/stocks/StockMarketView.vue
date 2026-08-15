@@ -144,25 +144,25 @@
 
           <el-divider>我的订单</el-divider>
           <el-table :data="orders" size="small" v-if="orders.length" max-height="200">
-            <el-table-column label="代码" width="80">
-              <template #default="{ row }">{{ row.stock?.code }}</template>
-            </el-table-column>
-            <el-table-column label="方向" width="56">
+            <el-table-column label="方向" width="50">
               <template #default="{ row }">
-                <span :class="row.side === 'BUY' ? 'up' : 'down'">{{ row.side === 'BUY' ? '买' : '卖' }}</span>
+                <span :class="row.side === 'BUY' ? 'up' : 'down'" style="font-weight:600;">{{ row.side === 'BUY' ? '买' : '卖' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="价/量" min-width="90">
-              <template #default="{ row }">{{ fmt(row.price) }} ×{{ fmt(row.quantity) }}</template>
+            <el-table-column label="委托价" align="right">
+              <template #default="{ row }">{{ fmt(row.price) }}</template>
             </el-table-column>
-            <el-table-column label="状态" width="64">
+            <el-table-column label="数量" align="right">
+              <template #default="{ row }">{{ fmt(row.quantity) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="56">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.status === 'PENDING' ? 'warning' : row.status === 'FILLED' ? 'success' : 'info'">
                   {{ statusLabel(row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="" width="40">
+            <el-table-column label="" width="36">
               <template #default="{ row }">
                 <el-button
                   v-if="row.status === 'PENDING'"
