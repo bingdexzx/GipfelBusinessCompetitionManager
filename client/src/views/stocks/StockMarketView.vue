@@ -267,10 +267,10 @@ const myHoldingShares = computed(() => {
 const priceLimit = computed(() => {
   const price = selectedStock.value?.currentPrice || 0;
   const limit = price * 0.1;
-  return {
-    lower: Math.max(0.01, Math.round((price - limit) * 100) / 100),
-    upper: Math.round((price + limit) * 100) / 100,
-  };
+  const lower = Math.max(0.01, Math.round((price - limit) * 100) / 100);
+  // 未选股票时 price=0 → lower=0.01 > upper=0，会触发 el-input-number 的 min>max 异常；用 max 兜底保证 upper>=lower
+  const upper = Math.max(lower, Math.round((price + limit) * 100) / 100);
+  return { lower, upper };
 });
 const estAmount = computed(() => Math.round(trade.value.price * trade.value.quantity * 100) / 100);
 const canTrade = computed(() => !!selectedAccountId.value && !!selectedStockId.value && trade.value.price > 0 && trade.value.quantity > 0);
