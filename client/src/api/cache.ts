@@ -196,28 +196,27 @@ export async function patchFullItems(
 
 /**
  * 精确删除：实时事件（action=deleted）时，从所有属于该资源的本地全量副本中移除指定 id，
- * 避免触发整表重拉。扫描 FULL|<resource>|* 前缀的键。
+ * 避免触发整表重拉。使用 IDBKeyRange 限定前缀扫描范围，避免遍历全部键。
  */
 export async function removeFullItemByResource(resource: string, id: number): Promise<void> {
   const prefix = `${FULL_PREFIX}${resource}|`;
+  const upperBound = prefix + "￿"; // 前缀范围上界
   try {
     const db = await openDB();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
       const store = tx.objectStore(STORE_NAME);
-      const req = store.openCursor();
+      const range = IDBKeyRange.bound(prefix, upperBound, false, false);
+      const req = store.openCursor(range);
       req.onsuccess = () => {
         const cursor = req.result;
         if (cursor) {
-          const k = cursor.key as string;
-          if (k.startsWith(prefix)) {
-            const rec = cursor.value as CacheRecord;
-            const data = rec?.data;
-            if (data && Array.isArray(data.items)) {
-              const filtered = data.items.filter((it: any) => !(it && it.id === id));
-              if (filtered.length !== data.items.length) {
-                cursor.update({ ...rec, data: { ...data, items: filtered } });
-              }
+          const rec = cursor.value as CacheRecord;
+          const data = rec?.data;
+          if (data && Array.isArray(data.items)) {
+            const filtered = data.items.filter((it: any) => !(it && it.id === id));
+            if (filtered.length !== data.items.length) {
+              cursor.update({ ...rec, data: { ...data, items: filtered } });
             }
           }
           cursor.continue();

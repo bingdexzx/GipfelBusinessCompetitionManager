@@ -93,6 +93,12 @@ function parseFieldStringValue(raw: any): string | null {
 @Injectable()
 export class CompanyFieldsService {
   private readonly logger = new Logger(CompanyFieldsService.name);
+
+  // getPublishedFieldIds 缓存：避免每次 getValues 都查询所有区域并解析 JSON
+  // key = competitionId, value = { data, expiresAt }
+  private publishedCache = new Map<number, { data: Set<string>; expiresAt: number }>();
+  private static readonly PUBLISHED_CACHE_TTL_MS = 30_000; // 30 秒
+
   constructor(
     private prisma: PrismaService,
     private realtime: RealtimeService,
@@ -208,7 +214,14 @@ export class CompanyFieldsService {
   // 收集某比赛内「已发布到区域总览」的 (companyId, industryFieldId) 集合。
   // 判定依据：任一 Region 的 overviewCards（JSON，元素 {id, displayName, companyId, industryFieldId}）
   // 中出现过的 (companyId, industryFieldId) 对，即视为公开可读。
+  // 带 TTL 缓存（30 秒），避免每次 getValues 都查询所有区域并解析 JSON。
   private async getPublishedFieldIds(competitionId: number): Promise<Set<string>> {
+    const now = Date.now();
+    const cached = this.publishedCache.get(competitionId);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
     const published = new Set<string>();
     const regions = await this.prisma.region.findMany({
       where: { competitionId },
@@ -232,7 +245,17 @@ export class CompanyFieldsService {
         }
       }
     }
+
+    this.publishedCache.set(competitionId, {
+      data: published,
+      expiresAt: now + CompanyFieldsService.PUBLISHED_CACHE_TTL_MS,
+    });
     return published;
+  }
+
+  /** 清除指定比赛的 publishedFieldIds 缓存（区域总览卡片变更时调用）。 */
+  invalidatePublishedCache(competitionId: number): void {
+    this.publishedCache.delete(competitionId);
   }
 
   // 批量写入某公司（产业实例）的产业字段值，按字段定义校验与序列化
@@ -337,8 +360,30 @@ export class CompanyFieldsService {
     demandRegion: string,
   ) {
     if (!demandRegion) return;
+
+    // 优化：先查出所有含 CONSUMER_DEMAND 节点的产业类型 id，再只加载这些类型的公司，
+    // 避免加载全部公司+全部字段定义后逐个检查 calcGraph。
+    const calcFields = await this.prisma.industryField.findMany({
+      where: { isCalculated: true, calcGraph: { not: null } },
+      select: { industryTypeId: true, calcGraph: true },
+    });
+    const cdIndustryTypeIds = new Set<number>();
+    for (const f of calcFields) {
+      if (!f.calcGraph) continue;
+      try {
+        const graph = JSON.parse(f.calcGraph);
+        if (Array.isArray(graph?.nodes) && graph.nodes.some(
+          (n: any) => n.type === "value" && n.data?.kind === "CONSUMER_DEMAND",
+        )) {
+          cdIndustryTypeIds.add(f.industryTypeId);
+        }
+      } catch { /* 忽略无效 JSON */ }
+    }
+    if (cdIndustryTypeIds.size === 0) return;
+
+    // 只加载「含 CONSUMER_DEMAND 计算图的产业类型」下的公司
     const companies = await this.prisma.company.findMany({
-      where: { competitionId },
+      where: { competitionId, industryTypeId: { in: [...cdIndustryTypeIds] } },
       include: { industryType: { include: { fields: true } } },
     });
     if (companies.length === 0) return;
@@ -353,20 +398,6 @@ export class CompanyFieldsService {
     for (const c of companies) {
       if (!c.industryTypeId || !c.industryType) continue;
       const fields = (c.industryType.fields || []) as any[];
-      // 仅当该产业类型存在「引用 CONSUMER_DEMAND 的计算字段」时才可能受影响。
-      // 使用 JSON 解析精确检测，避免子串误匹配（如字段 key 含 "CONSUMER_DEMAND" 文本）。
-      const hasCd = fields.some((f) => {
-        if (!f.isCalculated || !f.calcGraph) return false;
-        try {
-          const graph = JSON.parse(f.calcGraph);
-          return Array.isArray(graph?.nodes) && graph.nodes.some(
-            (n: any) => n.type === "value" && n.data?.kind === "CONSUMER_DEMAND",
-          );
-        } catch {
-          return false;
-        }
-      });
-      if (!hasCd) continue;
 
       // 解析公司所在地节点名（location 字段，可能以 JSON 编码的节点名存储）。
       const locField = fields.find((f) => f.fieldKey === "location");

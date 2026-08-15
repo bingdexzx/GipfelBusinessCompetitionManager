@@ -17,6 +17,10 @@ import {
 export type IndustryCalcCtx = {
   competitionId?: number | null;
   locationNodeName?: string | null;
+  /** 缓存：地图节点名 → 区域集合，避免同一 recompute 周期内重复查询 */
+  nodeRegionCache?: Map<string, Set<string>>;
+  /** 缓存：区域集合 key → 消费者需求总数，避免同一 recompute 周期内重复聚合 */
+  demandCache?: Map<string, number>;
 };
 
 /**
@@ -257,23 +261,44 @@ export class IndustryCalcEngineService {
   // 汇总本比赛、本产业实例所在地所属区域下的全部消费者需求数量之和。
   // 兼容两种数据约定：ConsumerDemand.region 既可能是 MapNode.region，也可能是节点名本身，
   // 故匹配 region IN (节点 region, 节点名)。所在地为空 / 找不到区域 / 无需求 → 返回 0。
+  // 使用 ctx 中的缓存避免同一 recompute 周期内重复查询。
   private async resolveConsumerDemandTotal(ctx?: IndustryCalcCtx): Promise<number> {
     if (!ctx || ctx.competitionId == null || !ctx.locationNodeName) return 0;
     const nodeName = ctx.locationNodeName;
-    const node = await this.prisma.mapNode.findFirst({
-      where: {
-        name: nodeName,
-        ...(ctx.competitionId != null ? { competitionId: ctx.competitionId } : {}),
-      },
-      select: { region: true },
-    });
-    const regions = new Set<string>([nodeName]);
-    if (node?.region) regions.add(node.region);
+
+    // 初始化缓存（首次调用时创建）
+    if (!ctx.nodeRegionCache) ctx.nodeRegionCache = new Map();
+    if (!ctx.demandCache) ctx.demandCache = new Map();
+
+    // 从缓存获取区域集合，或查询后缓存
+    let regions = ctx.nodeRegionCache.get(nodeName);
+    if (!regions) {
+      const node = await this.prisma.mapNode.findFirst({
+        where: {
+          name: nodeName,
+          ...(ctx.competitionId != null ? { competitionId: ctx.competitionId } : {}),
+        },
+        select: { region: true },
+      });
+      regions = new Set<string>([nodeName]);
+      if (node?.region) regions.add(node.region);
+      ctx.nodeRegionCache.set(nodeName, regions);
+    }
+
+    // 从缓存获取需求总数，或查询后缓存
+    const regionsKey = [...regions].sort().join(",");
+    const cacheKey = `${ctx.competitionId}:${regionsKey}`;
+    if (ctx.demandCache.has(cacheKey)) {
+      return ctx.demandCache.get(cacheKey)!;
+    }
+
     const result = await this.prisma.consumerDemand.aggregate({
       where: { competitionId: ctx.competitionId, region: { in: [...regions] } },
       _sum: { quantity: true },
     });
-    return result._sum.quantity ?? 0;
+    const total = result._sum.quantity ?? 0;
+    ctx.demandCache.set(cacheKey, total);
+    return total;
   }
 
   // 收集某节点「value 输入端口」子图中引用的 VAR 名称（用于 assign 拓扑排序）。

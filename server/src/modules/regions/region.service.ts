@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeService } from "../../realtime/realtime.service";
+import { CompanyFieldsService } from "../company-fields/company-fields.service";
 import { CreateRegionDto, UpdateRegionDto, SaveOverviewCardsDto } from "./dto/region.dto";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
@@ -23,6 +24,7 @@ export class RegionService {
   constructor(
     private prisma: PrismaService,
     private realtime: RealtimeService,
+    private companyFields: CompanyFieldsService,
   ) {}
 
   async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
@@ -317,6 +319,10 @@ export class RegionService {
       where: { id: region.id },
       data: { overviewCards: serializeCards(dto.cards) },
     });
+    // 清除 publishedFieldIds 缓存，确保下次读取反映最新卡片配置
+    if (updated.competitionId != null) {
+      this.companyFields.invalidatePublishedCache(updated.competitionId);
+    }
     this.realtime.emitResourceChanged("region", updated.id, updated.competitionId ?? null, "updated");
     return { success: true };
   }
@@ -328,6 +334,10 @@ export class RegionService {
       where: { id },
       data: { overviewCards: serializeCards(dto.cards) },
     });
+    // 清除 publishedFieldIds 缓存，确保下次读取反映最新卡片配置
+    if (region.competitionId != null) {
+      this.companyFields.invalidatePublishedCache(region.competitionId);
+    }
     this.realtime.emitResourceChanged("region", region.id, region.competitionId ?? null, "updated");
     return { success: true };
   }
