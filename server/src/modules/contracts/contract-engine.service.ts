@@ -616,7 +616,7 @@ async function computeMaterialListPrice(
   const names = entries.map(([name]) => name);
   const materials: any[] = await prisma.material.findMany({
     where: { competitionId, name: { in: names } },
-    select: { name: true, nodePrices: true },
+    select: { name: true, price: true, nodePrices: true },
   });
   const byName = new Map(materials.map((m) => [m.name as string, m]));
   // 预解析地点价表（一次解析，循环内复用）
@@ -636,10 +636,14 @@ async function computeMaterialListPrice(
   let total = 0;
   for (const [name, q] of entries) {
     const m = byName.get(name);
-    const price =
-      m != null && locationNodeId != null && name in nodePricesMap
-        ? nodePricesMap[name]
-        : 0;
+    if (!m) continue;
+    // 地点价优先；该节点无记录时回退基础 price（若连基础价也没有则按 0 计）
+    let price = 0;
+    if (locationNodeId != null && name in nodePricesMap) {
+      price = nodePricesMap[name];
+    } else {
+      price = Number(m.price) || 0;
+    }
     total += price * Number(q);
   }
   return total;
