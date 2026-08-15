@@ -140,11 +140,11 @@
       </el-menu-item>
 
       <el-menu-item
-        v-if="authStore.canAny(['contractType:view', 'contractType:manage'])"
+        v-if="authStore.can('contractType:manage')"
         index="/contract-types"
       >
         <el-icon><Document /></el-icon>
-        <span>{{ authStore.can("contractType:manage") ? "合同类型管理" : "合同类型" }}</span>
+        <span>合同类型管理</span>
       </el-menu-item>
 
       <el-menu-item
@@ -156,11 +156,11 @@
       </el-menu-item>
 
       <el-menu-item
-        v-if="authStore.canAny(['industryType:view', 'industryType:manage'])"
+        v-if="authStore.can('industryType:manage')"
         index="/industry-types"
       >
         <el-icon><Grid /></el-icon>
-        <span>{{ authStore.can("industryType:manage") ? "产业类型管理" : "产业类型" }}</span>
+        <span>产业类型管理</span>
       </el-menu-item>
 
       <el-menu-item
