@@ -44,6 +44,7 @@
             </span>
           </template>
           <div v-if="selectedStock" ref="chartRef" class="kline-chart" v-loading="loadingCandles"></div>
+          <div v-if="selectedStock" class="chart-hint">滚轮缩放 · 拖拽平移 · 底部滑块调节范围</div>
           <div v-else class="chart-empty">
             <el-icon :size="40" class="chart-empty-icon"><TrendCharts /></el-icon>
             <p class="chart-empty-text">{{ emptyChartText }}</p>
@@ -343,32 +344,94 @@ function renderChart() {
   if (!chart) chart = echarts.init(chartRef.value);
   const data = candles.value.map((c) => [c.open, c.close, c.low, c.high]);
   const vol = candles.value.map((c) => c.close);
+  const roundLabels = candles.value.map((c) => `R${c.round}`);
+
+  // 默认显示范围：最多显示 30 根 K 线，若不足则全部显示
+  const maxVisible = 30;
+  const total = candles.value.length;
+  const defaultStart = total > maxVisible ? Math.round((1 - maxVisible / total) * 100) : 0;
+
   chart.setOption({
     backgroundColor: "transparent",
-    grid: [{ left: 50, right: 16, top: 16, height: "70%" }, { left: 50, right: 16, top: "78%", height: "14%" }],
+    grid: [
+      { left: 50, right: 50, top: 16, height: "60%" },
+      { left: 50, right: 50, top: "78%", height: "14%" },
+    ],
     xAxis: [
-      { type: "category", data: candles.value.map((c) => `R${c.round}`), axisLine: { lineStyle: { color: "#c0c4cc" } } },
-      { type: "category", gridIndex: 1, data: candles.value.map((c) => `R${c.round}`), axisLine: { show: false } },
+      {
+        type: "category",
+        data: roundLabels,
+        axisLine: { lineStyle: { color: "#c0c4cc" } },
+        axisLabel: { color: "#8c8c8c", fontSize: 11 },
+        axisPointer: { show: true },
+      },
+      {
+        type: "category",
+        gridIndex: 1,
+        data: roundLabels,
+        axisLine: { show: false },
+        axisLabel: { show: false },
+      },
     ],
     yAxis: [
-      { scale: true, splitLine: { lineStyle: { color: "#f0f0f0" } } },
-      { gridIndex: 1, scale: true, axisLabel: { show: false }, splitLine: { show: false } },
+      {
+        scale: true,
+        splitLine: { lineStyle: { color: "#f0f0f0" } },
+        axisLabel: { color: "#8c8c8c", fontSize: 11 },
+        position: "right",
+      },
+      {
+        gridIndex: 1,
+        scale: true,
+        axisLabel: { show: false },
+        splitLine: { show: false },
+      },
+    ],
+    // 缩放与拖拽：inside 类型支持鼠标滚轮缩放 + 拖拽平移
+    dataZoom: [
+      {
+        type: "inside",
+        xAxisIndex: [0, 1],
+        start: defaultStart,
+        end: 100,
+        minValueSpan: 5, // 最少显示 5 根 K 线
+        zoomOnMouseWheel: true, // 滚轮缩放
+        moveOnMouseMove: true, // 鼠标移动时平移（按住 Shift 时）
+        moveOnMouseWheel: false, // 滚轮不平移（仅缩放）
+      },
+      {
+        type: "slider",
+        xAxisIndex: [0, 1],
+        start: defaultStart,
+        end: 100,
+        height: 20,
+        bottom: 4,
+        borderColor: "transparent",
+        backgroundColor: "#f5f6f8",
+        fillerColor: "rgba(45, 106, 159, 0.15)",
+        handleStyle: { color: "#2D6A9F", borderColor: "#2D6A9F" },
+        textStyle: { color: "#8c8c8c", fontSize: 11 },
+        dataBackground: {
+          lineStyle: { color: "#c0c4cc" },
+          areaStyle: { color: "#eef1f6" },
+        },
+      },
     ],
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: "cross" },
+      axisPointer: { type: "cross", crossStyle: { color: "#c0c4cc" } },
       formatter: (params: any) => {
         if (!params || !params.length) return "";
-        let html = `<div style="font-weight:600;margin-bottom:2px">${params[0].axisValue}</div>`;
+        let html = `<div style="font-weight:600;margin-bottom:4px">${params[0].axisValue}</div>`;
         for (const p of params) {
           if (p.seriesType !== "candlestick") continue;
           const v = p.value || [];
           // echarts 蜡烛图 value 为 [open, close, low, high]（个别版本带前导索引）
           const [o, c, l, h] = v.length >= 5 ? [v[1], v[2], v[3], v[4]] : [v[0], v[1], v[2], v[3]];
-          html += `<div>开盘：¥${fmt(o)}</div>`;
-          html += `<div>收盘：¥${fmt(c)}</div>`;
-          html += `<div>最低：¥${fmt(l)}</div>`;
-          html += `<div>最高：¥${fmt(h)}</div>`;
+          const isUp = c >= o;
+          const color = isUp ? "#ec0000" : "#00a800";
+          html += `<div style="color:${color}">开盘 ¥${fmt(o)}　收盘 ¥${fmt(c)}</div>`;
+          html += `<div style="color:${color}">最低 ¥${fmt(l)}　最高 ¥${fmt(h)}</div>`;
         }
         return html;
       },
@@ -378,13 +441,22 @@ function renderChart() {
         type: "candlestick",
         data,
         itemStyle: {
-          color: "#ec0000",
-          color0: "#00a800",
+          color: "#ec0000",       // 涨：红填充
+          color0: "#00a800",      // 跌：绿填充
           borderColor: "#ec0000",
           borderColor0: "#00a800",
         },
+        barMaxWidth: 20,
       },
-      { type: "line", gridIndex: 1, data: vol, showSymbol: false, lineStyle: { color: "#8a8f99" }, areaStyle: { color: "#eef1f6" } },
+      {
+        type: "line",
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        data: vol,
+        showSymbol: false,
+        lineStyle: { color: "#8a8f99", width: 1 },
+        areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#eef1f6" }, { offset: 1, color: "rgba(238,241,246,0)" }] } },
+      },
     ],
   });
   chart.resize();
@@ -541,11 +613,15 @@ onUnmounted(() => {
   position: relative;
 }
 .kline-chart {
-  height: 360px;
+  height: 420px;
   width: 100%;
+  cursor: grab;
+}
+.kline-chart:active {
+  cursor: grabbing;
 }
 .chart-empty {
-  height: 360px;
+  height: 420px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -559,6 +635,13 @@ onUnmounted(() => {
 .chart-empty-text {
   margin: 0;
   font-size: 14px;
+}
+.chart-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text-tertiary, #92969e);
+  padding: 4px 0 8px;
+  user-select: none;
 }
 .market-side {
   position: sticky;
