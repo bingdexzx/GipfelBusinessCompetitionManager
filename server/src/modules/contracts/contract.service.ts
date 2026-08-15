@@ -318,6 +318,10 @@ export class ContractService {
     const item = await this.prisma.contract.findUnique({ where: { id } });
     if (!item) throw new NotFoundException(`合同 ${id} 不存在`);
     assertSameCompetition(item.competitionId, competitionId);
+    // 仅已执行的合同需要复原字段修改；DRAFT 状态的合同无字段效果，直接删除。
+    if (item.status !== "EXECUTED") {
+      return this.prisma.contract.delete({ where: { id } });
+    }
     // 复原该合同对产业字段的修改（不影响后续合同）；删合同后级联清空其字段改写记录。
     const effectCount = await (this.prisma as any).contractFieldEffect.count({
       where: { contractId: id },

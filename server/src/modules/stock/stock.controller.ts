@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
+  BadRequestException,
 } from "@nestjs/common";
 import { StockService } from "./stock.service";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
@@ -22,9 +23,11 @@ import {
   AdvanceRoundDto,
 } from "./dto/stock.dto";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
+import { Ownership } from "../../common/guards/ownership.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
 import { RequirePermissions } from "../../permissions/permissions.decorator";
 
+@Ownership({ model: "stock" })
 @Controller("stocks")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @RequirePermissions("stock:view")
@@ -173,7 +176,7 @@ export class StockController {
     @Body() dto: AdvanceRoundDto = {},
   ) {
     const cid = competitionId ? parseInt(competitionId) : user.competitionId;
-    if (!cid) throw new Error("缺少比赛上下文");
+    if (!cid) throw new BadRequestException("缺少比赛上下文");
     return this.service.advanceRound(user, cid, dto);
   }
 }

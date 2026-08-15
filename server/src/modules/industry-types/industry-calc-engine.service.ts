@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { safeEvaluate } from "../../common/safe-expression";
 import {
@@ -108,6 +108,8 @@ function parseConst(v: any): any {
 
 @Injectable()
 export class IndustryCalcEngineService {
+  private readonly logger = new Logger(IndustryCalcEngineService.name);
+
   constructor(private prisma: PrismaService) {}
 
   /**
@@ -201,16 +203,20 @@ export class IndustryCalcEngineService {
     if (node.type === "value") {
       const d = node.data || {};
       switch (d.kind) {
-        case "FIELD":
-          return Object.prototype.hasOwnProperty.call(scope, d.fieldKey)
-            ? scope[d.fieldKey]
-            : 0;
+        case "FIELD": {
+          if (!Object.prototype.hasOwnProperty.call(scope, d.fieldKey)) {
+            this.logger.warn(`计算图 FIELD 节点引用了不存在的字段 "${d.fieldKey}"，返回 0`);
+            return 0;
+          }
+          return scope[d.fieldKey];
+        }
         case "CONST":
           return parseConst(d.value);
         case "FORMULA":
           try {
             return safeEvaluate(d.expr as string, { ...scope, ...EXPR_HELPERS });
-          } catch {
+          } catch (e: any) {
+            this.logger.warn(`计算图 FORMULA 节点求值失败: ${e?.message || e}，返回 0`);
             return 0;
           }
         case "OP": {
@@ -222,14 +228,18 @@ export class IndustryCalcEngineService {
           );
           try {
             return applyOp(d.op as string, args, scope);
-          } catch {
+          } catch (e: any) {
+            this.logger.warn(`计算图 OP 节点 "${d.op}" 求值失败: ${e?.message || e}，返回 0`);
             return 0;
           }
         }
-        case "VAR":
-          return Object.prototype.hasOwnProperty.call(scope, d.name)
-            ? scope[d.name]
-            : 0;
+        case "VAR": {
+          if (!Object.prototype.hasOwnProperty.call(scope, d.name)) {
+            this.logger.warn(`计算图 VAR 节点引用了不存在的变量 "${d.name}"，返回 0`);
+            return 0;
+          }
+          return scope[d.name];
+        }
         case "CONSUMER_DEMAND":
           return await this.resolveConsumerDemandTotal(ctx);
         default:

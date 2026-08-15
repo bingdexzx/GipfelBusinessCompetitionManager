@@ -173,12 +173,12 @@ export const PERMISSION_CATALOG: PermissionDomain[] = [
       {
         key: "company:view",
         action: "view",
-        label: "查看（读取公司产业字段等子资源）",
+        label: "查看（读取公司产业字段）",
       },
       {
         key: "company:manage",
         action: "manage",
-        label: "管理（含分部/库存/载具/科技/基建等子资源）",
+        label: "管理（增删改公司）",
       },
     ],
   },

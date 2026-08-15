@@ -270,10 +270,12 @@ export class CompanyFieldsService {
 
     // 写入时级联重算：本公司所属产业类型的全部 isCalculated 字段，按依赖拓扑排序后
     // 用产业计算图重新求值并写回各自的 CompanyFieldValue（仅写本字段）。
+    let recomputeFailed = false;
     try {
       await this.recomputeCalculatedFields(companyId, company.industryType.fields);
     } catch (err: any) {
       // 重算出错（如计算图存在循环依赖）不应使本次普通字段写入失败；记录日志，交由用户修正计算图。
+      recomputeFailed = true;
       this.logger.warn(`公司 #${companyId} 计算字段级联重算失败：${err?.message || err}`);
     }
 
@@ -284,7 +286,7 @@ export class CompanyFieldsService {
         competitionId: company.competitionId,
       });
     }
-    return { success: true, count: toUpsert.length };
+    return { success: true, count: toUpsert.length, recomputeFailed };
   }
 
   /**
@@ -348,9 +350,18 @@ export class CompanyFieldsService {
       if (!c.industryTypeId || !c.industryType) continue;
       const fields = (c.industryType.fields || []) as any[];
       // 仅当该产业类型存在「引用 CONSUMER_DEMAND 的计算字段」时才可能受影响。
-      const hasCd = fields.some(
-        (f) => f.isCalculated && f.calcGraph && f.calcGraph.includes("CONSUMER_DEMAND"),
-      );
+      // 使用 JSON 解析精确检测，避免子串误匹配（如字段 key 含 "CONSUMER_DEMAND" 文本）。
+      const hasCd = fields.some((f) => {
+        if (!f.isCalculated || !f.calcGraph) return false;
+        try {
+          const graph = JSON.parse(f.calcGraph);
+          return Array.isArray(graph?.nodes) && graph.nodes.some(
+            (n: any) => n.type === "value" && n.data?.kind === "CONSUMER_DEMAND",
+          );
+        } catch {
+          return false;
+        }
+      });
       if (!hasCd) continue;
 
       // 解析公司所在地节点名（location 字段，可能以 JSON 编码的节点名存储）。

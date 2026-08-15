@@ -1899,11 +1899,12 @@ export class ContractEngineService {
       }
 
       // 递归执行效果（含 IF/ELSE、FOREACH、ASSIGN 控制流）。
+      // 与模块级 isTruthy 保持一致：字符串 trim 后判断长度。
       const isTruthy = (v: any): boolean => {
         if (v == null) return false;
         if (typeof v === "boolean") return v;
         if (typeof v === "number") return v !== 0;
-        if (typeof v === "string") return v.length > 0;
+        if (typeof v === "string") return v.trim().length > 0;
         if (Array.isArray(v)) return v.length > 0;
         if (typeof v === "object") return Object.keys(v).length > 0;
         return !!v;
