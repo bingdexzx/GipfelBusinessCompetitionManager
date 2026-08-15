@@ -1,9 +1,6 @@
 <template>
   <div class="stock-market">
     <h2 class="page-title">股票行情</h2>
-    <p class="page-sub">
-      当前轮次以全部玩家挂单撮合后生成新价与 K 线；拥有「查看」权限即可选择资金账户买卖。
-    </p>
     <div class="toolbar">
       <el-tag type="info" effect="plain">轮次：{{ maxRound }}</el-tag>
       <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
@@ -412,11 +409,6 @@ onUnmounted(() => {
 <style scoped>
 .stock-market {
   width: 100%;
-}
-.page-sub {
-  color: var(--color-text-tertiary, #92969e);
-  font-size: 13px;
-  margin: 4px 0 0;
 }
 .toolbar {
   display: flex;
