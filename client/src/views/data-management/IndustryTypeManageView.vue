@@ -349,11 +349,7 @@
                 v-model="fieldForm.timerValue"
                 type="textarea"
                 :rows="2"
-                :placeholder="
-                  fieldForm.fieldType === 'DICTIONARY'
-                    ? 'JSON 对象，如 {\"a\":1,\"b\":2}'
-                    : 'JSON 数组，如 [1,2,3]'
-                "
+                :placeholder="timerValuePlaceholder"
               />
               <el-input v-else v-model="fieldForm.timerValue" placeholder="文本" />
             </el-form-item>
@@ -696,6 +692,13 @@ const formulaFields = computed(() => {
     .filter((f: any) => f.fieldKey !== selfKey)
     .map((f: any) => ({ fieldKey: f.fieldKey, name: f.name }));
 });
+
+// 财年定时器设定值输入框占位提示：因占位文案含双引号，抽出为计算属性避免在模板属性中截断。
+const timerValuePlaceholder = computed(() =>
+  fieldForm.fieldType === "DICTIONARY"
+    ? 'JSON 对象，如 {"a":1,"b":2}'
+    : 'JSON 数组，如 [1,2,3]',
+);
 // 产业计算图由 IndustryFieldGraphEditor 以 v-model 编辑（fieldForm.calcGraph 为 JSON 字符串）。
 
 
