@@ -13,6 +13,7 @@ build_tmp*.log
 
 # 依赖 / 构建缓存（不要入库）
 .npmcache/
+.npm-cache-tmp/
 server-npmcache/
 dist_check/
 # 数据库备份（不要入库）
