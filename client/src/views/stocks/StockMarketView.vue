@@ -323,7 +323,8 @@ async function reloadAccountData() {
     return;
   }
   holdings.value = await stockApi.accountHoldings(selectedAccountId.value);
-  orders.value = await stockApi.listOrders(compStore.competitionId!, selectedStockId.value || undefined);
+  // 按当前选中的资金账户过滤订单，只显示该账户的挂单/历史
+  orders.value = await stockApi.listOrders(compStore.competitionId!, selectedStockId.value || undefined, selectedAccountId.value);
 }
 
 async function loadCandles(id: number) {

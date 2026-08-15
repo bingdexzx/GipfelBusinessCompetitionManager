@@ -537,7 +537,14 @@ export class StockService {
 
   // ---------------- 订单 ----------------
 
-  async findOrders(user: ReqUser, competitionId: number, stockId?: number) {
+  async findOrders(user: ReqUser, competitionId: number, stockId?: number, fundsAccountId?: number) {
+    // 如果指定了资金账户，直接按该账户过滤（前端按当前选中账户过滤）
+    if (fundsAccountId) {
+      const where: Record<string, unknown> = { competitionId, fundsAccountId };
+      if (stockId) where.stockId = stockId;
+      return this.prisma.stockOrder.findMany({ where, orderBy: { createdAt: "desc" }, include: { stock: { select: { code: true, name: true } } } });
+    }
+    // 否则按用户可操作的账户范围过滤
     const operable = await this.getOperableAccountIds(user, competitionId);
     const where: Record<string, unknown> = { competitionId };
     if (stockId) where.stockId = stockId;

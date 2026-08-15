@@ -139,10 +139,11 @@ export class StockController {
     @CurrentUser() user: ReqUser,
     @Query("competitionId") competitionId?: string,
     @Query("stockId") stockId?: string,
+    @Query("fundsAccountId") fundsAccountId?: string,
   ) {
     const cid = competitionId ? parseInt(competitionId) : user.competitionId ?? undefined;
     if (!cid) return [];
-    return this.service.findOrders(user, cid, stockId ? parseInt(stockId) : undefined);
+    return this.service.findOrders(user, cid, stockId ? parseInt(stockId) : undefined, fundsAccountId ? parseInt(fundsAccountId) : undefined);
   }
 
   @Post("orders")

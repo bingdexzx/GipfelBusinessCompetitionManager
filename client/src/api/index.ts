@@ -369,9 +369,10 @@ export const stockApi = {
   removeAccount: (id: number) => api.delete(`/stocks/accounts/${id}`),
 
   // 订单
-  listOrders: (competitionId: number, stockId?: number) => {
+  listOrders: (competitionId: number, stockId?: number, fundsAccountId?: number) => {
     const params: Record<string, unknown> = { competitionId };
     if (stockId != null) params.stockId = stockId;
+    if (fundsAccountId != null) params.fundsAccountId = fundsAccountId;
     return api.get("/stocks/orders/list", { params, cache: false });
   },
   placeOrder: (data: any) => api.post("/stocks/orders", data),
