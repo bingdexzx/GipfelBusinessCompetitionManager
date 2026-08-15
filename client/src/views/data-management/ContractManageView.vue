@@ -298,6 +298,7 @@
                 clearable
                 placeholder="选择所在地图节点"
                 style="width: 100%"
+                @focus="loadMapNodes()"
               >
                 <el-option
                   v-for="m in mapNodes"
@@ -955,6 +956,8 @@ function onTypeChange() {
     else if (f.type === "nodeRoute") {
       loadMapNodes();
       createForm.inputs[f.key] = Array.isArray(f.default) ? f.default : [];
+    }     else if (f.type === "mapNode") {
+      loadMapNodes();
     }     else if (f.type === "list")
       createForm.inputs[f.key] = Array.isArray(f.default) ? f.default : [];
     else if (f.type === "dict")
