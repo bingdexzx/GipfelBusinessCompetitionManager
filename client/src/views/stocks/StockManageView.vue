@@ -27,7 +27,7 @@
         </el-table-column>
         <el-table-column prop="round" label="轮次" width="64" align="center" />
         <el-table-column prop="totalShares" label="总股本(万)" width="90" align="right" />
-        <el-table-column prop="industryPE" label="行业PE" width="72" align="right" />
+        <el-table-column prop="industryPE" label="行业PB" width="72" align="right" />
         <el-table-column label="幸福度" width="92" align="right">
           <template #default="{ row }">
             <span>{{ fmt(row.effectiveHappiness ?? row.happiness) }}</span>
@@ -95,7 +95,7 @@
         <el-form-item label="初始净利润(万)" required>
           <el-input-number v-model="stockForm.initNetProfit" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="行业PE" required>
+        <el-form-item label="行业PB" required>
           <el-input-number v-model="stockForm.industryPE" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-form-item label="碳排绑定字段">
