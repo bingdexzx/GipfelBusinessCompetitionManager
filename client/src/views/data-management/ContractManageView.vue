@@ -258,9 +258,6 @@
                   :value="opt.name"
                 />
               </el-select>
-              <div v-if="field.type === 'materialList' && materialFilterHint(field)" class="loc-hint">
-                {{ materialFilterHint(field) }}
-              </div>
               <div v-if="field.type === 'infrastructureList' && infraFilterHint(field)" class="loc-hint">
                 {{ infraFilterHint(field) }}
               </div>
@@ -718,19 +715,6 @@ function vehicleFilterHint(field: any): string | null {
   const all = entityOptions(field.entityType || "VEHICLE");
   const n = listOptions(field).length;
   return "仅显示「载具列表」限定的载具（" + n + "/" + all.length + "）";
-}
-// 原料清单输入项的过滤提示：返回 "仅显示 所在地[节点] 拥有的原料（共 N 种）" 或 null。
-function materialFilterHint(field: any): string | null {
-  const role = field.party;
-  if (!role) return null;
-  const companyId = (createForm.parties as Record<string, number>)[role];
-  if (companyId == null) return "请先为参与方「" + role + "」选择公司，才能按所在地过滤原料";
-  const loc = companyLocationCache[companyId];
-  if (loc === undefined) return "正在读取所在地…";
-  if (loc === null || loc === "") return "该公司所在地未设置，暂按全部原料展示";
-  const total = entityOptions(field.entityType || "MATERIAL").length;
-  const n = materialOptionsForField(field).length;
-  return "仅显示 所在地「" + loc + "」拥有的原料（" + n + "/" + total + "）";
 }
 
 // 当合同类型或参与方公司变化时，异步读取各原料清单所连参与方的所在地，触发下拉过滤。
