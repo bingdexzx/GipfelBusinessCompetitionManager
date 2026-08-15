@@ -70,6 +70,10 @@ export class CreateStockDto {
 export class UpdateStockDto {
   @IsOptional()
   @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
   name?: string;
 
   @IsOptional()
@@ -120,6 +124,11 @@ export class UpdateStockDto {
   @IsOptional()
   @IsString()
   happinessFieldRef?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  competitionId?: number; // 由 CompetitionScopeGuard 注入为操作人真实归属比赛
 }
 
 // 资金账户
