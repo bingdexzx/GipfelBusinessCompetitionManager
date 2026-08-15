@@ -146,6 +146,29 @@ export class StockService {
     return stock.industryAvgCarbon;
   }
 
+  /**
+   * 读取公司产业字段的当前值；无 CompanyFieldValue 记录（或值非法）时回退字段 defaultValue（初始值）。
+   * 返回 number | null（无法解析则 null）。
+   */
+  private async resolveFieldValueOrDefault(companyId: number, industryFieldId: number): Promise<number | null> {
+    const fv = await this.prisma.companyFieldValue.findFirst({
+      where: { companyId, industryFieldId },
+    });
+    if (fv?.value != null) {
+      const n = Number(fv.value);
+      if (Number.isFinite(n)) return n;
+    }
+    const field = await this.prisma.industryField.findUnique({
+      where: { id: industryFieldId },
+      select: { defaultValue: true },
+    });
+    if (field?.defaultValue != null) {
+      const n = Number(field.defaultValue);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  }
+
   /** 给股票对象附加有效碳排 / 幸福度 / 行业碳排均值（绑定字段时取实时值）与有效 PE。 */
   private decorateEffective(stock: any, map: Map<string, number | null>, pbMap?: Map<number, number>): any {
     return {
@@ -206,11 +229,8 @@ export class StockService {
       if (!company || !field || company.industryTypeId !== field.industryTypeId) {
         throw new BadRequestException("绑定的产业字段不属于该公司所属产业类型");
       }
-      const fv = await this.prisma.companyFieldValue.findFirst({
-        where: { companyId: pbCompanyId, industryFieldId: pbFieldId },
-      });
-      const v = fv?.value != null ? Number(fv.value) : NaN;
-      industryPE = Number.isFinite(v) && v > 0 ? v : (item?.industryPE ?? this.randomPb());
+      const v = await this.resolveFieldValueOrDefault(pbCompanyId, pbFieldId);
+      industryPE = v != null && v > 0 ? v : (item?.industryPE ?? this.randomPb());
       pbRandom = null; // 联动模式不使用随机源
     } else {
       let seed: number | null = null;
@@ -239,8 +259,19 @@ export class StockService {
         const n = fv.value != null ? Number(fv.value) : NaN;
         if (Number.isFinite(n)) valMap.set(`${fv.companyId}:${fv.industryFieldId}`, n);
       }
+      // 字段 defaultValue（初始值）作为无 CompanyFieldValue 记录字段的回退
+      const fields = await this.prisma.industryField.findMany({
+        where: { id: { in: fieldIds } },
+        select: { id: true, defaultValue: true },
+      });
+      const defaultMap = new Map<number, number>();
+      for (const f of fields) {
+        const n = f.defaultValue != null ? Number(f.defaultValue) : NaN;
+        if (Number.isFinite(n)) defaultMap.set(f.id, n);
+      }
       for (const s of linked) {
-        const v = valMap.get(`${s.pbCompanyId}:${s.pbFieldId}`);
+        let v = valMap.get(`${s.pbCompanyId}:${s.pbFieldId}`);
+        if (v == null) v = defaultMap.get(s.pbFieldId);
         map.set(s.id, v != null ? v : s.industryPE);
       }
     }
@@ -260,11 +291,8 @@ export class StockService {
     let industryPE: number;
     let pbRandom: number | null = stock.pbRandom ?? null;
     if (stock.pbCompanyId && stock.pbFieldId) {
-      const fv = await this.prisma.companyFieldValue.findFirst({
-        where: { companyId: stock.pbCompanyId, industryFieldId: stock.pbFieldId },
-      });
-      const v = fv?.value != null ? Number(fv.value) : NaN;
-      industryPE = Number.isFinite(v) && v > 0 ? v : stock.industryPE;
+      const v = await this.resolveFieldValueOrDefault(stock.pbCompanyId, stock.pbFieldId);
+      industryPE = v != null && v > 0 ? v : stock.industryPE;
       pbRandom = null;
     } else {
       const prev = stock.pbRandom ?? this.randomPb();
@@ -500,10 +528,7 @@ export class StockService {
     const result: any[] = [];
     for (const acc of accounts) {
       if (acc.bindFieldId && acc.companyId) {
-        const fv = await this.prisma.companyFieldValue.findFirst({
-          where: { companyId: acc.companyId, industryFieldId: acc.bindFieldId },
-        });
-        const fieldBalance = fv?.value != null ? Number(fv.value) : null;
+        const fieldBalance = await this.resolveFieldValueOrDefault(acc.companyId, acc.bindFieldId);
         // 同步 cashBalance，避免其他接口读到旧值
         if (fieldBalance != null && fieldBalance !== acc.cashBalance) {
           await this.prisma.stockFundsAccount.update({
@@ -568,14 +593,10 @@ export class StockService {
         const scopes = user.stockCompanyScopes && user.stockCompanyScopes.length ? user.stockCompanyScopes : [];
         if (!scopes.includes(companyId)) throw new ForbiddenException("只能为权限范围内的公司创建资金账户");
       }
-      // 如果绑定了字段，获取字段值作为初始现金
+      // 如果绑定了字段，获取字段值（或字段初始值 defaultValue）作为初始现金
       if (bindFieldId) {
-        const fv = await this.prisma.companyFieldValue.findFirst({
-          where: { companyId, industryFieldId: bindFieldId },
-        });
-        if (fv?.value != null) {
-          cashBalance = Number(fv.value);
-        }
+        const v = await this.resolveFieldValueOrDefault(companyId, bindFieldId);
+        if (v != null) cashBalance = v;
       }
     }
     const account = await this.prisma.stockFundsAccount.create({
@@ -606,14 +627,10 @@ export class StockService {
     if (dto.userId !== undefined) data.userId = dto.userId;
     if (dto.bindFieldId !== undefined) {
       data.bindFieldId = dto.bindFieldId;
-      // 如果绑定了字段，获取字段值更新现金
+      // 如果绑定了字段，获取字段值（或字段初始值 defaultValue）更新现金
       if (dto.bindFieldId && account.companyId) {
-        const fv = await this.prisma.companyFieldValue.findFirst({
-          where: { companyId: account.companyId, industryFieldId: dto.bindFieldId },
-        });
-        if (fv?.value != null) {
-          data.cashBalance = Number(fv.value);
-        }
+        const v = await this.resolveFieldValueOrDefault(account.companyId, dto.bindFieldId);
+        if (v != null) data.cashBalance = v;
       }
     }
     const updated = await this.prisma.stockFundsAccount.update({ where: { id }, data });
@@ -674,15 +691,11 @@ export class StockService {
     if (dto.price < lowerLimit - 0.001) {
       throw new BadRequestException(`委托价不能低于 ¥${lowerLimit}（当前价 ¥${stock.currentPrice} 的 -10%）`);
     }
-    // 获取账户可用余额（绑定字段时取字段值）
+    // 获取账户可用余额（绑定字段时取字段值，或字段初始值 defaultValue）
     let availableBalance = account.cashBalance;
     if (account.bindFieldId && account.companyId) {
-      const fv = await this.prisma.companyFieldValue.findFirst({
-        where: { companyId: account.companyId, industryFieldId: account.bindFieldId },
-      });
-      if (fv?.value != null) {
-        availableBalance = Number(fv.value);
-      }
+      const v = await this.resolveFieldValueOrDefault(account.companyId, account.bindFieldId);
+      if (v != null) availableBalance = v;
     }
     if (dto.side === "BUY") {
       const need = dto.price * dto.quantity;
@@ -1032,13 +1045,11 @@ export class StockService {
     const holdingMap = new Map<number, { shares: number; costPrice: number }>();
     for (const o of orders) {
       if (!cashMap.has(o.fundsAccountId)) {
-        // 绑定了字段的账户从字段值获取余额
+        // 绑定了字段的账户从字段值获取余额（或字段初始值 defaultValue）
         const acc = o.fundsAccount;
         if (acc.bindFieldId && acc.companyId) {
-          const fv = await this.prisma.companyFieldValue.findFirst({
-            where: { companyId: acc.companyId, industryFieldId: acc.bindFieldId },
-          });
-          cashMap.set(o.fundsAccountId, fv?.value != null ? Number(fv.value) : acc.cashBalance);
+          const v = await this.resolveFieldValueOrDefault(acc.companyId, acc.bindFieldId);
+          cashMap.set(o.fundsAccountId, v != null ? v : acc.cashBalance);
         } else {
           cashMap.set(o.fundsAccountId, acc.cashBalance);
         }
