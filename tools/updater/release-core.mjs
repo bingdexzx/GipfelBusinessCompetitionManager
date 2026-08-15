@@ -24,7 +24,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..", "..");
@@ -114,7 +114,8 @@ function insertAnnouncement(content, entry) {
 }
 
 function buildEntry(version, title, date, htmlLines) {
-  const inner = htmlLines.join("\n");
+  // 转义模板字面量中的特殊字符：反引号和 ${ 插值，防止 announcement.ts 语法错误
+  const inner = htmlLines.join("\n").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
   return (
     "  {\n" +
     `    version: ${JSON.stringify(version)},\n` +
@@ -253,10 +254,10 @@ export async function runRelease(input = {}) {
     wrote = true;
 
     if (opts.commit) {
-      const files = changes.map((c) => c.file).join(" ");
       try {
-        execSync(`git add ${files}`, { cwd: ROOT, stdio: "pipe" });
-        execSync(`git commit -m "release: v${opts.version}"`, { cwd: ROOT, stdio: "pipe" });
+        // 使用 execFileSync 数组形式避免命令注入（路径含空格/特殊字符时安全）
+        execFileSync("git", ["add", ...changes.map((c) => c.file)], { cwd: ROOT, stdio: "pipe" });
+        execFileSync("git", ["commit", "-m", `release: v${opts.version}`], { cwd: ROOT, stdio: "pipe" });
         committed = true;
       } catch (e) {
         commitError = e.message;

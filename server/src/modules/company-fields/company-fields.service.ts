@@ -4,6 +4,7 @@ import { RealtimeService } from "../../realtime/realtime.service";
 import { serverNowIso } from "../../common/sync";
 import { SetCompanyFieldValuesDto } from "./company-fields.dto";
 import { IndustryCalcEngineService } from "../industry-types/industry-calc-engine.service";
+import { parseFieldConfig } from "../../common/json.util";
 
 // 基础标量类型按字段类型把任意输入转换为存储用的字符串
 function castScalar(type: "NUMBER" | "STRING" | "BOOLEAN", v: any): string {
@@ -72,18 +73,8 @@ function serializeFieldValue(field: any, raw: any): string {
   }
 }
 
-function parseConfig(c: any): Record<string, any> {
-  if (c && typeof c === "object" && !Array.isArray(c)) return c;
-  if (typeof c === "string") {
-    try {
-      const o = JSON.parse(c);
-      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
-    } catch {
-      return {};
-    }
-  }
-  return {};
-}
+// parseConfig 已移至 common/json.util.ts 作为 parseFieldConfig 导出
+const parseConfig = parseFieldConfig;
 
 // 把产业字段存储字符串（可能以 JSON 编码，如 "\"B区节点\""）安全解析为字符串。
 // 公司「所在地」字段等以节点名存储，读取侧需 JSON.parse 还原；已是纯字符串则原样返回。

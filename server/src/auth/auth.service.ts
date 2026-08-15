@@ -73,6 +73,7 @@ export class AuthService {
         companyScopes: parseCompanyScopes((user as any).companyScopes),
         viewCompanyScopes: parseCompanyScopes((user as any).viewCompanyScopes),
         contractViewCompanyScopes: parseCompanyScopes((user as any).contractViewCompanyScopes),
+        stockCompanyScopes: parseCompanyScopes((user as any).stockCompanyScopes),
         competitionId: user.competitionId ?? null,
       },
     };
@@ -116,6 +117,7 @@ export class AuthService {
       companyScopes: parseCompanyScopes((user as any).companyScopes),
       viewCompanyScopes: parseCompanyScopes((user as any).viewCompanyScopes),
       contractViewCompanyScopes: parseCompanyScopes((user as any).contractViewCompanyScopes),
+      stockCompanyScopes: parseCompanyScopes((user as any).stockCompanyScopes),
       competitionId: user.competitionId ?? null,
     };
   }

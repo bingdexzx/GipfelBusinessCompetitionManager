@@ -293,7 +293,12 @@ export function hasPermission(
     const action = need.slice(colon + 1);
     if (action === "view") {
       // 读是某域内最弱的能力：持有该域任意能力（view/edit/manage/execute/audit 等）即视为可读。
-      return perms.some((p) => p === domain || p.startsWith(domain + ":"));
+      // 使用 lastIndexOf 精确匹配域前缀，避免 startsWith 误匹配嵌套域（如 data:material:view 匹配 data:material:edit:xxx）
+      return perms.some((p) => {
+        if (p === domain) return true;
+        const lastColon = p.lastIndexOf(":");
+        return lastColon > 0 && p.slice(0, lastColon) === domain;
+      });
     }
     if (action === "edit") {
       // 编辑可由管理满足。

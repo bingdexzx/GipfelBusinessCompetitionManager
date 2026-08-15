@@ -3,10 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { CreateMaterialDto, UpdateMaterialDto } from "./dto/material.dto";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
-
-// 类型已迁移到公共位置（common/types/delete-impact），此处重新导出以保持向后兼容。
 import type { DeleteImpactItem, DeleteImpact } from "../../common/types/delete-impact";
-export type { DeleteImpactItem, DeleteImpact };
 
 @Injectable()
 export class MaterialService {

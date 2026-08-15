@@ -20,6 +20,7 @@ import { RequirePermissions } from "../../permissions/permissions.decorator";
 @Ownership({ model: "mapNode" })
 @Controller("map-nodes")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions("data:map:view")
 export class MapNodeController {
   constructor(private service: MapService) {}
 

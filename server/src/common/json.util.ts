@@ -26,3 +26,21 @@ export function parseJsonArray(raw: any): any[] {
   }
   return [];
 }
+
+/**
+ * 解析产业字段的 config 配置（DICTIONARY -> entries/valueType；LIST -> itemType）。
+ * 输入可能是对象、JSON 字符串或 null/undefined，统一返回 Record<string, any>。
+ * 解析失败时返回空对象 {}。
+ */
+export function parseFieldConfig(raw: any): Record<string, any> {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const o = JSON.parse(raw);
+      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}

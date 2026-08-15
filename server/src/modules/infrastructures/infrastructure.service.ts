@@ -3,7 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { CreateInfrastructureDto, UpdateInfrastructureDto } from "./dto/infrastructure.dto";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
-import { DeleteImpact, DeleteImpactItem } from "../materials/material.service";
+import { DeleteImpact, DeleteImpactItem } from "../../common/types/delete-impact";
 
 @Injectable()
 export class InfrastructureService {

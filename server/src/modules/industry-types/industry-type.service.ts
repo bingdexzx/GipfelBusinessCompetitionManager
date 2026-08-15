@@ -8,22 +8,12 @@ import {
   INDUSTRY_FIELD_TYPES,
 } from "./dto/industry-type.dto";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
+import { parseFieldConfig } from "../../common/json.util";
 
 const FIELD_TYPES = INDUSTRY_FIELD_TYPES;
 
-// 将 DB 中存储的 field.config（JSON 字符串）解析为对象；非法时回退 {}
-function parseConfig(c: any): Record<string, any> {
-  if (c && typeof c === "object" && !Array.isArray(c)) return c;
-  if (typeof c === "string") {
-    try {
-      const o = JSON.parse(c);
-      return o && typeof o === "object" && !Array.isArray(o) ? o : {};
-    } catch {
-      return {};
-    }
-  }
-  return {};
-}
+// parseConfig 已移至 common/json.util.ts 作为 parseFieldConfig 导出
+const parseConfig = parseFieldConfig;
 
 // 给产业类型（含 fields）附加解析后的 config 对象，并把字段 config 字段替换为对象。
 function withParsedFields(item: any) {

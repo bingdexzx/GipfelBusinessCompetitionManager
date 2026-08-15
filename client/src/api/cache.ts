@@ -183,7 +183,9 @@ export async function patchFullItems(
     if (it && it.id != null) map.set(it.id, it);
   }
   let result = Array.from(map.values());
-  if (existingIds && Array.isArray(existingIds)) {
+  // 仅当 existingIds 为非空数组时才过滤：空数组 [] 视为「服务端未返回」而非「集合为空」，
+  // 避免误清空本地副本。真正的空集合由 existingIds 包含所有（可能为零个）实际 id 来体现。
+  if (existingIds && Array.isArray(existingIds) && existingIds.length > 0) {
     const existSet = new Set(existingIds as number[]);
     result = result.filter((it) => it && existSet.has(it.id));
   }

@@ -3,7 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { CreateFuelDto, UpdateFuelDto } from "./dto/fuel.dto";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
-import { DeleteImpact, DeleteImpactItem } from "../materials/material.service";
+import { DeleteImpact, DeleteImpactItem } from "../../common/types/delete-impact";
 
 @Injectable()
 export class FuelService {

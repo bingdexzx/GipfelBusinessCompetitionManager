@@ -17,14 +17,14 @@ import { PermissionsGuard } from "../../permissions/permissions.guard";
 import { RequirePermissions } from "../../permissions/permissions.decorator";
 import { Ownership } from "../../common/guards/ownership.guard";
 
+@Ownership({ model: "consumerDemand" })
 @Controller("consumer-demands")
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions("data:region:view")
 export class ConsumerDemandController {
   constructor(private service: ConsumerDemandService) {}
 
   @Get()
-  @UseGuards(PermissionsGuard)
-  @RequirePermissions("data:region:view")
   findAll(
     @Query("competitionId") competitionId?: string,
     @Query("region") region?: string,
@@ -36,22 +36,18 @@ export class ConsumerDemandController {
   }
 
   @Post()
-  @UseGuards(PermissionsGuard)
   @RequirePermissions("data:region:edit")
   create(@Body() dto: CreateConsumerDemandDto) {
     return this.service.create(dto);
   }
 
   @Patch(":id")
-  @UseGuards(PermissionsGuard)
   @RequirePermissions("data:region:edit")
-  @Ownership({ model: "consumerDemand" })
   update(@Param("id", ParseIntPipe) id: number, @Body() dto: UpdateConsumerDemandDto) {
     return this.service.update(id, dto);
   }
 
   @Delete(":id")
-  @UseGuards(PermissionsGuard)
   @RequirePermissions("data:region:edit")
   remove(
     @Param("id", ParseIntPipe) id: number,

@@ -12,7 +12,7 @@ import {
 } from "./dto/map.dto";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult, serverNowIso } from "../../common/sync";
-import { DeleteImpact, DeleteImpactItem } from "../materials/material.service";
+import { DeleteImpact, DeleteImpactItem } from "../../common/types/delete-impact";
 
 @Injectable()
 export class MapService {
