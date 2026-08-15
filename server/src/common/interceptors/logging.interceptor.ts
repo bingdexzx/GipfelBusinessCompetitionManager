@@ -9,6 +9,9 @@ import { sanitize } from "../logging/sanitize";
 /** 写方法（会产生数据变更）才记录请求体，避免只读请求产生噪声。 */
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** 慢请求阈值（毫秒），超过此值的请求记录为 warn 级别以便快速识别。 */
+const SLOW_REQUEST_THRESHOLD_MS = 500;
+
 /** 无请求体的方法，不计入请求包大小。 */
 const NO_BODY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -69,7 +72,7 @@ export class LoggingInterceptor implements NestInterceptor {
           // 回应包大小 = ResponseInterceptor 最终线格式 { code, message, data } 的字节数，
           // 与真实线长仅差常量包装开销，足以反映「下载了多少数据」。
           const responseBodySize = jsonBytes({ code: 0, message: "成功", data });
-          logger.info("HTTP 访问", {
+          const logPayload = {
             method,
             url,
             statusCode,
@@ -80,7 +83,13 @@ export class LoggingInterceptor implements NestInterceptor {
             requestBodySize,
             responseBodySize,
             ...(body ? { body } : {}),
-          });
+          };
+          // 慢请求检测：超过阈值的请求记录为 warn 级别，便于快速识别性能瓶颈
+          if (elapsed >= SLOW_REQUEST_THRESHOLD_MS) {
+            logger.warn("HTTP 慢请求", logPayload);
+          } else {
+            logger.info("HTTP 访问", logPayload);
+          }
         },
         error: (error) => {
           const elapsed = Date.now() - now;

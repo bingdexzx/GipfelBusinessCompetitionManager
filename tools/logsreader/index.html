@@ -163,7 +163,7 @@
 
       table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
       thead th { text-align: left; padding: 9px 11px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
-      th.col-ts { width: 150px; } th.col-lv { width: 72px; } th.col-ctx { width: 150px; } th.col-op { width: 120px; } th.col-url { width: 220px; } th.col-sz { width: 132px; }
+      th.col-ts { width: 150px; } th.col-lv { width: 72px; } th.col-ctx { width: 150px; } th.col-op { width: 120px; } th.col-rid { width: 100px; } th.col-url { width: 220px; } th.col-sz { width: 132px; }
       tbody td.sz { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 12px; }
       tbody td.url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 11.5px; color: var(--accent); }
       .sz .up { color: #e5484d; }
@@ -184,6 +184,10 @@
       tbody tr.row-err:hover { background: rgba(229,72,77,0.15); }
       tbody tr.row-warn { background: rgba(245,166,35,0.08); box-shadow: inset 3px 0 0 var(--warn); }
       tbody tr.row-warn:hover { background: rgba(245,166,35,0.13); }
+      tbody tr.row-slow { background: rgba(139,92,246,0.08); box-shadow: inset 3px 0 0 var(--http); }
+      tbody tr.row-slow:hover { background: rgba(139,92,246,0.13); }
+      .rid { color: var(--muted); font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 11px; white-space: nowrap; cursor: pointer; }
+      .rid:hover { color: var(--accent); text-decoration: underline; }
       .detail td { background: var(--code-bg); padding: 0; }
       .detail .dh { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--code-bg); border-bottom: 1px solid #1e293b; }
       .detail .dh button { font-size: 11px; padding: 3px 10px; background: #1e293b; color: var(--code-fg); border-color: #334155; }
@@ -263,6 +267,10 @@
               <div id="opWrap"></div>
             </div>
             <div class="field">
+              <label>请求编号 requestId</label>
+              <input type="text" id="ridFilter" placeholder="按 requestId 过滤…" />
+            </div>
+            <div class="field">
               <label>时间范围</label>
               <div style="display: flex; flex-direction: column; gap: 6px;">
                 <input type="datetime-local" id="from" step="1" placeholder="起始" />
@@ -326,6 +334,7 @@
               <th class="col-lv">级别</th>
               <th class="col-ctx">上下文</th>
               <th class="col-op">操作员</th>
+              <th class="col-rid">请求ID</th>
               <th class="col-url">URL</th>
               <th>消息</th>
               <th class="col-sz">包大小</th>
@@ -525,6 +534,7 @@
           files,
           levels, contexts: ctxMS.getValues(), operators: opMS.getValues(),
           q: $("q").value.trim(),
+          rid: $("ridFilter").value.trim(),
           from: dtToServer($("from").value),
           to: dtToServer($("to").value),
           order: $("order").value,
@@ -569,7 +579,8 @@
           + `<span class="up" style="color:#e5484d;font-weight:600;">↑ 上行 ${fmtBytes(pkt.up)}</span>`
           + `<span style="margin:0 8px;color:var(--border);">|</span>`
           + `<span class="down" style="color:#4b83c1;font-weight:600;">↓ 下行 ${fmtBytes(pkt.down)}</span>`
-          + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（含包大小记录 ${fmtNum(pkt.cnt)} 条）</span>`;
+          + `<span style="font-size:12px;color:var(--muted);margin-left:10px;">（含包大小记录 ${fmtNum(pkt.cnt)} 条）</span>`
+          + (data.slowCount > 0 ? `<span style="margin-left:16px;color:#8b5cf6;font-weight:600;">⚠ 慢请求 ${fmtNum(data.slowCount)} 条</span>` : "");
 
         // URL 路径 Top 统计：后端按「路径（已去除 ?query 参数）」聚合，反映各 API 端点访问次数
         const ub = $("urlStats");
@@ -637,22 +648,37 @@
       function buildRowEl(row) {
         const tr = document.createElement("tr");
         tr._obj = row; // 直接把记录挂在元素上，详情展开按引用取，避免分页增删导致索引错位
+        // 行样式：error > warn > 慢请求（warn + 慢请求消息）
         if (row.level === "error") tr.className = "row-err";
+        else if (row.level === "warn" && row.message && row.message.includes("慢请求")) tr.className = "row-slow";
         else if (row.level === "warn") tr.className = "row-warn";
         const color = LEVEL_COLORS[row.level] || "#94a3b8";
         const hasSz = (row.requestBodySize || row.responseBodySize);
         const szHtml = hasSz
           ? `<span class="up">↑${fmtBytes(row.requestBodySize)}</span> <span class="down">↓${fmtBytes(row.responseBodySize)}</span>`
           : '<span class="muted">-</span>';
+        const rid = row.requestId || "";
+        const ridHtml = rid ? `<span class="rid" title="点击过滤此请求ID">${escapeHtml(rid.substring(0, 8))}</span>` : "";
         tr.innerHTML = `
           <td class="ts">${escapeHtml(row.timestamp || "")}</td>
           <td><span class="badge" style="background:${color}">${escapeHtml(row.level || "")}</span></td>
           <td class="ctx">${escapeHtml(row.context || "")}</td>
           <td class="op">${escapeHtml(row.operator || "")}</td>
+          <td class="rid-cell">${ridHtml}</td>
           <td class="url" title="${escapeHtml(row.url || "")}">${escapeHtml(row.url || "")}</td>
           <td class="msg">${escapeHtml(row.message || "")}<span class="file-tag">${escapeHtml(row.file || "")}</span></td>
           <td class="sz">${szHtml}</td>`;
         tr.addEventListener("click", () => toggleDetail(tr));
+        // requestId 点击过滤
+        const ridEl = tr.querySelector(".rid");
+        if (ridEl && rid) {
+          ridEl.addEventListener("click", (e) => {
+            e.stopPropagation();
+            $("ridFilter").value = rid;
+            stopFollow();
+            doQuery(false);
+          });
+        }
         return tr;
       }
       // 分批把 rows 追加进表格并按当前 token 防旧批次串台。
@@ -880,6 +906,7 @@
       $("resetBtn").addEventListener("click", () => {
         stopFollow();
         $("q").value = ""; $("from").value = ""; $("to").value = "";
+        $("ridFilter").value = "";
         ctxMS.clear(); opMS.clear();
         $("order").value = "desc"; $("limit").value = "";
         renderLevels([]);

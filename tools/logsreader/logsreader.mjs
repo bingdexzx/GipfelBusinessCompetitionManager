@@ -221,6 +221,7 @@ function runQuery(body) {
   const contexts = Array.isArray(body.contexts) ? body.contexts : [];
   const operators = Array.isArray(body.operators) ? body.operators : [];
   const q = typeof body.q === "string" ? body.q.trim() : "";
+  const rid = typeof body.rid === "string" ? body.rid.trim() : "";
   const from = body.from || null;
   const to = body.to || null;
   // limit 为 0 / 空 / 非正数 时表示「不限制」（返回全部匹配行）。
@@ -269,6 +270,8 @@ function runQuery(body) {
     }
     if (!inRange(obj.timestamp, from, to)) continue;
     if (!matchText(obj, q)) continue;
+    // requestId 过滤：精确匹配（支持前缀匹配，如输入 "abc" 匹配 "abc-123"）
+    if (rid && !(obj.requestId || "").startsWith(rid)) continue;
     matched.push(obj);
   }
 
@@ -355,12 +358,19 @@ function runQuery(body) {
   facets.contexts = [...fctx.keys()].sort();
   facets.operators = [...fop].sort();
 
+  // 慢请求统计：warn 级别且消息含"慢请求"的条目
+  let slowCount = 0;
+  for (const o of matched) {
+    if (o.level === "warn" && o.message && o.message.includes("慢请求")) slowCount++;
+  }
+
   return {
     ok: true,
     total,
     count: page.length,
     endOffset,
     pktTotals: { up: pktUp, down: pktDown, cnt: pktCnt },
+    slowCount,
     rows: page.map(({ _startByte, _endByte, _file, _seq, ...rest }) => ({ file: _file, ...rest })),
     byLevel,
     byContext,
