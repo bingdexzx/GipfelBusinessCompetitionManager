@@ -98,13 +98,13 @@
         <el-form-item label="行业PE" required>
           <el-input-number v-model="stockForm.industryPE" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="碳排绑定字段">
+        <el-form-item label="碳排绑定字段" required>
           <el-select v-model="stockForm.carbonRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
             <el-option label="不绑定（手动输入）" value="" />
             <el-option v-for="c in regionCards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
           </el-select>
         </el-form-item>
-        <el-form-item label="当前碳排">
+        <el-form-item label="当前碳排" required>
           <div v-if="carbonBound" class="bound-value">
             <span class="bound-num">{{ carbonLiveText }}</span>
             <span class="muted">（实时引用「{{ carbonBoundLabel }}」）</span>
@@ -114,13 +114,13 @@
         <el-form-item label="行业碳排均值" required>
           <el-input-number v-model="stockForm.industryAvgCarbon" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="幸福度绑定字段">
+        <el-form-item label="幸福度绑定字段" required>
           <el-select v-model="stockForm.happinessRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
             <el-option label="不绑定（手动输入）" value="" />
             <el-option v-for="c in regionCards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
           </el-select>
         </el-form-item>
-        <el-form-item label="当前幸福度">
+        <el-form-item label="当前幸福度" required>
           <div v-if="happinessBound" class="bound-value">
             <span class="bound-num">{{ happinessLiveText }}</span>
             <span class="muted">（实时引用「{{ happinessBoundLabel }}」）</span>
