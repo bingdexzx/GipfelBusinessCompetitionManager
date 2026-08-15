@@ -76,7 +76,7 @@
         <el-form-item label="股票代码" required>
           <el-input v-model="stockForm.code" :disabled="!!stockForm.id" placeholder="如 600001" />
         </el-form-item>
-        <el-form-item label="公司名称" required>
+        <el-form-item label="股票名称" required>
           <el-input v-model="stockForm.name" />
         </el-form-item>
         <el-form-item label="总股本(万股)" required>
@@ -253,7 +253,7 @@ function openStockDialog(row?: any) {
 }
 async function saveStock() {
   const f = stockForm.value;
-  if (!f.code || !f.name) return ElMessage.warning("请填写代码与公司名称");
+  if (!f.code || !f.name) return ElMessage.warning("请填写代码与股票名称");
   const payload = {
     code: f.code,
     name: f.name,
