@@ -1011,20 +1011,17 @@ export class StockService {
     });
     if (orders.length === 0) return null;
 
-    // 撮合（含 AI 做市商，提供流动性）：成交价由全部订单的最高买 / 最低卖决定。
+    // 撮合 + 买卖压力统一用全部订单（含 AI 做市商）。做市商订单已按「金额对称」挂单
+    // （买单金额 = 卖单金额），对买卖压力中性——既不引导价格方向，又提供价格缓冲：
+    // 若只统计玩家订单，玩家单边下单时买卖比 = ∞/0 会直接涨停/跌停，且连续多轮，
+    // 做市商的「连续涨跌停反向干预」也因被排除在买卖压力之外而失效。
     const match = computeMatch(
       orders.map((o) => ({ side: o.side as "BUY" | "SELL", price: o.price, quantity: o.quantity })),
     );
-    // 买卖压力（定价）：仅统计玩家订单，排除 AI 做市商——做市商「低买高卖」的对称挂单
-    // 不应引导价格方向，否则其卖单金额恒大于买单金额会导致股价被结构性压低、持续阴跌。
-    const playerOrders = orders.filter((o) => o.fundsAccount?.name !== "AI做市商");
-    const pressure = computeMatch(
-      playerOrders.map((o) => ({ side: o.side as "BUY" | "SELL", price: o.price, quantity: o.quantity })),
-    );
     const price = computePrice({
       lastClose: stock.currentPrice,
-      buyAmount: pressure.totalBuyAmount,
-      sellAmount: pressure.totalSellAmount,
+      buyAmount: match.totalBuyAmount,
+      sellAmount: match.totalSellAmount,
       happiness: this.effectiveHappiness(stock, fieldMap),
       currentCarbon: this.effectiveCarbon(stock, fieldMap),
       industryAvgCarbon: this.effectiveIndustryAvgCarbon(stock, fieldMap),
