@@ -96,7 +96,7 @@
           <el-input v-model="form.name" placeholder="请输入载具名称" />
         </el-form-item>
 
-        <el-form-item label="燃料" prop="fuelId">
+        <el-form-item label="燃料" prop="fuelId" required>
           <el-select v-model="form.fuelId" placeholder="选择燃料" filterable style="width: 100%">
             <el-option v-for="f in fuelOptions" :key="f.value" :label="f.label" :value="f.value" />
           </el-select>
@@ -142,7 +142,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="可通过路径类型">
+        <el-form-item label="可通过路径类型" required>
           <el-select
             v-model="form.pathTypeIds"
             multiple
