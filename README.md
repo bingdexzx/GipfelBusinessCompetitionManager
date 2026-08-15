@@ -1,23 +1,26 @@
 # Gipfel 商赛系统（商赛辅助系统）
 
-商业模拟竞赛（商赛）的办赛方数据管理工具。办赛方通过本系统维护竞赛所需的全量标准化数据、配置比赛参数，并通过配置驱动的合同引擎与可视化编辑能力高效运作赛事。
+商业模拟竞赛（商赛）的办赛方数据管理桌面应用。办赛方通过本系统维护竞赛所需的全量标准化数据、配置比赛参数，并通过配置驱动的合同引擎与可视化编辑能力高效运作赛事。
 
 ## 核心功能
 
 - **比赛与财年管理**：创建比赛（租户根），开/关财年；所有业务数据按 `competitionId` 隔离
-- **数据管理**：原料、零件、产品、地图（节点/边/类型）、基建、科技树、燃料、载具、仓库、生产线、产业类型、公司及其产业字段、区域与消费者需求
-- **合同系统**：配置驱动的合同类型模板 + 执行引擎（改写公司产业字段），含前置检查与可视化图编辑器
-- **股票系统**：模拟股票交易——玩家下单（买入/卖出），高级管理推进轮次后系统撮合→定价→生成 K 线
+- **数据管理**：原料、零件、产品、地图（节点/边/类型/路径类型）、基建、科技树、燃料、载具、仓库、生产线、产业类型（含计算字段与财年定时器）、公司及其产业字段、区域与消费者需求
+- **合同系统**：配置驱动的合同类型模板 + 执行引擎（改写公司产业字段），含前置检查、可视化图编辑器、字段改写记录（支持合同删除时精确撤销）
+- **股票系统**：模拟股票交易——玩家下单（买入/卖出），高级管理推进轮次后系统撮合→定价→生成 K 线；支持 PE 联动/随机模式、区域总览字段实时绑定
 - **消息中心**：办赛方可向指定账号定向发布消息（支持附带图片），接收方在线时收到实时弹窗
 - **区域总览**：按区域展示公司产业字段数据框，支持消费者需求管理
-- **账户与权限管理**：超级管理员 + 细粒度权限（31 个权限 key，18 个域）
+- **仪表盘**：可自定义控件的仪表盘系统，支持文字/仪表/表格内置控件和自定义 Vue 组件控件，支持字段绑定和拖拽布局
+- **账户与权限管理**：超级管理员 + 细粒度权限（31 个权限 key，18 个域，5 个范围约束字段）
 - **认证授权**：JWT 令牌 + 单设备登录互斥（tokenVersion）+ 强制改密
-- **实时广播**：基于 Socket.IO 的通用广播基建，管理员操作即时同步到所有已登录前端
+- **实时广播**：基于 Socket.IO 的通用广播基建，Prisma 写操作后自动触发资源变更广播，客户端精确处理增量同步
+- **本地缓存与增量同步**：IndexedDB 按账号分库，全量副本 + 增量基线 + 断线重连对账
 - **版本一致性硬封锁**：客户端与服务端版本不一致时锁定全部功能
 - **更新公告**：每次发版后向用户弹出更新公告，确认后不再自动弹出
 
 > 完整设计、接口、权限与模块细节见 [`docs/软件文档.md`](docs/软件文档.md)。
 > 系统架构图见 [`docs/系统架构图.md`](docs/系统架构图.md)。
+> 仪表盘自定义控件开发指南见 [`docs/自定义控件开发指南.md`](docs/自定义控件开发指南.md)。
 
 ## 技术架构
 
@@ -63,6 +66,14 @@ HTTP Request
 │   │   ├── permissions/            # 细粒度权限系统（catalog / guard / decorator）
 │   │   ├── realtime/               # WebSocket 实时广播（gateway / service / module）
 │   │   ├── common/                 # 守卫、装饰器、拦截器、过滤器、日志、配置、安全
+│   │   │   ├── config/             # 配置模块
+│   │   │   ├── decorators/         # current-user / no-competition-scope / public
+│   │   │   ├── filters/            # http-exception.filter（异常捕获 → 中文错误信息）
+│   │   │   ├── guards/             # jwt-auth / competition-scope / must-change-password / ownership
+│   │   │   ├── interceptors/       # logging / response
+│   │   │   ├── logging/            # logger.config / operator.context / operator.middleware / sanitize
+│   │   │   ├── security/           # login-throttle（登录限流）
+│   │   │   └── validators/         # password.validator
 │   │   ├── modules/                # 业务模块（见下方）
 │   │   └── prisma/                 # PrismaService（含审计中间件 + 自动广播）
 │   ├── prisma/
@@ -76,11 +87,15 @@ HTTP Request
 │       ├── api/                    # HTTP 层（request.ts / cache.ts / index.ts）
 │       ├── config/                 # 配置（DEFAULT_SERVER_URL / dataModules.ts）
 │       ├── stores/                 # Pinia 状态（auth / config / competition / version / announcement / message）
+│       ├── router/                 # Vue Router（Hash 模式，23 条路由）
 │       ├── views/                  # 页面（登录、仪表盘、数据管理、比赛、公司、区域、消息、股票、设置）
 │       ├── components/             # 复用组件（layout / common / dashboard / contracts / 公告 / 版本 / 消息弹窗）
 │       ├── realtime/               # WebSocket 客户端（socket.ts / resource-changed.ts / useResourceChanged.ts）
 │       ├── permissions/            # 权限目录（前端镜像副本）
+│       ├── composables/            # 组合式函数（useCompetitionReload / useDashboardFields）
+│       ├── types/                  # 类型定义（dashboard.ts）
 │       ├── utils/                  # 工具函数（accountStorage / expressionEval / safe-math / deleteConfirm）
+│       ├── data/                   # 静态数据（announcement / version）
 │       └── assets/                 # 样式、logo
 ├── docs/                           # 文档
 │   ├── 软件文档.md                  # 完整软件文档（设计、接口、权限、模块细节）
@@ -157,6 +172,15 @@ npm run dev
 
 > 首次登录后**必须修改密码**（系统会强制拦截直到改密完成）。
 
+### 首次使用流程
+
+1. 用 `admin / admin123` 登录，系统强制改密。
+2. 进入「比赛管理」创建一场比赛。
+3. 选择该比赛后，在「数据管理」中录入原料、零件、产品、科技树、地图、燃料、载具、仓库、生产线、基建等基础数据。
+4. 在「产业类型」中配置产业类型及其字段（支持计算字段、财年定时器）。
+5. 在「公司管理」中创建参赛公司，并维护其产业字段。
+6. 在「账户管理」中创建管理员/选手账号，配置权限与公司范围。
+
 ## 构建安装包
 
 以管理员身份运行 `tools/package.bat`（Windows），会自动使用国内 npmmirror 镜像构建客户端并生成 NSIS 安装包，输出至 `client/release/`，形如 `Gipfel商赛系统 Setup x.x.x.exe`（安装时可选择安装位置）。
@@ -172,13 +196,13 @@ npm run dev
 ## 安全说明
 
 - **认证**：JWT（24h 有效期，issuer/audience 绑定）+ 单设备登录互斥（tokenVersion 自增，新设备登录顶掉旧设备）+ 强制改密
-- **授权**：RBAC 细粒度权限（31 个权限 key，18 个域）+ 5 个范围约束字段（审核/读字段/看合同/管理股票）
+- **授权**：RBAC 细粒度权限（31 个权限 key，18 个域）+ 5 个范围约束字段（permissions / companyScopes / viewCompanyScopes / contractViewCompanyScopes / stockCompanyScopes）
 - **多租户隔离**：`CompetitionScopeGuard` 自动注入/校验 `competitionId`；归属比赛的账号自动锁定所属比赛
 - **资源归属**：`OwnershipGuard` BOLA 防御，校验实体归属
-- **传输安全**：CSP / X-Frame-Options / CORP / CORS 白名单
+- **传输安全**：CSP（default-src 'none'）/ X-Frame-Options: DENY / CORP / CORS 白名单（仅本地/内网来源反射）
 - **输入校验**：`ValidationPipe` 白名单 + 类型转换，5xx 异常不透出细节
-- **登录限流**：IP+用户名维度，10 次/5 分钟 → 锁定 15 分钟
-- **审计日志**：Prisma 写操作记录 before/after/changes，密码/令牌脱敏
+- **登录限流**：IP+用户名维度，10 次/5 分钟 → 锁定 15 分钟（仅计失败）
+- **审计日志**：Prisma `$allOperations` 写操作记录 before/after/changes，密码/令牌脱敏
 - **WebSocket 安全**：JWT 握手鉴权，房间归属校验，强制改密用户禁止连接
 
 详见 [`docs/软件文档.md`](docs/软件文档.md)「认证与权限模型」章节。
