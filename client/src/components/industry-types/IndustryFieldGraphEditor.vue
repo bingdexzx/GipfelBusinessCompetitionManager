@@ -272,6 +272,12 @@
                   读取由「赋值」节点写入的运行期变量（不回写字段）。变量名须与某个「赋值」节点的名称一致。
                 </div>
               </template>
+
+              <template v-else-if="selectedNode.data.kind === 'CONSUMER_DEMAND'">
+                <div class="ge-tip">
+                  自动读取本产业实例（公司）「所在地」字段对应的地图节点，取该节点所属区域，汇总本比赛该区域下全部消费者需求（ConsumerDemand.quantity）之和。无需额外参数；所在地为空或找不到区域时返回 0。把本节点的「输出」连到运算 / 条件 / 输出节点即可参与计算。
+                </div>
+              </template>
             </el-form>
           </template>
 
@@ -409,13 +415,14 @@ const palette = [
   },
 ];
 
-const IND_VALUE_KINDS = ["FIELD", "CONST", "FORMULA", "OP", "VAR"];
+const IND_VALUE_KINDS = ["FIELD", "CONST", "FORMULA", "OP", "VAR", "CONSUMER_DEMAND"];
 const IND_VALUE_KIND_LABEL: Record<string, string> = {
   FIELD: "产业字段现值",
   CONST: "常量",
   FORMULA: "公式(mathjs)",
   OP: "运算(列表/字典/算术/比较)",
   VAR: "运行期变量",
+  CONSUMER_DEMAND: "消费者需求总数(按所在地)",
 };
 const IND_ARITH_OPS = ARITH_OPS;
 const IND_BOOL_OPS = ["CMP_EQ", "CMP_NE", "CMP_GT", "CMP_LT", "CMP_GTE", "CMP_LTE"];
@@ -545,6 +552,7 @@ function nodeSummary(n: GNode): string {
       if (d.kind === "FORMULA") return `公式·${d.expr ?? ""}`;
       if (d.kind === "OP") return OP_LABELS_FULL[d.op as string] || d.op || "";
       if (d.kind === "VAR") return `变量·${d.name || ""}`;
+      if (d.kind === "CONSUMER_DEMAND") return "消费者需求总数";
       return d.kind || "";
     case "if":
       return "条件分支(值返回)";

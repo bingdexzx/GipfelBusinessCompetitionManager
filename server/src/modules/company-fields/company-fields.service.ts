@@ -81,6 +81,20 @@ function parseConfig(c: any): Record<string, any> {
   return {};
 }
 
+// 把产业字段存储字符串（可能以 JSON 编码，如 "\"B区节点\""）安全解析为字符串。
+// 公司「所在地」字段等以节点名存储，读取侧需 JSON.parse 还原；已是纯字符串则原样返回。
+function parseFieldStringValue(raw: any): string | null {
+  if (raw == null) return null;
+  if (typeof raw !== "string") return String(raw);
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "string") return parsed;
+  } catch {
+    /* 非 JSON，原样返回 */
+  }
+  return raw;
+}
+
 @Injectable()
 export class CompanyFieldsService {
   private readonly logger = new Logger(CompanyFieldsService.name);
@@ -325,6 +339,22 @@ export class CompanyFieldsService {
       scope[f.fieldKey] = this.typedFromStore(f, stored);
     }
 
+    // 区域上下文：本产业实例（公司）所属比赛 + 所在地节点名，供计算图的 CONSUMER_DEMAND 数据源使用。
+    // 所在地字段以 JSON 编码字符串存储节点名（如 "B区节点"），读取需 parseFieldStringValue 还原。
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { competitionId: true },
+    });
+    const locationField = (fields || []).find((f: any) => f.fieldKey === "location");
+    let locationNodeName: string | null = null;
+    if (locationField) {
+      const raw = valByFieldId.has(locationField.id)
+        ? valByFieldId.get(locationField.id)
+        : locationField.defaultValue;
+      locationNodeName = parseFieldStringValue(raw);
+    }
+    const calcCtx = { competitionId: company?.competitionId ?? null, locationNodeName };
+
     // 计算字段之间的依赖：A 依赖 B 当且仅当 A 的计算图读取 B.fieldKey 且 B 也是计算字段。
     const fieldKeyById = new Map(calcFields.map((f: any) => [f.fieldKey, f]));
     const deps: Record<string, Set<string>> = {};
@@ -344,7 +374,7 @@ export class CompanyFieldsService {
     const toUpsert: { industryFieldId: number; value: string }[] = [];
     for (const f of ordered) {
       const graph = this.parseGraph(f.calcGraph);
-      const result = this.calcEngine.evaluate(graph, scope);
+      const result = await this.calcEngine.evaluate(graph, scope, calcCtx);
       const store = serializeFieldValue(f, result);
       toUpsert.push({ industryFieldId: f.id, value: store });
       scope[f.fieldKey] = this.typedFromStore(f, store);

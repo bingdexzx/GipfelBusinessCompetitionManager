@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
 import { safeEvaluate } from "../../common/safe-expression";
 import {
   applyOp,
@@ -6,6 +7,17 @@ import {
   toNumber,
   isTruthy,
 } from "../contracts/contract-engine.service";
+
+/**
+ * 计算图求值所需的上下文（调用方传入）：
+ * - competitionId：本产业实例（公司）所属比赛，用于收敛 ConsumerDemand / MapNode 查询范围。
+ * - locationNodeName：本产业实例「所在地」字段解析后的地图节点名（如 "B区节点"）；
+ *   用于定位该节点所属区域，进而汇总该区域消费者需求总数。
+ */
+export type IndustryCalcCtx = {
+  competitionId?: number | null;
+  locationNodeName?: string | null;
+};
 
 /**
  * 产业计算图引擎（服务端）。
@@ -18,10 +30,14 @@ import {
  *     - FORMULA：受限安全表达式（见 common/safe-expression），作用域 = 字段现值（fieldKey 作变量）+ EXPR_HELPERS。
  *     - OP：复用合同引擎的 applyOp（列表 / 字典 / 算术 / 布尔比较）。
  *     - VAR：读取运行期变量（由 assign 节点赋值）。
+ *     - CONSUMER_DEMAND：自动读取本产业实例「所在地」字段对应的地图节点，
+ *       取该节点所在区域，汇总本比赛该区域下全部消费者需求（ConsumerDemand.quantity）之和；
+ *       无需额外参数，依赖 evaluate 的 ctx（competitionId + locationNodeName）。
  * - `if`     节点：值返回式条件分支，求 `cond`（布尔），真→`then`、假→`else` 输入端口的值。
  * - `assign` 节点：求 `value` 输入端口的值，存入运行期变量 `data.name`（供 VAR 复用，不回写字段）。
  *
  * 作用域 fieldScope：{ [fieldKey]: 已按字段类型解析的值 }。
+ * 区域上下文 ctx：{ competitionId, locationNodeName }，仅 CONSUMER_DEMAND 数据源使用。
  */
 
 // 与客户端 graph-model.ts 的 OP_ARG_SPECS 保持一致：每个 op 的参数端口 handle 与顺序。
@@ -92,12 +108,19 @@ function parseConst(v: any): any {
 
 @Injectable()
 export class IndustryCalcEngineService {
+  constructor(private prisma: PrismaService) {}
+
   /**
    * 解析图，返回该计算字段的最终值。
    * @param graph      GGraph（calcGraph 字段存储的 JSON 解析结果）
    * @param fieldScope 本产业类型各字段现值（fieldKey → 已解析值）
+   * @param ctx        区域上下文：competitionId + locationNodeName（CONSUMER_DEMAND 数据源使用）
    */
-  evaluate(graph: any, fieldScope: Record<string, any>): any {
+  async evaluate(
+    graph: any,
+    fieldScope: Record<string, any>,
+    ctx?: IndustryCalcCtx,
+  ): Promise<any> {
     if (!graph || !Array.isArray(graph.nodes)) return 0;
     const nodes: any[] = graph.nodes;
     const edges: any[] = Array.isArray(graph.edges) ? graph.edges : [];
@@ -116,7 +139,7 @@ export class IndustryCalcEngineService {
         const deps = this.collectVarRefs(a.id, nodeById, edges);
         const ready = deps.every((name) => Object.prototype.hasOwnProperty.call(scope, name));
         if (ready) {
-          const val = this.evalInput(a.id, "value", nodeById, edges, scope, 0);
+          const val = await this.evalInput(a.id, "value", nodeById, edges, scope, ctx, 0);
           scope[a.data?.name] = val;
           progress = true;
         } else {
@@ -133,18 +156,19 @@ export class IndustryCalcEngineService {
     // —— 第二步：求值输出节点 ——
     const out = nodes.find((n) => n.type === "output");
     if (!out) return 0;
-    return this.evalInput(out.id, "value", nodeById, edges, scope, 0);
+    return await this.evalInput(out.id, "value", nodeById, edges, scope, ctx, 0);
   }
 
   // 求某个「输入端口」的值：找到连到该端口的边，求值其上游输出端口。
-  private evalInput(
+  private async evalInput(
     targetNodeId: string,
     targetHandle: string,
     nodeById: (id: string) => any,
     edges: any[],
     scope: Record<string, any>,
+    ctx: IndustryCalcCtx | undefined,
     depth: number,
-  ): any {
+  ): Promise<any> {
     if (depth > 2000) return 0; // 防御：图意外成环时避免栈溢出
     const edge = edges.find(
       (e) => e.target === targetNodeId && e.targetHandle === targetHandle,
@@ -158,18 +182,19 @@ export class IndustryCalcEngineService {
       }
       return 0;
     }
-    return this.evalOutput(edge.source, edge.sourceHandle, nodeById, edges, scope, depth + 1);
+    return await this.evalOutput(edge.source, edge.sourceHandle, nodeById, edges, scope, ctx, depth + 1);
   }
 
   // 求某个「输出端口」的值：根据节点类型分派。
-  private evalOutput(
+  private async evalOutput(
     nodeId: string,
     handle: string,
     nodeById: (id: string) => any,
     edges: any[],
     scope: Record<string, any>,
+    ctx: IndustryCalcCtx | undefined,
     depth: number,
-  ): any {
+  ): Promise<any> {
     if (depth > 2000) return 0; // 防御：图意外成环时避免栈溢出
     const node = nodeById(nodeId);
     if (!node) return 0;
@@ -190,8 +215,10 @@ export class IndustryCalcEngineService {
           }
         case "OP": {
           const handles = OP_ARG_SPECS[d.op as string] || [];
-          const args = handles.map((h) =>
-            this.evalInput(nodeId, h, nodeById, edges, scope, depth + 1),
+          const args = await Promise.all(
+            handles.map((h) =>
+              this.evalInput(nodeId, h, nodeById, edges, scope, ctx, depth + 1),
+            ),
           );
           try {
             return applyOp(d.op as string, args, scope);
@@ -203,16 +230,40 @@ export class IndustryCalcEngineService {
           return Object.prototype.hasOwnProperty.call(scope, d.name)
             ? scope[d.name]
             : 0;
+        case "CONSUMER_DEMAND":
+          return await this.resolveConsumerDemandTotal(ctx);
         default:
           return 0;
       }
     }
     if (node.type === "if") {
-      const cond = this.evalInput(nodeId, "cond", nodeById, edges, scope, depth + 1);
+      const cond = await this.evalInput(nodeId, "cond", nodeById, edges, scope, ctx, depth + 1);
       const h = isTruthy(cond) ? "then" : "else";
-      return this.evalInput(nodeId, h, nodeById, edges, scope, depth + 1);
+      return await this.evalInput(nodeId, h, nodeById, edges, scope, ctx, depth + 1);
     }
     return 0;
+  }
+
+  // 汇总本比赛、本产业实例所在地所属区域下的全部消费者需求数量之和。
+  // 兼容两种数据约定：ConsumerDemand.region 既可能是 MapNode.region，也可能是节点名本身，
+  // 故匹配 region IN (节点 region, 节点名)。所在地为空 / 找不到区域 / 无需求 → 返回 0。
+  private async resolveConsumerDemandTotal(ctx?: IndustryCalcCtx): Promise<number> {
+    if (!ctx || ctx.competitionId == null || !ctx.locationNodeName) return 0;
+    const nodeName = ctx.locationNodeName;
+    const node = await this.prisma.mapNode.findFirst({
+      where: {
+        name: nodeName,
+        ...(ctx.competitionId != null ? { competitionId: ctx.competitionId } : {}),
+      },
+      select: { region: true },
+    });
+    const regions = new Set<string>([nodeName]);
+    if (node?.region) regions.add(node.region);
+    const result = await this.prisma.consumerDemand.aggregate({
+      where: { competitionId: ctx.competitionId, region: { in: [...regions] } },
+      _sum: { quantity: true },
+    });
+    return result._sum.quantity ?? 0;
   }
 
   // 收集某节点「value 输入端口」子图中引用的 VAR 名称（用于 assign 拓扑排序）。
