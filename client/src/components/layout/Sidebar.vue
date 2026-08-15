@@ -156,26 +156,19 @@
       </el-menu-item>
 
       <el-menu-item
+        v-if="authStore.canAny(['company:view', 'company:manage'])"
+        index="/companies"
+      >
+        <el-icon><OfficeBuilding /></el-icon>
+        <span>{{ authStore.can("company:manage") ? "公司管理" : "公司" }}</span>
+      </el-menu-item>
+
+      <el-menu-item
         v-if="authStore.can('industryType:manage')"
         index="/industry-types"
       >
         <el-icon><Grid /></el-icon>
         <span>产业类型管理</span>
-      </el-menu-item>
-
-      <el-menu-item
-        v-if="authStore.can('message:view')"
-        index="/messages"
-      >
-        <el-icon><Bell /></el-icon>
-        <span>消息中心</span>
-        <el-badge
-          v-if="unreadCount > 0"
-          :value="unreadCount"
-          :max="99"
-          class="msg-badge"
-          type="danger"
-        />
       </el-menu-item>
 
       <el-menu-item v-if="authStore.can('stock:view')" index="/stocks">
@@ -191,17 +184,24 @@
         <span>股票管理</span>
       </el-menu-item>
 
-      <el-menu-item
-        v-if="authStore.canAny(['company:view', 'company:manage'])"
-        index="/companies"
-      >
-        <el-icon><OfficeBuilding /></el-icon>
-        <span>{{ authStore.can("company:manage") ? "公司管理" : "公司" }}</span>
-      </el-menu-item>
-
       <el-menu-item v-if="authStore.can('account:manage')" index="/accounts">
         <el-icon><UserFilled /></el-icon>
         <span>账户管理</span>
+      </el-menu-item>
+
+      <el-menu-item
+        v-if="authStore.can('message:view')"
+        index="/messages"
+      >
+        <el-icon><Bell /></el-icon>
+        <span>消息中心</span>
+        <el-badge
+          v-if="unreadCount > 0"
+          :value="unreadCount"
+          :max="99"
+          class="msg-badge"
+          type="danger"
+        />
       </el-menu-item>
 
       <el-menu-item index="/settings">
