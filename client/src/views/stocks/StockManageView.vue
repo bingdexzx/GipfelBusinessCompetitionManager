@@ -101,9 +101,7 @@
         <el-form-item label="碳排绑定字段">
           <el-select v-model="stockForm.carbonRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
             <el-option label="不绑定（手动输入）" value="" />
-            <el-option-group v-for="grp in regionGroups" :key="grp.region" :label="grp.region">
-              <el-option v-for="c in grp.cards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
-            </el-option-group>
+            <el-option v-for="c in regionCards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
           </el-select>
         </el-form-item>
         <el-form-item label="当前碳排">
@@ -119,9 +117,7 @@
         <el-form-item label="幸福度绑定字段">
           <el-select v-model="stockForm.happinessRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
             <el-option label="不绑定（手动输入）" value="" />
-            <el-option-group v-for="grp in regionGroups" :key="grp.region" :label="grp.region">
-              <el-option v-for="c in grp.cards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
-            </el-option-group>
+            <el-option v-for="c in regionCards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
           </el-select>
         </el-form-item>
         <el-form-item label="当前幸福度">
@@ -244,6 +240,12 @@ const regionGroups = computed(() => {
     (groups[r.region] = groups[r.region] || []).push(...cards);
   }
   return Object.keys(groups).map((region) => ({ region, cards: groups[region] }));
+});
+// 扁平化所有区域卡片（去掉区域分组分栏），供绑定下拉直接渲染「地区 / 字段名」选项。
+const regionCards = computed(() => {
+  const out: any[] = [];
+  for (const g of regionGroups.value) out.push(...g.cards);
+  return out;
 });
 
 function findCard(sel: string): any | null {
