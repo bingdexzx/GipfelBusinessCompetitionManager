@@ -37,14 +37,24 @@
           </div>
         </el-card>
 
-        <el-card shadow="never" class="block-card chart-card">
+        <el-card shadow="never" class="block-card chart-card" :body-style="{ padding: '0' }">
           <template #header>
-            <span v-if="selectedStock" class="card-title">
-              {{ selectedStock.name }}<span class="muted">（{{ selectedStock.code }}）</span>
-            </span>
+            <div v-if="selectedStock" class="chart-header">
+              <span class="card-title">{{ selectedStock.name }}</span>
+              <span class="chart-code">{{ selectedStock.code }}</span>
+              <span class="chart-price" :class="changeClass(selectedStock.changePct)">¥{{ fmt(selectedStock.currentPrice) }}</span>
+              <span class="chart-change" :class="changeClass(selectedStock.changePct)">
+                {{ selectedStock.changePct > 0 ? "+" : "" }}{{ fmt(selectedStock.changePct) }}%
+              </span>
+              <span class="chart-ma-legend">
+                <span class="ma-tag ma5">MA5</span>
+                <span class="ma-tag ma10">MA10</span>
+                <span class="ma-tag ma20">MA20</span>
+              </span>
+            </div>
           </template>
           <div v-if="selectedStock" ref="chartRef" class="kline-chart" v-loading="loadingCandles"></div>
-          <div v-if="selectedStock" class="chart-hint">滚轮缩放 · 拖拽平移 · 底部滑块调节范围</div>
+          <div v-if="selectedStock" class="chart-hint">滚轮缩放 · 拖拽平移 · 底部滑块 · MA5/MA10/MA20</div>
           <div v-else class="chart-empty">
             <el-icon :size="40" class="chart-empty-icon"><TrendCharts /></el-icon>
             <p class="chart-empty-text">{{ emptyChartText }}</p>
@@ -339,123 +349,231 @@ async function onAccountChange() {
   await reloadAccountData();
 }
 
+// 计算移动平均线数据
+function calcMA(data: number[][], period: number): (number | null)[] {
+  return data.map((_, i) => {
+    if (i < period - 1) return null;
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += data[j][1]; // close price
+    return +(sum / period).toFixed(2);
+  });
+}
+
 function renderChart() {
   if (!chartRef.value) return;
   if (!chart) chart = echarts.init(chartRef.value);
-  const data = candles.value.map((c) => [c.open, c.close, c.low, c.high]);
-  const vol = candles.value.map((c) => c.close);
+
+  const ohlc = candles.value.map((c) => [c.open, c.close, c.low, c.high]);
+  const volumes = candles.value.map((c) => ({
+    value: c.close,
+    volume: Math.abs(c.close - c.open) > 0 ? Math.round(c.close * 100) : 0, // 模拟成交量
+    isUp: c.close >= c.open,
+  }));
   const roundLabels = candles.value.map((c) => `R${c.round}`);
 
-  // 默认显示范围：最多显示 30 根 K 线，若不足则全部显示
+  // 移动平均线
+  const ma5 = calcMA(ohlc, 5);
+  const ma10 = calcMA(ohlc, 10);
+  const ma20 = calcMA(ohlc, 20);
+
+  // 默认显示范围
   const maxVisible = 30;
   const total = candles.value.length;
   const defaultStart = total > maxVisible ? Math.round((1 - maxVisible / total) * 100) : 0;
 
+  // 暗色主题配色
+  const bg = "#1a1a2e";
+  const gridColor = "#2a2a3e";
+  const textColor = "#8a8a9a";
+  const upColor = "#ec0000";
+  const downColor = "#00a800";
+
   chart.setOption({
-    backgroundColor: "transparent",
+    backgroundColor: bg,
+    animation: false,
     grid: [
-      { left: 50, right: 50, top: 16, height: "60%" },
-      { left: 50, right: 50, top: "78%", height: "14%" },
+      { left: 60, right: 60, top: 30, bottom: 100 },  // 主图（K线 + MA）
+      { left: 60, right: 60, top: "82%", bottom: 28 },  // 成交量
     ],
+    axisPointer: {
+      link: [{ xAxisIndex: [0, 1] }],  // 主图和成交量联动
+      label: { backgroundColor: "#3a3a4e", color: "#fff", fontSize: 11 },
+    },
     xAxis: [
       {
         type: "category",
         data: roundLabels,
-        axisLine: { lineStyle: { color: "#c0c4cc" } },
-        axisLabel: { color: "#8c8c8c", fontSize: 11 },
-        axisPointer: { show: true },
+        gridIndex: 0,
+        axisLine: { lineStyle: { color: gridColor } },
+        axisTick: { lineStyle: { color: gridColor } },
+        axisLabel: { color: textColor, fontSize: 11 },
+        splitLine: { show: false },
+        axisPointer: { z: 100 },
       },
       {
         type: "category",
-        gridIndex: 1,
         data: roundLabels,
-        axisLine: { show: false },
+        gridIndex: 1,
+        axisLine: { lineStyle: { color: gridColor } },
+        axisTick: { lineStyle: { color: gridColor } },
         axisLabel: { show: false },
+        splitLine: { show: false },
       },
     ],
     yAxis: [
       {
         scale: true,
-        splitLine: { lineStyle: { color: "#f0f0f0" } },
-        axisLabel: { color: "#8c8c8c", fontSize: 11 },
+        gridIndex: 0,
         position: "right",
+        axisLine: { lineStyle: { color: gridColor } },
+        axisTick: { lineStyle: { color: gridColor } },
+        axisLabel: { color: textColor, fontSize: 11, formatter: (v: number) => v.toFixed(2) },
+        splitLine: { lineStyle: { color: gridColor, type: "dashed" } },
       },
       {
-        gridIndex: 1,
         scale: true,
+        gridIndex: 1,
+        position: "right",
+        axisLine: { show: false },
+        axisTick: { show: false },
         axisLabel: { show: false },
         splitLine: { show: false },
       },
     ],
-    // 缩放与拖拽：inside 类型支持鼠标滚轮缩放 + 拖拽平移
     dataZoom: [
       {
         type: "inside",
         xAxisIndex: [0, 1],
         start: defaultStart,
         end: 100,
-        minValueSpan: 5, // 最少显示 5 根 K 线
-        zoomOnMouseWheel: true, // 滚轮缩放
-        moveOnMouseMove: true, // 鼠标移动时平移（按住 Shift 时）
-        moveOnMouseWheel: false, // 滚轮不平移（仅缩放）
+        minValueSpan: 5,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: false,
       },
       {
         type: "slider",
         xAxisIndex: [0, 1],
         start: defaultStart,
         end: 100,
-        height: 20,
-        bottom: 4,
+        height: 18,
+        bottom: 6,
         borderColor: "transparent",
-        backgroundColor: "#f5f6f8",
-        fillerColor: "rgba(45, 106, 159, 0.15)",
-        handleStyle: { color: "#2D6A9F", borderColor: "#2D6A9F" },
-        textStyle: { color: "#8c8c8c", fontSize: 11 },
+        backgroundColor: "#16162a",
+        fillerColor: "rgba(100, 100, 180, 0.2)",
+        handleStyle: { color: "#4a4a6a", borderColor: "#4a4a6a" },
+        textStyle: { color: textColor, fontSize: 10 },
         dataBackground: {
-          lineStyle: { color: "#c0c4cc" },
-          areaStyle: { color: "#eef1f6" },
+          lineStyle: { color: "#3a3a4e", opacity: 0.5 },
+          areaStyle: { color: "#2a2a3e", opacity: 0.3 },
+        },
+        selectedDataBackground: {
+          lineStyle: { color: "#4a4a6a" },
+          areaStyle: { color: "#2a2a3e" },
         },
       },
     ],
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: "cross", crossStyle: { color: "#c0c4cc" } },
+      axisPointer: {
+        type: "cross",
+        lineStyle: { color: "#555", type: "dashed" },
+        crossStyle: { color: "#555" },
+      },
+      backgroundColor: "rgba(30, 30, 50, 0.95)",
+      borderColor: "#3a3a4e",
+      textStyle: { color: "#e0e0e0", fontSize: 12 },
       formatter: (params: any) => {
         if (!params || !params.length) return "";
-        let html = `<div style="font-weight:600;margin-bottom:4px">${params[0].axisValue}</div>`;
+        const round = params[0].axisValue;
+        let html = `<div style="font-weight:600;margin-bottom:6px;color:#fff">${round}</div>`;
         for (const p of params) {
           if (p.seriesType !== "candlestick") continue;
           const v = p.value || [];
-          // echarts 蜡烛图 value 为 [open, close, low, high]（个别版本带前导索引）
           const [o, c, l, h] = v.length >= 5 ? [v[1], v[2], v[3], v[4]] : [v[0], v[1], v[2], v[3]];
           const isUp = c >= o;
-          const color = isUp ? "#ec0000" : "#00a800";
-          html += `<div style="color:${color}">开盘 ¥${fmt(o)}　收盘 ¥${fmt(c)}</div>`;
-          html += `<div style="color:${color}">最低 ¥${fmt(l)}　最高 ¥${fmt(h)}</div>`;
+          const color = isUp ? upColor : downColor;
+          const chg = o !== 0 ? (((c - o) / o) * 100).toFixed(2) : "0.00";
+          html += `<div style="display:flex;justify-content:space-between;gap:16px;"><span style="color:${textColor}">开盘</span><span style="color:${color}">¥${fmt(o)}</span></div>`;
+          html += `<div style="display:flex;justify-content:space-between;gap:16px;"><span style="color:${textColor}">收盘</span><span style="color:${color}">¥${fmt(c)}</span></div>`;
+          html += `<div style="display:flex;justify-content:space-between;gap:16px;"><span style="color:${textColor}">最低</span><span style="color:${downColor}">¥${fmt(l)}</span></div>`;
+          html += `<div style="display:flex;justify-content:space-between;gap:16px;"><span style="color:${textColor}">最高</span><span style="color:${upColor}">¥${fmt(h)}</span></div>`;
+          html += `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:4px;padding-top:4px;border-top:1px solid #3a3a4e;"><span style="color:${textColor}">涨跌</span><span style="color:${color}">${isUp ? "+" : ""}${chg}%</span></div>`;
+        }
+        // MA 值
+        const idx = roundLabels.indexOf(round);
+        if (idx >= 0) {
+          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #3a3a4e;">`;
+          if (ma5[idx] != null) html += `<div style="color:#f5a623;font-size:11px;">MA5: ¥${fmt(ma5[idx])}</div>`;
+          if (ma10[idx] != null) html += `<div style="color:#4b83c1;font-size:11px;">MA10: ¥${fmt(ma10[idx])}</div>`;
+          if (ma20[idx] != null) html += `<div style="color:#e5484d;font-size:11px;">MA20: ¥${fmt(ma20[idx])}</div>`;
+          html += `</div>`;
         }
         return html;
       },
     },
     series: [
+      // K 线（蜡烛图）
       {
+        name: "K线",
         type: "candlestick",
-        data,
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: ohlc,
         itemStyle: {
-          color: "#ec0000",       // 涨：红填充
-          color0: "#00a800",      // 跌：绿填充
-          borderColor: "#ec0000",
-          borderColor0: "#00a800",
+          color: upColor,         // 涨：红填充
+          color0: downColor,      // 跌：绿填充
+          borderColor: upColor,
+          borderColor0: downColor,
         },
-        barMaxWidth: 20,
+        barMaxWidth: 16,
+        barMinWidth: 4,
       },
+      // MA5
       {
+        name: "MA5",
         type: "line",
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: ma5,
+        showSymbol: false,
+        lineStyle: { color: "#f5a623", width: 1 },
+        smooth: true,
+      },
+      // MA10
+      {
+        name: "MA10",
+        type: "line",
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: ma10,
+        showSymbol: false,
+        lineStyle: { color: "#4b83c1", width: 1 },
+        smooth: true,
+      },
+      // MA20
+      {
+        name: "MA20",
+        type: "line",
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: ma20,
+        showSymbol: false,
+        lineStyle: { color: "#e5484d", width: 1 },
+        smooth: true,
+      },
+      // 成交量（柱状图，涨红跌绿）
+      {
+        name: "成交量",
+        type: "bar",
         xAxisIndex: 1,
         yAxisIndex: 1,
-        data: vol,
-        showSymbol: false,
-        lineStyle: { color: "#8a8f99", width: 1 },
-        areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#eef1f6" }, { offset: 1, color: "rgba(238,241,246,0)" }] } },
+        data: volumes.map((v) => ({
+          value: v.volume,
+          itemStyle: { color: v.isUp ? upColor : downColor, opacity: 0.7 },
+        })),
+        barMaxWidth: 16,
+        barMinWidth: 4,
       },
     ],
   });
@@ -611,23 +729,58 @@ onUnmounted(() => {
 }
 .chart-card {
   position: relative;
+  overflow: hidden;
+  border-radius: 8px;
 }
+.chart-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.chart-code {
+  color: var(--color-text-tertiary, #92969e);
+  font-size: 12px;
+}
+.chart-price {
+  font-weight: 700;
+  font-size: 16px;
+  margin-left: 8px;
+}
+.chart-change {
+  font-weight: 600;
+  font-size: 13px;
+}
+.chart-ma-legend {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
+.ma-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.ma-tag.ma5 { color: #f5a623; background: rgba(245, 166, 35, 0.1); }
+.ma-tag.ma10 { color: #4b83c1; background: rgba(75, 131, 193, 0.1); }
+.ma-tag.ma20 { color: #e5484d; background: rgba(229, 72, 77, 0.1); }
 .kline-chart {
-  height: 420px;
+  height: 480px;
   width: 100%;
-  cursor: grab;
-}
-.kline-chart:active {
-  cursor: grabbing;
+  cursor: crosshair;
+  border-radius: 0 0 8px 8px;
 }
 .chart-empty {
-  height: 420px;
+  height: 480px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: var(--color-text-tertiary, #92969e);
+  background: #1a1a2e;
+  border-radius: 0 0 8px 8px;
+  color: #8a8a9a;
 }
 .chart-empty-icon {
   opacity: 0.45;
@@ -639,8 +792,10 @@ onUnmounted(() => {
 .chart-hint {
   text-align: center;
   font-size: 11px;
-  color: var(--color-text-tertiary, #92969e);
-  padding: 4px 0 8px;
+  color: #6a6a7a;
+  padding: 6px 0;
+  background: #1a1a2e;
+  border-radius: 0 0 8px 8px;
   user-select: none;
 }
 .market-side {
