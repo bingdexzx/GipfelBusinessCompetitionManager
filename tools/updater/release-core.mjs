@@ -21,7 +21,7 @@
  * 返回：
  *   { ok, current, version, changes:[{file,type,label,preview?}], wrote, committed, commitError?, error? }
  */
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -38,6 +38,37 @@ const SEMVER = /^\d+\.\d+\.\d+$/;
 export function getCurrentVersion() {
   const clientPkg = JSON.parse(readFileSync(CLIENT_PKG, "utf8"));
   return clientPkg.version;
+}
+
+/** 备份文件（写入前调用，失败时可恢复）。备份文件名加 .bak 后缀。 */
+function backupFile(filePath) {
+  if (existsSync(filePath)) {
+    copyFileSync(filePath, filePath + ".bak");
+  }
+}
+
+/** 恢复备份文件（写入失败时调用）。 */
+function restoreFile(filePath) {
+  const bakPath = filePath + ".bak";
+  if (existsSync(bakPath)) {
+    copyFileSync(bakPath, filePath);
+  }
+}
+
+/** 清理备份文件（写入成功后调用）。 */
+function cleanupBackups(files) {
+  for (const f of files) {
+    const bakPath = f + ".bak";
+    if (existsSync(bakPath)) {
+      try { writeFileSync(bakPath, ""); } catch { /* 忽略 */ }
+    }
+  }
+}
+
+/** 校验 announcement.ts 文件格式是否正确（检查标记是否存在）。 */
+function validateAnnouncementFormat(content) {
+  const marker = "export const announcements: Announcement[] = [";
+  return content.includes(marker);
 }
 
 function escapeHtml(s) {
@@ -213,6 +244,10 @@ export async function runRelease(input = {}) {
   let annContent;
   if (!opts.noAnnouncement) {
     annContent = readFileSync(ANNOUNCEMENT, "utf8");
+    // 校验 announcement.ts 格式，避免写入后破坏语法
+    if (!validateAnnouncementFormat(annContent)) {
+      return { ok: false, current, error: "announcement.ts 格式异常：未找到 announcements 数组标记，无法写入。请检查文件。" };
+    }
     const entry = buildEntry(opts.version, opts.title, opts.date, htmlLines);
     annContent = insertAnnouncement(annContent, entry);
     changes.push({
@@ -241,17 +276,30 @@ export async function runRelease(input = {}) {
   let commitError = undefined;
 
   if (!opts.dryRun) {
-    for (const c of changes) {
-      if (c.type === "package") {
-        if (c.file === CLIENT_PKG) writeJson(CLIENT_PKG, clientPkg);
-        else writeJson(SERVER_PKG, serverPkg);
-      } else if (c.type === "announcement") {
-        writeFileSync(ANNOUNCEMENT, annContent, "utf8");
-      } else if (c.type === "changelog") {
-        writeFileSync(CHANGELOG, clContent, "utf8");
+    // 写入前备份所有待修改文件
+    const filesToWrite = changes.map((c) => c.file);
+    for (const f of filesToWrite) backupFile(f);
+
+    try {
+      for (const c of changes) {
+        if (c.type === "package") {
+          if (c.file === CLIENT_PKG) writeJson(CLIENT_PKG, clientPkg);
+          else writeJson(SERVER_PKG, serverPkg);
+        } else if (c.type === "announcement") {
+          writeFileSync(ANNOUNCEMENT, annContent, "utf8");
+        } else if (c.type === "changelog") {
+          writeFileSync(CHANGELOG, clContent, "utf8");
+        }
       }
+      wrote = true;
+      // 写入成功，清理备份文件
+      cleanupBackups(filesToWrite);
+    } catch (e) {
+      // 写入失败，恢复备份
+      for (const f of filesToWrite) restoreFile(f);
+      cleanupBackups(filesToWrite);
+      return { ok: false, current, error: `写入文件失败: ${e.message}，已恢复备份。` };
     }
-    wrote = true;
 
     if (opts.commit) {
       try {

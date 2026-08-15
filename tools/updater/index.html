@@ -179,6 +179,14 @@
       .meta { color: var(--sub); margin: 2px 0 12px; }
       .meta b { color: var(--text); }
       .empty { color: var(--sub); }
+      .bump-btn {
+        border: 1px solid var(--border); background: #fff; color: var(--text);
+        border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+        font-family: inherit; transition: .12s; margin-right: 6px;
+      }
+      .bump-btn:hover { border-color: var(--primary); color: var(--primary); }
+      .notes-preview :deep(ul) { margin: 4px 0; padding-left: 20px; }
+      .notes-preview :deep(li) { margin: 2px 0; }
     </style>
   </head>
   <body>
@@ -193,6 +201,12 @@
           <div class="field">
             <label>新版本号 <span class="hint" id="verHint">x.y.z</span></label>
             <input type="text" id="version" placeholder="例如 1.1.0" />
+            <div class="ver-bump" id="verBump" style="display:none; margin-top:6px;">
+              <span class="hint" style="margin-right:8px;">快速选择：</span>
+              <button type="button" class="bump-btn" id="bumpPatch" title="补丁版本（修复）">Patch</button>
+              <button type="button" class="bump-btn" id="bumpMinor" title="次版本（新功能）">Minor</button>
+              <button type="button" class="bump-btn" id="bumpMajor" title="主版本（重大变更）">Major</button>
+            </div>
           </div>
           <div class="field">
             <label>发布日期</label>
@@ -205,6 +219,11 @@
           <div class="field full">
             <label>更新要点 <span class="hint">每行一条；以「- 」开头会自动转为列表项</span></label>
             <textarea id="notes" placeholder="修复地图节点加载偶发失败&#10;- 优化仪表盘加载速度&#10;- 新增批量导出合同"></textarea>
+            <div id="notesPreview" class="notes-preview" style="display:none; margin-top:8px; padding:12px; background:var(--code-bg); border-radius:6px; font-size:12.5px; line-height:1.6; max-height:200px; overflow-y:auto;"></div>
+            <div id="commitSuggestions" style="display:none; margin-top:8px;">
+              <div style="font-size:12px; color:var(--sub); margin-bottom:6px;">从最近提交导入（点击添加）：</div>
+              <div id="commitList" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+            </div>
           </div>
         </div>
 
@@ -232,6 +251,9 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
 
       function todayISO() {
         const d = new Date();
@@ -379,12 +401,90 @@
         };
         syncDate();
         setInterval(syncDate, 60 * 1000);
+
+        // 版本号自动建议
+        let currentVersion = "0.0.0";
+        function bumpVersion(ver, level) {
+          const parts = ver.split(".").map(Number);
+          if (level === "major") { parts[0]++; parts[1] = 0; parts[2] = 0; }
+          else if (level === "minor") { parts[1]++; parts[2] = 0; }
+          else { parts[2]++; }
+          return parts.join(".");
+        }
+        function updateBumpButtons() {
+          const v = $("version").value.trim();
+          if (!v || !/^\d+\.\d+\.\d+$/.test(v)) {
+            $("bumpPatch").textContent = "Patch";
+            $("bumpMinor").textContent = "Minor";
+            $("bumpMajor").textContent = "Major";
+            return;
+          }
+          $("bumpPatch").textContent = bumpVersion(v, "patch");
+          $("bumpMinor").textContent = bumpVersion(v, "minor");
+          $("bumpMajor").textContent = bumpVersion(v, "major");
+        }
+        $("bumpPatch").addEventListener("click", () => { $("version").value = bumpVersion($("version").value.trim() || currentVersion, "patch"); updateBumpButtons(); });
+        $("bumpMinor").addEventListener("click", () => { $("version").value = bumpVersion($("version").value.trim() || currentVersion, "minor"); updateBumpButtons(); });
+        $("bumpMajor").addEventListener("click", () => { $("version").value = bumpVersion($("version").value.trim() || currentVersion, "major"); updateBumpButtons(); });
+        $("version").addEventListener("input", updateBumpButtons);
+
+        // 笔记预览
+        let previewTimer = null;
+        function renderNotesPreview() {
+          const raw = $("notes").value.trim();
+          if (!raw) { $("notesPreview").style.display = "none"; return; }
+          $("notesPreview").style.display = "block";
+          const lines = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+          let html = "";
+          let inList = false;
+          for (const line of lines) {
+            const m = line.match(/^[-*]\s+(.*)$/);
+            if (m) {
+              if (!inList) { html += "<ul>"; inList = true; }
+              html += `<li>${escapeHtml(m[1])}</li>`;
+            } else {
+              if (inList) { html += "</ul>"; inList = false; }
+              html += `<p>${escapeHtml(line)}</p>`;
+            }
+          }
+          if (inList) html += "</ul>";
+          $("notesPreview").innerHTML = html;
+        }
+        $("notes").addEventListener("input", () => {
+          clearTimeout(previewTimer);
+          previewTimer = setTimeout(renderNotesPreview, 300);
+        });
+
         fetch("/api/info")
           .then((r) => r.json())
           .then((d) => {
-            $("verHint").textContent = "当前 " + (d.currentVersion || "?") + " · 须更大";
+            currentVersion = d.currentVersion || "0.0.0";
+            $("verHint").textContent = "当前 " + currentVersion + " · 须更大";
+            $("verBump").style.display = "flex";
+            updateBumpButtons();
             // 优先采用服务端（发布实际执行环境）的系统日期，避免浏览器时区偏差。
             if (d.today) syncDate(d.today);
+            // 显示最近提交建议
+            if (d.recentCommits && d.recentCommits.length > 0) {
+              $("commitSuggestions").style.display = "block";
+              const list = $("commitList");
+              list.innerHTML = "";
+              for (const c of d.recentCommits) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "bump-btn";
+                btn.textContent = c.message.length > 40 ? c.message.substring(0, 40) + "…" : c.message;
+                btn.title = c.hash + " " + c.message;
+                btn.style.cssText = "font-size:11px; padding:3px 8px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left;";
+                btn.addEventListener("click", () => {
+                  const ta = $("notes");
+                  const prefix = ta.value && !ta.value.endsWith("\n") ? "\n" : "";
+                  ta.value += prefix + "- " + c.message;
+                  ta.dispatchEvent(new Event("input")); // 触发预览更新
+                });
+                list.appendChild(btn);
+              }
+            }
           })
           .catch(() => {});
         $("btnPreview").addEventListener("click", () => doAction(true));

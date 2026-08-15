@@ -17,9 +17,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { execSync } from "node:child_process";
 import { getCurrentVersion, runRelease, todayStr } from "./release-core.mjs";
+import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = resolve(__dirname, "index.html");
+const ROOT = resolve(__dirname, "..", "..");
 
 function parseArgs(argv) {
   const opts = { port: 7788, open: true };
@@ -73,7 +75,16 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/info") {
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
       // today：服务端（发布实际执行环境）的系统日期，供前端日期选择自动同步，避免浏览器时区偏差。
-      res.end(JSON.stringify({ currentVersion: getCurrentVersion(), today: todayStr() }));
+      // recentCommits：最近 20 条提交记录，供前端自动建议更新要点。
+      let recentCommits = [];
+      try {
+        const log = execFileSync("git", ["log", "--oneline", "-20", "--no-merges"], { cwd: ROOT, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+        recentCommits = log.trim().split("\n").filter(Boolean).map((line) => {
+          const m = line.match(/^([a-f0-9]+)\s+(.*)$/);
+          return m ? { hash: m[1], message: m[2] } : { hash: "", message: line };
+        });
+      } catch { /* git 不可用时忽略 */ }
+      res.end(JSON.stringify({ currentVersion: getCurrentVersion(), today: todayStr(), recentCommits }));
       return;
     }
 
