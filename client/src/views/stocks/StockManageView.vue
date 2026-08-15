@@ -18,23 +18,23 @@
       </template>
       <el-table :data="stocks" size="small" v-loading="loadingStocks">
         <el-table-column prop="code" label="代码" width="90" />
-        <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
-        <el-table-column label="当前价" width="90" align="right">
+        <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column label="当前价" min-width="95" align="right">
           <template #default="{ row }">{{ fmt(row.currentPrice) }}</template>
         </el-table-column>
-        <el-table-column label="初始价" width="90" align="right">
+        <el-table-column label="初始价" min-width="95" align="right">
           <template #default="{ row }">{{ fmt(row.initPrice) }}</template>
         </el-table-column>
         <el-table-column prop="round" label="轮次" width="64" align="center" />
-        <el-table-column prop="totalShares" label="总股本(万)" width="90" align="right" />
-        <el-table-column prop="industryPE" label="行业PB" width="72" align="right" />
-        <el-table-column label="幸福度" width="92" align="right">
+        <el-table-column prop="totalShares" label="总股本(万)" min-width="100" align="right" />
+        <el-table-column prop="industryPE" label="行业PB" min-width="85" align="right" />
+        <el-table-column label="幸福度" min-width="95" align="right">
           <template #default="{ row }">
             <span>{{ fmt(row.effectiveHappiness ?? row.happiness) }}</span>
             <el-tag v-if="row.happinessFieldRef" size="small" type="info" effect="plain" class="bind-tag">绑</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="碳排" width="92" align="right">
+        <el-table-column label="碳排" min-width="95" align="right">
           <template #default="{ row }">
             <span>{{ fmt(row.effectiveCurrentCarbon ?? row.currentCarbon) }}</span>
             <el-tag v-if="row.carbonFieldRef" size="small" type="info" effect="plain" class="bind-tag">绑</el-tag>
