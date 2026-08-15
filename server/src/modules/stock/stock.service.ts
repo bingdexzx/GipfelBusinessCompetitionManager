@@ -564,6 +564,16 @@ export class StockService {
     } else {
       this.assertAccountOperable(account, user);
     }
+    // 委托价限制：不得超过当前价 ±10%（与涨跌幅限制一致）
+    const priceLimit = stock.currentPrice * 0.1;
+    const upperLimit = Math.round((stock.currentPrice + priceLimit) * 100) / 100;
+    const lowerLimit = Math.round((stock.currentPrice - priceLimit) * 100) / 100;
+    if (dto.price > upperLimit + 0.001) {
+      throw new BadRequestException(`委托价不能超过 ¥${upperLimit}（当前价 ¥${stock.currentPrice} 的 +10%）`);
+    }
+    if (dto.price < lowerLimit - 0.001) {
+      throw new BadRequestException(`委托价不能低于 ¥${lowerLimit}（当前价 ¥${stock.currentPrice} 的 -10%）`);
+    }
     if (dto.side === "BUY") {
       const need = dto.price * dto.quantity;
       if (account.cashBalance < need - 1e-6) throw new BadRequestException("现金余额不足");

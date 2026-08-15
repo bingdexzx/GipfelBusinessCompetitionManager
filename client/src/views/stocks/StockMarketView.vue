@@ -96,11 +96,15 @@
             <el-form-item label="委托价（元/股）">
               <el-input-number
                 v-model="trade.price"
-                :min="0.01"
+                :min="priceLimit.lower"
+                :max="priceLimit.upper"
                 :step="0.01"
                 :precision="2"
                 style="width: 100%"
               />
+              <div class="price-hint" v-if="selectedStock">
+                限价范围：¥{{ fmt(priceLimit.lower) }} ~ ¥{{ fmt(priceLimit.upper) }}（±10%）
+              </div>
             </el-form-item>
 
             <el-form-item label="数量（股）">
@@ -258,6 +262,15 @@ const myHoldingShares = computed(() => {
   if (!selectedStockId.value) return 0;
   const h = holdings.value.find((x) => x.stock && x.stock.id === selectedStockId.value);
   return h ? h.shares : 0;
+});
+// 委托价限价范围（当前价 ±10%）
+const priceLimit = computed(() => {
+  const price = selectedStock.value?.currentPrice || 0;
+  const limit = price * 0.1;
+  return {
+    lower: Math.max(0.01, Math.round((price - limit) * 100) / 100),
+    upper: Math.round((price + limit) * 100) / 100,
+  };
 });
 const estAmount = computed(() => Math.round(trade.value.price * trade.value.quantity * 100) / 100);
 const canTrade = computed(() => !!selectedAccountId.value && !!selectedStockId.value && trade.value.price > 0 && trade.value.quantity > 0);
@@ -817,6 +830,11 @@ onUnmounted(() => {
 .muted {
   color: var(--color-text-tertiary, #92969e);
   font-size: 12px;
+}
+.price-hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #92969e);
+  margin-top: 4px;
 }
 .up {
   color: #ec0000;
