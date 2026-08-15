@@ -176,6 +176,7 @@ import { ElMessage } from "element-plus";
 import { stockApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
+import { useResourceChanged } from "@/realtime/useResourceChanged";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
@@ -620,12 +621,25 @@ watch(selectedStock, (val) => {
   }
 });
 
+// 绑定产业字段的资金账户，现金余额实时等于字段值。
+// 公司产业字段被合同 / 财年定时器 / 计算图改写时，刷新账户列表以同步交易面板的现金余额。
+let accountReloadTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleAccountReload() {
+  if (accountReloadTimer) clearTimeout(accountReloadTimer);
+  accountReloadTimer = setTimeout(() => {
+    accountReloadTimer = undefined;
+    reloadAccounts();
+  }, 400);
+}
+useResourceChanged("company-field", scheduleAccountReload);
+
 onMounted(async () => {
   window.addEventListener("resize", onResize);
   await reloadAll();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize);
+  if (accountReloadTimer) clearTimeout(accountReloadTimer);
   if (chart) {
     chart.dispose();
     chart = null;
