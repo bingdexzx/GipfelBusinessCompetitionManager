@@ -1589,7 +1589,7 @@ export function applyFieldEffect(
       }
       return {};
     }
-    return toNumber(currentRaw);
+    return parseStoredFieldValue(currentRaw, fieldType);
   };
 
   const before = parseCurrent();
@@ -1629,11 +1629,18 @@ export function applyFieldEffect(
       Object.entries(after).map(([k, v]) => [k, castScalar(valueType, v)]),
     );
   } else {
-    const nBefore = toNumber(before);
-    const nVal = toNumber(newValue);
-    if (op === "SET") after = nVal;
-    else if (op === "SUB") after = nBefore - nVal;
-    else after = nBefore + nVal;
+    const ft = (fieldType || "STRING").toUpperCase();
+    if (ft === "STRING" || ft === "BOOLEAN") {
+      // 字符串 / 布尔字段（如「所在地」存地图节点名）：保留原始标量，不做数字强制。
+      // ADD/SUB 对字符串 / 布尔无定义，统一退化为 SET（直接取新值）。
+      after = castScalar(ft, newValue);
+    } else {
+      const nBefore = toNumber(before);
+      const nVal = toNumber(newValue);
+      if (op === "SET") after = nVal;
+      else if (op === "SUB") after = nBefore - nVal;
+      else after = nBefore + nVal;
+    }
   }
 
   return { store: JSON.stringify(after), before, after };
@@ -1676,6 +1683,9 @@ function combineValues(v1: any, v2: any, vop: "ADD" | "SUB" | "MUL", fieldType: 
     }
     return { ...a, ...b };
   }
+  const ft = (fieldType || "STRING").toUpperCase();
+  if (ft === "STRING") return v1 == null ? "" : v1;
+  if (ft === "BOOLEAN") return v1 === true || v1 === "true" || v1 === 1 || v1 === "1";
   const a = toNumber(v1);
   const b = toNumber(v2);
   if (vop === "MUL") return a * b;
