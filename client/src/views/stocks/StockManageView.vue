@@ -196,7 +196,7 @@
         <el-form-item v-if="accountForm.ownerType === 'USER'" label="归属用户">
           <span class="muted">{{ authStore.user?.displayName || authStore.user?.username || "我自己" }}</span>
         </el-form-item>
-        <el-form-item v-if="!accountForm.bindFieldId" label="初始现金(元)">
+        <el-form-item v-if="accountForm.ownerType === 'USER' || accountForm.manualCash" label="初始现金(元)">
           <el-input-number v-model="accountForm.cashBalance" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-alert v-if="accountForm.bindFieldId" type="info" :closable="false" title="已绑定产业字段，资金余额将自动同步字段值，交易时直接加减该字段。" />
@@ -406,7 +406,7 @@ const happinessLiveText = computed(() => {
 });
 
 const accountDialogVisible = ref(false);
-const accountForm = ref<any>({ id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null });
+const accountForm = ref<any>({ id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null, manualCash: false });
 
 const scopedCompanies = computed(() => {
   if (canManage.value) return companies.value;
@@ -431,25 +431,35 @@ function onAccountTypeChange() {
   accountForm.value.companyId = null;
   accountForm.value.bindFieldId = null;
   accountForm.value._bindFieldValue = null;
+  // 个人账户显示手工初始现金；公司账户默认隐藏（现金须由绑定字段驱动）
+  accountForm.value.manualCash = accountForm.value.ownerType !== "COMPANY";
 }
 function onAccountCompanyChange() {
   accountForm.value.bindFieldId = null;
   accountForm.value._bindFieldValue = null;
+  // 选定归属公司后隐藏手动初始现金，强制先绑定产业字段（选「不绑定」可恢复）
+  accountForm.value.manualCash = false;
 }
-async function onAccountFieldChange() {
-  if (!accountForm.value.bindFieldId || !accountForm.value.companyId) {
+async function onAccountFieldChange(val?: number | null) {
+  const fieldId = val ?? accountForm.value.bindFieldId;
+  if (!fieldId || !accountForm.value.companyId) {
+    // 选择「不绑定（手动输入）」：恢复手工初始现金
+    accountForm.value.bindFieldId = null;
     accountForm.value._bindFieldValue = null;
+    accountForm.value.manualCash = true;
     return;
   }
+  accountForm.value.bindFieldId = fieldId;
+  accountForm.value.manualCash = false;
   // 获取字段当前值
   try {
     const res = await stockApi.pbSources(compStore.competitionId!);
     const company = res.companies?.find((c: any) => c.id === accountForm.value.companyId);
-    const field = company?.fields?.find((f: any) => f.id === accountForm.value.bindFieldId);
+    const field = company?.fields?.find((f: any) => f.id === fieldId);
     if (field) {
       // 需要获取字段的实际值，通过查询公司字段值
       const fieldValues = await companiesApi.getFieldValues(accountForm.value.companyId);
-      const fieldValue = fieldValues.find((fv: any) => fv.industryFieldId === accountForm.value.bindFieldId);
+      const fieldValue = fieldValues.find((fv: any) => fv.industryFieldId === fieldId);
       accountForm.value._bindFieldValue = fieldValue?.value != null ? Number(fieldValue.value) : null;
       if (accountForm.value._bindFieldValue != null) {
         accountForm.value.cashBalance = accountForm.value._bindFieldValue;
@@ -558,8 +568,8 @@ async function removeStock(row: any) {
 
 function openAccountDialog(row?: any) {
   accountForm.value = row
-    ? { ...row, cashBalance: row.cashBalance, bindFieldId: row.bindFieldId || null, _bindFieldValue: null }
-    : { id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null, _bindFieldValue: null };
+    ? { ...row, cashBalance: row.cashBalance, bindFieldId: row.bindFieldId || null, _bindFieldValue: null, manualCash: row.bindFieldId ? false : true }
+    : { id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null, _bindFieldValue: null, manualCash: false };
   // 加载公司字段数据
   if (!pbCompanies.value.length) loadPbSources();
   accountDialogVisible.value = true;
