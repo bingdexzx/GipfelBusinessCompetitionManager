@@ -127,8 +127,18 @@ export class FilesService {
   private deleteFileSafe(filename: string | undefined) {
     if (!filename) return;
     try {
+      // 安全校验：防止路径遍历攻击
+      // 1. 只允许文件名，不允许路径分隔符
+      if (filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+        return;
+      }
       const p = path.join(UPLOAD_DIR, filename);
-      if (fs.existsSync(p)) fs.unlinkSync(p);
+      // 2. 确保解析后的路径确实在 UPLOAD_DIR 内
+      const resolved = path.resolve(p);
+      if (!resolved.startsWith(path.resolve(UPLOAD_DIR))) {
+        return;
+      }
+      if (fs.existsSync(resolved)) fs.unlinkSync(resolved);
     } catch {
       /* 文件删除失败不影响主流程 */
     }

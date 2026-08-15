@@ -145,8 +145,12 @@ function insertAnnouncement(content, entry) {
 }
 
 function buildEntry(version, title, date, htmlLines) {
-  // 转义模板字面量中的特殊字符：反引号和 ${ 插值，防止 announcement.ts 语法错误
-  const inner = htmlLines.join("\n").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+  // 转义模板字面量中的特殊字符：反斜杠、反引号和 ${ 插值，防止 announcement.ts 语法错误
+  const inner = htmlLines
+    .join("\n")
+    .replace(/\\/g, "\\\\")  // 先转义反斜杠（必须在其他转义之前）
+    .replace(/`/g, "\\`")
+    .replace(/\$\{/g, "\\${");
   return (
     "  {\n" +
     `    version: ${JSON.stringify(version)},\n` +
