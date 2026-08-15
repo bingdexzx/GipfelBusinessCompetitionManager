@@ -84,6 +84,22 @@ export class CreateIndustryFieldDto {
   @IsOptional()
   @IsBoolean()
   visible?: boolean;
+
+  // 财年定时器：启用后于财年「开始(FY_START) / 结束(FY_END)」时自动把该字段写为 timerValue。
+  // 不可与计算字段(isCalculated=true)同时启用。
+  @IsOptional()
+  @IsBoolean()
+  timerEnabled?: boolean;
+
+  // 触发时机：仅当 timerEnabled=true 时必填，取值 FY_START / FY_END
+  @IsOptional()
+  @IsIn(["FY_START", "FY_END"])
+  timerTrigger?: string;
+
+  // 触发后写入的设定值（按字段类型序列化的原始字符串；DICTIONARY/LIST 为 JSON 文本）。timerEnabled=true 时必填。
+  @IsOptional()
+  @IsString()
+  timerValue?: string;
 }
 
 export class UpdateIndustryFieldDto {
@@ -128,4 +144,20 @@ export class UpdateIndustryFieldDto {
   @IsOptional()
   @IsBoolean()
   visible?: boolean;
+
+  // 财年定时器：启用后于财年「开始(FY_START) / 结束(FY_END)」时自动把该字段写为 timerValue。
+  // 不可与计算字段(isCalculated=true)同时启用。
+  @IsOptional()
+  @IsBoolean()
+  timerEnabled?: boolean;
+
+  // 触发时机：仅当 timerEnabled=true 时必填，取值 FY_START / FY_END
+  @IsOptional()
+  @IsIn(["FY_START", "FY_END"])
+  timerTrigger?: string;
+
+  // 触发后写入的设定值（按字段类型序列化的原始字符串；DICTIONARY/LIST 为 JSON 文本）。timerEnabled=true 时必填。
+  @IsOptional()
+  @IsString()
+  timerValue?: string;
 }

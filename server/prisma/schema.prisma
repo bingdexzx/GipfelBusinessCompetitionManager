@@ -387,6 +387,13 @@ model IndustryField {
   // 字段是否在前台展示：false 时该字段不出现在公司管理 / 区域总览字段选择 / 合同编辑器字段目标等任何客户端展示中；
   // 仅为展示层开关，合同引擎仍按 fieldKey 正常读写其 CompanyFieldValue。
   visible        Boolean              @default(true)
+  // 财年定时器：启用后，于财年「开始(FY_START) / 结束(FY_END)」时自动把该字段写为 timerValue（按字段类型序列化）。
+  // 定时器字段为普通字段，不可与计算字段(isCalculated)同时启用——计算字段写入后会被级联重算覆盖，定时器失去意义。
+  // 触发由 FiscalYear.status 切换驱动：新建财年(默认 ACTIVE) 或 status 由非 ACTIVE→ACTIVE 视为 FY_START；
+  // status 由非 CLOSED→CLOSED 视为 FY_END。作用范围：该产业类型的全部公司（按比赛收敛）。
+  timerEnabled  Boolean              @default(false) // 是否启用财年定时器
+  timerTrigger  String?              // 触发时机：FY_START（财年开始）/ FY_END（财年结束）
+  timerValue    String?              // 触发后写入的设定值（按字段类型序列化前的原始字符串；DICTIONARY/LIST 为 JSON）
   industryType   IndustryType         @relation(fields: [industryTypeId], references: [id], onDelete: Cascade)
   fieldValues    CompanyFieldValue[]
   createdAt      DateTime             @default(now())

@@ -1,14 +1,17 @@
-import { Injectable, NotFoundException, ConflictException } from "@nestjs/common";
+import { Injectable, NotFoundException, ConflictException, Logger } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateCompetitionDto, UpdateCompetitionDto } from "./dto/competition.dto";
 import { RealtimeService } from "../../realtime/realtime.service";
+import { CompanyFieldsService } from "../company-fields/company-fields.service";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
 
 @Injectable()
 export class CompetitionService {
+  private readonly logger = new Logger(CompetitionService.name);
   constructor(
     private prisma: PrismaService,
     private realtime: RealtimeService,
+    private companyFields: CompanyFieldsService,
   ) {}
 
   async findAll(updatedAfter?: string, requireExistingIds = false) {
@@ -86,13 +89,33 @@ export class CompetitionService {
       where: { competitionId_year: { competitionId, year: dto.year } },
     });
     if (existing) throw new ConflictException("该财年已存在");
-    return this.prisma.fiscalYear.create({ data: { competitionId, year: dto.year } });
+    const created = await this.prisma.fiscalYear.create({ data: { competitionId, year: dto.year } });
+    // 新建财年默认 ACTIVE，即视为「财年开始(FY_START)」，触发相关产业字段定时器
+    try {
+      await this.companyFields.applyFiscalYearTimer(competitionId, "FY_START");
+    } catch (err: any) {
+      this.logger.warn(`新建财年 #${created.id} 定时器执行失败：${err?.message || err}`);
+    }
+    return created;
   }
 
   async updateFiscalYear(id: number, dto: { status?: string }) {
     const fy = await this.prisma.fiscalYear.findUnique({ where: { id } });
     if (!fy) throw new NotFoundException("财年不存在");
+    const prevStatus = fy.status;
     const updated = await this.prisma.fiscalYear.update({ where: { id }, data: dto });
+    // 由状态切换推导财年定时器触发时机：非 ACTIVE→ACTIVE 视为 FY_START；非 CLOSED→CLOSED 视为 FY_END。
+    // 状态未跨上述边界（如 ACTIVE→ACTIVE/CLOSED→CLOSED，或 ACTIVE→CLOSED 之外的其它情形）则不触发。
+    let trigger: "FY_START" | "FY_END" | null = null;
+    if (prevStatus !== "ACTIVE" && updated.status === "ACTIVE") trigger = "FY_START";
+    else if (prevStatus !== "CLOSED" && updated.status === "CLOSED") trigger = "FY_END";
+    if (trigger) {
+      try {
+        await this.companyFields.applyFiscalYearTimer(updated.competitionId, trigger);
+      } catch (err: any) {
+        this.logger.warn(`财年 #${id} 定时器执行失败：${err?.message || err}`);
+      }
+    }
     // 强时效：财年开始/关闭后实时广播给该比赛所有前端，使其即刻同步
     this.realtime.broadcastToCompetition(updated.competitionId, "fiscal-year:changed", {
       competitionId: updated.competitionId,

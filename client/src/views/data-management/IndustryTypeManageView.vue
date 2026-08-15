@@ -59,6 +59,14 @@
               <el-table-column label="配置" min-width="200">
                 <template #default="{ row: f }">{{ configSummary(f) }}</template>
               </el-table-column>
+              <el-table-column label="定时器" width="110">
+                <template #default="{ row: f }">
+                  <el-tag v-if="f.timerEnabled" size="small" type="success">
+                    {{ f.timerTrigger === "FY_END" ? "财年末" : "财年初" }}
+                  </el-tag>
+                  <span v-else>—</span>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
         </template>
@@ -139,6 +147,14 @@
         </el-table-column>
         <el-table-column label="配置" min-width="200">
           <template #default="{ row }">{{ configSummary(row) }}</template>
+        </el-table-column>
+        <el-table-column label="定时器" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.timerEnabled" size="small" type="success">
+              {{ row.timerTrigger === "FY_END" ? "财年末" : "财年初" }}
+            </el-tag>
+            <span v-else>—</span>
+          </template>
         </el-table-column>
         <el-table-column prop="sortOrder" label="排序" width="70" />
         <el-table-column label="展示" width="80">
@@ -289,6 +305,61 @@
             </el-form-item>
           </el-col>
         </el-row>
+
+        <!-- 财年定时器：启用后于财年「开始/结束」时自动把该字段写为设定值（作用范围：该产业类型的全部公司） -->
+        <el-row :gutter="12">
+          <el-col :span="24">
+            <el-form-item label="财年定时器">
+              <el-switch
+                v-model="fieldForm.timerEnabled"
+                :disabled="fieldForm.isCalculated"
+              />
+              <span class="hint" v-if="fieldForm.isCalculated"
+                >计算字段不支持定时器（定时器写入值会被级联重算覆盖）</span
+              >
+              <span class="hint" v-else
+                >启用后，在财年「开始 / 结束」时自动把该字段写为下方设定值（作用范围：该产业类型的全部公司）</span
+              >
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row v-if="fieldForm.timerEnabled && !fieldForm.isCalculated" :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="触发时机">
+              <el-select v-model="fieldForm.timerTrigger" style="width: 100%">
+                <el-option label="财年开始 FY_START" value="FY_START" />
+                <el-option label="财年结束 FY_END" value="FY_END" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="16">
+            <el-form-item label="设定值">
+              <el-input
+                v-if="fieldForm.fieldType === 'NUMBER'"
+                v-model="fieldForm.timerValue"
+                placeholder="数值，如 100"
+              />
+              <el-switch
+                v-else-if="fieldForm.fieldType === 'BOOLEAN'"
+                :model-value="fieldForm.timerValue === 'true'"
+                @change="(v: any) => (fieldForm.timerValue = v ? 'true' : 'false')"
+              />
+              <el-input
+                v-else-if="fieldForm.fieldType === 'DICTIONARY' || fieldForm.fieldType === 'LIST'"
+                v-model="fieldForm.timerValue"
+                type="textarea"
+                :rows="2"
+                :placeholder="
+                  fieldForm.fieldType === 'DICTIONARY'
+                    ? 'JSON 对象，如 {\"a\":1,\"b\":2}'
+                    : 'JSON 数组，如 [1,2,3]'
+                "
+              />
+              <el-input v-else v-model="fieldForm.timerValue" placeholder="文本" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
         <el-form-item v-if="fieldForm.isCalculated" label="计算图">
           <div style="width: 100%">
             <el-button type="primary" @click="showGraphFullscreen = true">打开编辑器</el-button>
@@ -429,6 +500,14 @@
         <el-table-column label="配置" min-width="200">
           <template #default="{ row }">{{ configSummary(row) }}</template>
         </el-table-column>
+        <el-table-column label="定时器" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.timerEnabled" size="small" type="success">
+              {{ row.timerTrigger === "FY_END" ? "财年末" : "财年初" }}
+            </el-tag>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="sortOrder" label="排序" width="70" />
         <el-table-column label="展示" width="70">
           <template #default="{ row }">{{ row.visible !== false ? "是" : "否" }}</template>
@@ -455,6 +534,15 @@
         <el-descriptions-item label="计算配置">{{ formulaDisplay(fieldDetailRow) }}</el-descriptions-item>
         <el-descriptions-item label="排序">{{ fieldDetailRow?.sortOrder ?? 0 }}</el-descriptions-item>
         <el-descriptions-item label="前台展示">{{ fieldDetailRow?.visible !== false ? "是" : "否" }}</el-descriptions-item>
+        <el-descriptions-item label="财年定时器">
+          <template v-if="fieldDetailRow?.timerEnabled">
+            <el-tag size="small" type="success">
+              {{ fieldDetailRow?.timerTrigger === "FY_END" ? "财年末触发" : "财年初触发" }}
+            </el-tag>
+            <span style="margin-left: 6px">设定值：{{ fieldDetailRow?.timerValue ?? "—" }}</span>
+          </template>
+          <span v-else>否</span>
+        </el-descriptions-item>
         <el-descriptions-item label="配置摘要">{{ configSummary(fieldDetailRow) }}</el-descriptions-item>
       </el-descriptions>
       <template v-if="fieldDetailRow?.isCalculated">
@@ -504,6 +592,10 @@ const fieldForm = reactive<any>({
   calcGraph: "",
   sortOrder: 0,
   visible: true,
+  // 财年定时器
+  timerEnabled: false,
+  timerTrigger: "FY_START",
+  timerValue: "",
 });
 
 const filteredTypes = computed(() => {
@@ -684,6 +776,9 @@ function resetFieldForm() {
   fieldForm.calcGraph = "";
   fieldForm.sortOrder = 0;
   fieldForm.visible = true;
+  fieldForm.timerEnabled = false;
+  fieldForm.timerTrigger = "FY_START";
+  fieldForm.timerValue = "";
 }
 
 async function openFields(row: any) {
@@ -717,6 +812,9 @@ function editField(row: any) {
   fieldForm.calcGraph = row.calcGraph || "";
   fieldForm.sortOrder = row.sortOrder || 0;
   fieldForm.visible = row.visible !== false;
+  fieldForm.timerEnabled = !!row.timerEnabled;
+  fieldForm.timerTrigger = row.timerTrigger || "FY_START";
+  fieldForm.timerValue = row.timerValue || "";
 }
 
 // 计算字段：直接进入全屏蓝图编辑器（左上角设置字段细节，右侧画布组合计算）
@@ -745,6 +843,21 @@ async function submitField() {
   if (fieldForm.isCalculated && !fieldForm.calcGraph?.trim()) {
     ElMessage.warning("计算字段必须配置产业计算图（可视化蓝图）");
     return;
+  }
+  // 财年定时器校验：启用且非计算字段时，必须选择触发时机并填写设定值
+  if (fieldForm.timerEnabled && !fieldForm.isCalculated) {
+    if (!fieldForm.timerTrigger) {
+      ElMessage.warning("请选择财年定时器的触发时机");
+      return;
+    }
+    if (
+      fieldForm.fieldType === "BOOLEAN"
+        ? fieldForm.timerValue !== "true" && fieldForm.timerValue !== "false"
+        : !String(fieldForm.timerValue ?? "").trim()
+    ) {
+      ElMessage.warning("请填写财年定时器触发后写入的设定值");
+      return;
+    }
   }
   // 计算字段：校验产业计算图（恰好一个「输出」节点）
   if (fieldForm.isCalculated) {
@@ -789,6 +902,12 @@ async function submitField() {
       formula: null,
       sortOrder: fieldForm.sortOrder ?? 0,
       visible: fieldForm.visible !== false,
+      // 财年定时器：启用且非计算字段时落库触发时机与设定值；否则清空三列
+      timerEnabled: fieldForm.timerEnabled && !fieldForm.isCalculated,
+      timerTrigger:
+        fieldForm.timerEnabled && !fieldForm.isCalculated ? fieldForm.timerTrigger : null,
+      timerValue:
+        fieldForm.timerEnabled && !fieldForm.isCalculated ? fieldForm.timerValue || null : null,
     };
     if (fieldForm.id) {
       await industryTypesApi.updateField(fieldForm.id, payload);

@@ -91,6 +91,56 @@ function validateFieldConfig(fieldType: string, config: Record<string, any> | un
   }
 }
 
+// 校验财年定时器设定：
+// - 启用时必须给定触发时机(FY_START/FY_END)与设定值；
+// - 设定值按字段类型校验格式（NUMBER 数值 / BOOLEAN true|false / DICTIONARY JSON 对象 / LIST JSON 数组 / STRING 任意）。
+function validateTimerSpec(
+  fieldType: string,
+  trigger: string | undefined,
+  value: string | undefined,
+) {
+  if (!trigger || !["FY_START", "FY_END"].includes(trigger))
+    throw new BadRequestException("财年定时器触发时机必须是 FY_START 或 FY_END");
+  if (value == null || !String(value).trim())
+    throw new BadRequestException("启用财年定时器时必须填写触发后写入的设定值");
+  const v = String(value);
+  switch (fieldType) {
+    case "NUMBER":
+      if (!Number.isFinite(parseFloat(v)))
+        throw new BadRequestException("定时器设定值必须为数值");
+      break;
+    case "BOOLEAN":
+      if (!["true", "false"].includes(v.trim().toLowerCase()))
+        throw new BadRequestException("定时器设定值必须为 true 或 false");
+      break;
+    case "DICTIONARY": {
+      let o: any;
+      try {
+        o = JSON.parse(v);
+      } catch {
+        throw new BadRequestException("字典定时器的设定值必须是合法 JSON 对象");
+      }
+      if (!o || typeof o !== "object" || Array.isArray(o))
+        throw new BadRequestException("字典定时器的设定值必须是 JSON 对象");
+      break;
+    }
+    case "LIST": {
+      let a: any;
+      try {
+        a = JSON.parse(v);
+      } catch {
+        throw new BadRequestException("列表定时器的设定值必须是合法 JSON 数组");
+      }
+      if (!Array.isArray(a))
+        throw new BadRequestException("列表定时器的设定值必须是 JSON 数组");
+      break;
+    }
+    case "STRING":
+    default:
+      break;
+  }
+}
+
 @Injectable()
 export class IndustryTypeService {
   constructor(private prisma: PrismaService) {}
@@ -273,6 +323,13 @@ export class IndustryTypeService {
         throw new BadRequestException("计算字段必须配置产业计算图（可视化蓝图）");
       validateCalcGraph(dto.calcGraph);
     }
+    if (dto.timerEnabled) {
+      if (dto.isCalculated)
+        throw new BadRequestException(
+          "财年定时器字段不可同时设为计算字段（定时器写入值会被级联重算覆盖）",
+        );
+      validateTimerSpec(type, dto.timerTrigger, dto.timerValue);
+    }
   }
 
   async createField(industryTypeId: number, dto: CreateIndustryFieldDto) {
@@ -302,6 +359,10 @@ export class IndustryTypeService {
         formula: null, // 旧公式引擎已废弃，新计算字段一律用 calcGraph
         sortOrder: dto.sortOrder ?? 0,
         visible: dto.visible ?? true,
+        // 财年定时器：仅在启用时落库触发时机与设定值；未启用则三列皆为默认(null/false)
+        timerEnabled: !!dto.timerEnabled,
+        timerTrigger: dto.timerEnabled ? dto.timerTrigger ?? null : null,
+        timerValue: dto.timerEnabled ? dto.timerValue ?? null : null,
       },
     });
   }
@@ -312,6 +373,10 @@ export class IndustryTypeService {
     });
     if (!field) throw new NotFoundException("产业字段不存在");
     this.validateField(dto, field.fieldType);
+
+    // 计算定时器启用的有效值：timerEnabled 未传时沿用已有值，避免部分更新误清空 trigger/value
+    const effTimerEnabled =
+      dto.timerEnabled !== undefined ? dto.timerEnabled : !!field.timerEnabled;
 
     if (dto.fieldKey !== undefined) {
       const fieldKey = dto.fieldKey.trim();
@@ -341,6 +406,13 @@ export class IndustryTypeService {
         ...(dto.formula !== undefined ? { formula: null } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         ...(dto.visible !== undefined ? { visible: dto.visible } : {}),
+        ...(dto.timerEnabled !== undefined ? { timerEnabled: dto.timerEnabled } : {}),
+        ...(dto.timerTrigger !== undefined
+          ? { timerTrigger: effTimerEnabled ? dto.timerTrigger ?? null : null }
+          : {}),
+        ...(dto.timerValue !== undefined
+          ? { timerValue: effTimerEnabled ? dto.timerValue ?? null : null }
+          : {}),
       },
     });
   }

@@ -315,6 +315,92 @@ export class CompanyFieldsService {
   }
 
   /**
+   * 财年定时器触发入口：把本比赛中所有「启用了该触发时机」的产业字段，
+   * 自动写为其配置设定值（按字段类型序列化），覆盖该产业类型下的全部公司，随后级联重算下游计算字段。
+   *
+   * @param competitionId 比赛 id（定时器按比赛收敛：只作用于该比赛下的公司）
+   * @param trigger 触发时机 FY_START（财年开始）/ FY_END（财年结束）
+   *
+   * 设计要点：
+   * - 跨产业类型：先捞出所有 timerEnabled && timerTrigger===trigger 的 IndustryField，按 industryTypeId 分组；
+   *   再取该比赛下对应 industryTypeId 的公司批量写入，避免 N+1。
+   * - 写入值经 serializeFieldValue 序列化，与手动编辑完全一致；DICTIONARY/LIST 的 timerValue 为 JSON 文本。
+   * - 每件公司写完基础字段后调用 recomputeCalculatedFieldsForCompany 级联重算（不广播），随后统一广播
+   *    company-field:changed 让同比赛前端刷新。单字段异常不中断整体（记录日志后跳过）。
+   */
+  async applyFiscalYearTimer(competitionId: number, trigger: "FY_START" | "FY_END") {
+    const timerFields = await this.prisma.industryField.findMany({
+      where: { timerEnabled: true, timerTrigger: trigger },
+    });
+    if (timerFields.length === 0) return;
+
+    // 按 industryTypeId 分组，便于按产业类型批量取公司
+    const byType = new Map<number, any[]>();
+    for (const f of timerFields) {
+      if (!byType.has(f.industryTypeId)) byType.set(f.industryTypeId, []);
+      byType.get(f.industryTypeId)!.push(f);
+    }
+
+    for (const [industryTypeId, fields] of byType) {
+      const companies = await this.prisma.company.findMany({
+        where: { competitionId, industryTypeId },
+        select: { id: true },
+      });
+      for (const c of companies) {
+        const upserts: any[] = [];
+        for (const f of fields) {
+          try {
+            const raw = this.timerRawValue(f);
+            const value = serializeFieldValue(f, raw);
+            upserts.push(
+              this.prisma.companyFieldValue.upsert({
+                where: {
+                  companyId_industryFieldId: { companyId: c.id, industryFieldId: f.id },
+                } as any,
+                create: { companyId: c.id, industryFieldId: f.id, value },
+                update: { value },
+              }),
+            );
+          } catch (err: any) {
+            this.logger.warn(
+              `财年定时器：公司 #${c.id} 字段 #${f.id}(${f.fieldKey}) 写入失败：${err?.message || err}`,
+            );
+          }
+        }
+        if (upserts.length > 0) {
+          await this.prisma.$transaction(upserts);
+        }
+        // 基础字段写完后级联重算下游计算字段（仅重算，不广播）
+        await this.recomputeCalculatedFieldsForCompany(c.id);
+        // 统一广播本次公司字段变更，同比赛前端（公司详情/区域总览）即刻刷新
+        this.realtime.broadcastToCompetition(competitionId, "company-field:changed", {
+          companyId: c.id,
+          competitionId,
+        });
+      }
+    }
+  }
+
+  // 把 IndustryField.timerValue（按字段类型序列化前的原始字符串）还原为 serializeFieldValue 期望的输入形状。
+  private timerRawValue(field: any): any {
+    const v = field.timerValue;
+    switch (field.fieldType) {
+      case "NUMBER":
+        return parseFloat(v);
+      case "BOOLEAN":
+        return String(v).trim().toLowerCase() === "true";
+      case "STRING":
+        return String(v);
+      case "DICTIONARY":
+      case "LIST":
+        // 配置时已由 validateTimerSpec 校验为合法 JSON（对象/数组），此处解析供序列化
+        return JSON.parse(v);
+      default:
+        return v;
+    }
+  }
+
+  /**
    * 级联重算某公司的全部计算字段。
    * @param fields 该公司所属产业类型的全部 IndustryField（含 isCalculated / calcGraph）
    */
