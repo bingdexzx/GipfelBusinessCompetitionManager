@@ -487,10 +487,10 @@ onUnmounted(() => {
   margin-top: 2px;
 }
 .stock-price {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   color: var(--color-text-primary, #303133);
-  margin-top: 6px;
+  margin-top: 8px;
 }
 .stock-change {
   text-align: right;
