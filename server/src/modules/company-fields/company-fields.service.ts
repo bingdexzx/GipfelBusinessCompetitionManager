@@ -141,9 +141,13 @@ export class CompanyFieldsService {
     // includeHidden=true 时返回全部字段（含隐藏）——供「区域总览 → 添加数据框」字段选择使用：
     // 隐藏字段仍可在区域总览被选中并发布（仅公司管理界面不展示），满足「产业类型管理处关闭显示、区域管理仍可选择」的需求。
     const baseFields = company.industryType.fields;
+    // publishedOnly 模式下（受限读用户）：已发布到区域总览的字段不受 visible 限制，
+    // 即 hidden 但 published 的字段仍应可见（保证"隐藏字段仍可发布到区域总览"的设计意图）。
     const visibleFields = includeHidden
       ? baseFields
-      : baseFields.filter((f: any) => f.visible !== false);
+      : publishedOnly
+        ? baseFields.filter((f: any) => f.visible !== false || isPublished(companyId, f.id))
+        : baseFields.filter((f: any) => f.visible !== false);
     const fieldIds = visibleFields.map((f: any) => f.id);
     // 取该公司全部可见字段的当前值（不过滤 updatedAt）：增量模式下需要真实当前值来"重新包含"
     // 因定义变化（可见性开关 / 新建字段 / 改名）而重新出现的字段——这些字段的值本身未必近期变更。

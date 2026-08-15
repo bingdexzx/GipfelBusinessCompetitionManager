@@ -263,11 +263,12 @@ export class IndustryTypeService {
       ...(dto.icon !== undefined ? { icon: dto.icon } : {}),
     };
 
-    return this.prisma.industryType.update({
+    const item = await this.prisma.industryType.update({
       where: { id },
       data,
       include: { fields: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
     });
+    return withParsedFields(item);
   }
 
   async remove(id: number) {

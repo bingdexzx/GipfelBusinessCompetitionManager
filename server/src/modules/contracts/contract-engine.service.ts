@@ -1615,7 +1615,8 @@ export function applyFieldEffect(
         : [newValue];
     if (op === "SET") after = items;
     else if (op === "SUB") after = base.filter((i) => !items.some((x) => deepEqual(x, i)));
-    else after = [...base, ...items];
+    // ADD 时去重，与 applyOp 的 LIST_ADD 行为一致
+    else after = [...base, ...items.filter((item) => !base.some((b) => deepEqual(b, item)))]
     after = after.map((it) => castScalar(itemType, it));
   } else if (isDict) {
     const base: any = before && typeof before === "object" && !Array.isArray(before) ? before : {};
@@ -1791,6 +1792,22 @@ export function compareField(
     case "EQ":
       return { passed: deepEqual(actual, expected), actual, expected, detail: `结构相等比较` };
     default: {
+      // 标量 STRING 字段：使用字典序比较，而非数值比较
+      if (!isList && !isDict && (fieldType || "").toUpperCase() === "STRING") {
+        const a = String(actual ?? "");
+        const b = String(expected ?? "");
+        const ok = (() => {
+          switch (op) {
+            case "GT": return a > b;
+            case "LT": return a < b;
+            case "LTE": return a <= b;
+            case "GTE":
+            default: return a >= b;
+          }
+        })();
+        return { passed: ok, actual: a, expected: b, detail: `"${a}" ${op} "${b}"` };
+      }
+      // LIST/DICTIONARY：按长度比较
       const ok = (() => {
         switch (op) {
           case "GT":
@@ -2068,13 +2085,14 @@ export class ContractEngineService {
       const remaining: any[] = await prisma.contractFieldEffect.findMany({
         where: { companyId, industryFieldId, contractId: { not: contract.id } },
         orderBy: [{ contract: { executedAt: "asc" } }, { id: "asc" }],
-        include: { contract: { select: { executedAt: true } } },
+        include: { contract: { select: { executedAt: true, createdAt: true } } },
       });
 
       // 基线 = 全部效果（含被删合同）中最早者的 beforeRaw
+      // executedAt 为 null 时使用 createdAt 作为排序依据（避免 null 映射为 1970-01-01 导致排序错误）
       const allForField = [
-        ...remaining.map((r) => ({ ex: r.contract?.executedAt ?? null, row: r })),
-        ...deletedRowsForField.map((r) => ({ ex: contract.executedAt ?? null, row: r })),
+        ...remaining.map((r) => ({ ex: r.contract?.executedAt || r.contract?.createdAt || null, row: r })),
+        ...deletedRowsForField.map((r) => ({ ex: contract.executedAt || (contract as any).createdAt || null, row: r })),
       ];
       allForField.sort((a: any, b: any) => {
         const ta = a.ex ? a.ex.getTime() : 0;
