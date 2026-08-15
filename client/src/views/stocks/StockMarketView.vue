@@ -41,8 +41,11 @@
               <span class="muted">（{{ selectedStock?.code || "" }}）</span>
             </span>
           </template>
-          <div ref="chartRef" class="kline-chart" v-loading="loadingCandles"></div>
-          <div v-if="!selectedStock" class="empty-hint">请选择左侧股票查看 K 线</div>
+          <div v-if="selectedStock" ref="chartRef" class="kline-chart" v-loading="loadingCandles"></div>
+          <div v-else class="chart-empty">
+            <el-icon :size="40" class="chart-empty-icon"><TrendCharts /></el-icon>
+            <p class="chart-empty-text">{{ emptyChartText }}</p>
+          </div>
         </el-card>
       </div>
 
@@ -169,7 +172,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import * as echarts from "echarts";
-import { Refresh } from "@element-plus/icons-vue";
+import { Refresh, TrendCharts } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { stockApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
@@ -222,6 +225,9 @@ interface Order {
 const stocks = ref<Stock[]>([]);
 const selectedStockId = ref<number | null>(null);
 const selectedStock = computed(() => stocks.value.find((s) => s.id === selectedStockId.value) || null);
+const emptyChartText = computed(() =>
+  stocks.value.length ? "请选择左侧股票查看 K 线" : "当前比赛暂无股票，请先在「股票管理」中创建",
+);
 const candles = ref<Candle[]>([]);
 const accounts = ref<Account[]>([]);
 const selectedAccountId = ref<number | null>(null);
@@ -312,6 +318,7 @@ async function loadCandles(id: number) {
   try {
     const res = await stockApi.candles(id);
     candles.value = res.candles || [];
+    await nextTick();
     renderChart();
   } finally {
     loadingCandles.value = false;
@@ -395,6 +402,13 @@ async function reloadAll() {
 function onResize() {
   chart?.resize();
 }
+
+watch(selectedStock, (val) => {
+  if (!val) {
+    chart?.dispose();
+    chart = null;
+  }
+});
 
 onMounted(async () => {
   window.addEventListener("resize", onResize);
@@ -497,6 +511,22 @@ onUnmounted(() => {
 .kline-chart {
   height: 360px;
   width: 100%;
+}
+.chart-empty {
+  height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--color-text-tertiary, #92969e);
+}
+.chart-empty-icon {
+  opacity: 0.45;
+}
+.chart-empty-text {
+  margin: 0;
+  font-size: 14px;
 }
 .market-side {
   position: sticky;
