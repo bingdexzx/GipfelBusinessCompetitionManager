@@ -785,8 +785,9 @@ export class StockService {
   }
 
   private async advanceOneStock(stock: any, competitionId: number, fieldMap: Map<string, number | null>) {
+    // 获取所有 PENDING 订单（不限轮次），未成交的订单会保留到下一轮继续撮合
     const orders = await this.prisma.stockOrder.findMany({
-      where: { stockId: stock.id, competitionId, round: stock.round, status: "PENDING" },
+      where: { stockId: stock.id, competitionId, status: "PENDING" },
       orderBy: { createdAt: "asc" },
       include: { fundsAccount: true },
     });
@@ -898,11 +899,23 @@ export class StockService {
           await tx.stockHolding.deleteMany({ where: { fundsAccountId: accId, stockId: stock.id } });
         }
       }
-      // 订单状态
+      // 订单状态：全部成交的设为 FILLED，部分成交的更新剩余数量保持 PENDING，未成交的保持 PENDING
       for (const o of orders) {
         const f = filled.get(o.id) ?? 0;
-        const status = f > EPS ? "FILLED" : "CANCELLED";
-        await tx.stockOrder.update({ where: { id: o.id }, data: { status } });
+        if (f > EPS) {
+          const remaining = o.quantity - f;
+          if (remaining <= EPS) {
+            // 全部成交
+            await tx.stockOrder.update({ where: { id: o.id }, data: { status: "FILLED" } });
+          } else {
+            // 部分成交：更新剩余数量，保持 PENDING
+            await tx.stockOrder.update({
+              where: { id: o.id },
+              data: { quantity: Math.round(remaining * 1e6) / 1e6, amount: Math.round(o.price * remaining * 100) / 100 },
+            });
+          }
+        }
+        // 未成交的订单保持 PENDING 状态，不取消
       }
       // K 线
       await tx.stockCandle.create({ data: { ...candle, stockId: stock.id, competitionId } });
