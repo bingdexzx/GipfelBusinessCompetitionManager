@@ -609,6 +609,22 @@ function parseOrigin(raw: any): string[] {
   }
 }
 
+// 公司字段值统一以 JSON 编码存储（字符串/数字/对象一律 JSON.stringify）。
+// 所在地（location）为 STRING 类型，读回时原值是「节点名的 JSON 字符串」（如 "北京" 存为 "\"北京\""）。
+// 必须解析回普通字符串再与原料 origin 的节点名比较，否则带引号的原值（"北京"）永远匹配不上，
+// 导致「原料清单按参与方所在地过滤」时下拉全部落空、完全不显示原料。
+function parseFieldStringValue(raw: any): string | null {
+  if (raw == null) return null;
+  if (typeof raw !== "string") return String(raw);
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "string") return parsed;
+  } catch {
+    /* 非 JSON，原样返回 */
+  }
+  return raw;
+}
+
 // 公司「所在地」节点名缓存：companyId -> 节点名（或 null 表示未设置/获取失败/未绑定）
 const companyLocationCache = reactive<Record<number, string | null>>({});
 const companyLocationLoading = reactive<Record<number, boolean>>({});
@@ -621,7 +637,7 @@ async function getCompanyLocation(companyId: number): Promise<string | null> {
     const res: any = await companyFieldsApi.get(companyId);
     const fields: any[] = res?.fields || [];
     const loc = fields.find((f: any) => f.fieldKey === "location");
-    companyLocationCache[companyId] = loc?.value ?? null;
+    companyLocationCache[companyId] = parseFieldStringValue(loc?.value ?? null);
     return companyLocationCache[companyId];
   } catch {
     companyLocationCache[companyId] = null;

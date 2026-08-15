@@ -688,7 +688,18 @@ async function resolvePartyLocationNodeId(
   const cfv = await prisma.companyFieldValue.findUnique({
     where: { companyId_industryFieldId: { companyId: party.companyId, industryFieldId: field.id } },
   });
-  const nodeName = cfv?.value;
+  // CompanyFieldValue.value 统一以 JSON 编码存储；所在地字段的值可能是「节点名的 JSON 字符串」
+  // （如 "北京" 存为 "\"北京\""），需解析回普通字符串再匹配 MapNode.name，否则引号导致匹配失败、
+  // 本函数返回 null，进而「按地区取价」地点价缺失、回退为 0。
+  let nodeName: string | null = cfv?.value ?? null;
+  if (nodeName != null) {
+    try {
+      const parsed = JSON.parse(nodeName);
+      if (typeof parsed === "string") nodeName = parsed;
+    } catch {
+      /* 非 JSON，保持原值 */
+    }
+  }
   if (!nodeName) return null;
   const node = await prisma.mapNode.findFirst({
     where: { competitionId: ctx?.competitionId, name: nodeName },
