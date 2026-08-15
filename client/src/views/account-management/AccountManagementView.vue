@@ -24,9 +24,8 @@
             </template>
           </el-table-column>
           <el-table-column prop="createdAt" label="创建时间" />
-          <el-table-column label="操作" width="300" fixed="right">
+          <el-table-column label="操作" width="240" fixed="right">
             <template #default="{ row }">
-              <el-button size="small" @click="openPermDialog(row)">权限</el-button>
               <el-button size="small" @click="handleEdit(row, 'system')">编辑</el-button>
               <el-button size="small" @click="handleResetPassword(row)">重置密码</el-button>
               <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
@@ -63,9 +62,8 @@
               </template>
             </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" />
-            <el-table-column label="操作" width="300" fixed="right">
+            <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" @click="openPermDialog(row)">权限</el-button>
                 <el-button size="small" @click="handleEdit(row, 'competition')">编辑</el-button>
                 <el-button size="small" @click="handleResetPassword(row)">重置密码</el-button>
                 <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
@@ -109,160 +107,23 @@
           超级管理员默认拥有全部权限，无需单独配置。
         </div>
         <template v-else>
-          <div class="perm-toolbar">
-            <el-button size="small" @click="selectAllPerms">全选全部</el-button>
-            <el-button size="small" @click="clearAllPerms">清空全部</el-button>
-            <span class="perm-count">已选 {{ permBuffer.length }} 项</span>
-          </div>
-          <div class="perm-editor">
-            <div v-for="grp in PERMISSION_GROUPS" :key="grp.group" class="perm-group">
-              <div class="perm-group-title">{{ grp.group }}</div>
-              <div v-for="domain in grp.domains" :key="domain.key" class="perm-domain">
-                <el-checkbox
-                  :model-value="isDomainChecked(domain)"
-                  :indeterminate="isDomainIndeterminate(domain)"
-                  class="perm-domain-check"
-                  @change="(v: any) => toggleDomain(domain, !!v)"
-                  >{{ domain.label }}</el-checkbox
-                >
-                <el-checkbox-group v-model="permBuffer" class="perm-actions">
-                  <el-checkbox v-for="act in domain.actions" :key="act.key" :label="act.key">{{
-                    act.label
-                  }}</el-checkbox>
-                </el-checkbox-group>
-              </div>
-            </div>
-          </div>
-          <el-divider content-position="left">合同审核范围（公司）</el-divider>
-          <div class="perm-note" style="margin-bottom: 10px">
-            勾选上方「合同 ·
-            审核（公司范围）」后，在此选择该账号可审核的合同所属公司；仅这些公司的合同可被其审核。该范围与「可查看的公司字段（范围）」「可查看的合同（范围）」相互独立。
-          </div>
-          <el-select
-            v-model="companyScopeBuffer"
-            multiple
-            filterable
-            placeholder="选择可审核的公司"
-            style="width: 100%"
-          >
-            <el-option v-for="c in companyOptions" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-
-          <el-divider content-position="left">可查看的公司字段（范围）</el-divider>
-          <div class="perm-note" style="margin-bottom: 10px">
-            勾选上方「公司 · 查看（读取产业字段等子资源）」后，在此选择该账号可读取<strong>全量字段</strong>的公司；范围外公司只能读「已发布到区域总览」的公开字段。为空
-            = 不限制（全部公司全量可读）。该范围与上方「合同审核范围（公司）」相互独立。
-          </div>
-          <el-select
-            v-model="viewCompanyScopeBuffer"
-            multiple
-            filterable
-            placeholder="选择可查看全量字段的公司"
-            style="width: 100%"
-          >
-            <el-option v-for="c in companyOptions" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-
-          <el-divider content-position="left">可查看的合同（范围）</el-divider>
-          <div class="perm-note" style="margin-bottom: 10px">
-            勾选上方「合同 · 查看」后，在此选择该账号可查看的<strong>合同所涉及的参与方公司</strong>；仅这些公司担任参与方的合同对其可见（任一参与方公司落在范围内即可）。为空
-            = 不限制（可见全部合同）。该范围与上方「合同审核范围（公司）」「可查看的公司字段（范围）」相互独立。
-          </div>
-          <el-select
-            v-model="contractViewCompanyScopeBuffer"
-            multiple
-            filterable
-            placeholder="选择可查看合同的参与方公司"
-            style="width: 100%"
-          >
-            <el-option v-for="c in companyOptions" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
+          <el-form-item :label="companyScopeLabel">
+            <el-select
+              v-model="managedCompanies"
+              multiple
+              filterable
+              :placeholder="companyScopePlaceholder"
+              style="width: 100%"
+            >
+              <el-option v-for="c in companyOptions" :key="c.id" :label="c.name" :value="c.id" />
+            </el-select>
+          </el-form-item>
+          <div class="perm-note">{{ companyScopeHint }}</div>
         </template>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 单独设置权限 -->
-    <el-dialog append-to-body v-model="permOnlyVisible" title="设置账号权限" width="720px">
-      <div v-if="permTargetRole === 'SUPER_ADMIN'" class="perm-note">
-        该账号为超级管理员，默认拥有全部权限，无需单独配置。
-      </div>
-      <template v-else>
-        <div class="perm-toolbar">
-          <el-button size="small" @click="selectAllPerms">全选全部</el-button>
-          <el-button size="small" @click="clearAllPerms">清空全部</el-button>
-          <span class="perm-count">已选 {{ permBuffer.length }} 项</span>
-        </div>
-        <div class="perm-editor">
-          <div v-for="grp in PERMISSION_GROUPS" :key="grp.group" class="perm-group">
-            <div class="perm-group-title">{{ grp.group }}</div>
-            <div v-for="domain in grp.domains" :key="domain.key" class="perm-domain">
-              <el-checkbox
-                :model-value="isDomainChecked(domain)"
-                :indeterminate="isDomainIndeterminate(domain)"
-                class="perm-domain-check"
-                @change="(v: any) => toggleDomain(domain, !!v)"
-                >{{ domain.label }}</el-checkbox
-              >
-              <el-checkbox-group v-model="permBuffer" class="perm-actions">
-                <el-checkbox v-for="act in domain.actions" :key="act.key" :label="act.key">{{
-                  act.label
-                }}</el-checkbox>
-              </el-checkbox-group>
-            </div>
-          </div>
-        </div>
-        <el-divider content-position="left">合同审核范围（公司）</el-divider>
-        <div class="perm-note" style="margin-bottom: 10px">
-          勾选上方「合同 ·
-          审核（公司范围）」后，在此选择该账号可审核的合同所属公司；仅这些公司的合同可被其审核。为空 = 不限制（可审核全部公司合同）。该范围与「可查看的公司字段（范围）」「可查看的合同（范围）」相互独立。
-        </div>
-        <el-select
-          v-model="companyScopeBuffer"
-          multiple
-          filterable
-          placeholder="选择可审核的公司"
-          style="width: 100%"
-        >
-          <el-option v-for="c in companyOptions" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-
-        <el-divider content-position="left">可查看的公司字段（范围）</el-divider>
-        <div class="perm-note" style="margin-bottom: 10px">
-          勾选上方「公司 · 查看（读取产业字段等子资源）」后，在此选择该账号可读取<strong>全量字段</strong>的公司；范围外公司只能读「已发布到区域总览」的公开字段。为空
-          = 不限制（全部公司全量可读）。该范围与上方「合同审核范围（公司）」相互独立。
-        </div>
-        <el-select
-          v-model="viewCompanyScopeBuffer"
-          multiple
-          filterable
-          placeholder="选择可查看全量字段的公司"
-          style="width: 100%"
-        >
-          <el-option v-for="c in companyOptions" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-
-          <el-divider content-position="left">可查看的合同（范围）</el-divider>
-          <div class="perm-note" style="margin-bottom: 10px">
-            勾选上方「合同 · 查看」后，在此选择该账号可查看的<strong>合同所涉及的参与方公司</strong>；仅这些公司担任参与方的合同对其可见（任一参与方公司落在范围内即可）。为空
-            = 不限制（可见全部合同）。该范围与上方「合同审核范围（公司）」「可查看的公司字段（范围）」相互独立。
-          </div>
-          <el-select
-            v-model="contractViewCompanyScopeBuffer"
-            multiple
-            filterable
-            placeholder="选择可查看合同的参与方公司"
-            style="width: 100%"
-          >
-            <el-option v-for="c in companyOptions" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-      </template>
-      <template #footer>
-        <el-button @click="permOnlyVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="savePermDialog">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -273,7 +134,6 @@ import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usersApi, companiesApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
-import { PERMISSION_GROUPS, ALL_PERMISSION_KEYS } from "@/permissions/catalog";
 import type { FormInstance } from "element-plus";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 
@@ -323,16 +183,75 @@ const formRules = {
   ],
 };
 
-// 权限编辑器缓冲区（与身份表单共享）
-const permBuffer = ref<string[]>([]);
-// 公司审核范围缓冲区（contract:audit 生效时，限定可审核合同的公司）
-const companyScopeBuffer = ref<number[]>([]);
-// 公司可见字段范围缓冲区（company:view 生效时，限定可读取全量字段的公司；与审核范围独立）
-const viewCompanyScopeBuffer = ref<number[]>([]);
-// 合同查看范围缓冲区（contract:view 生效时，限定可查看「参与方在这些公司」的合同；与前两者独立）
-const contractViewCompanyScopeBuffer = ref<number[]>([]);
+// 简化权限：身份(role) + 所选公司 → 自动派生权限与四个范围
+const managedCompanies = ref<number[]>([]);
 const companyOptions = ref<CompanyOption[]>([]);
 let companiesLoaded = false;
+
+/**
+ * 根据身份与所选公司派生权限集合与四个范围。
+ * - SUPER_ADMIN：空（隐式全权限）。
+ * - COMPETITION_ADMIN（管理员）：数据管理查看 + 创建/审核合同 + 查看公司字段 + 股票低级管理+查看 + 区域总览 + 消息；
+ *   四个范围（审核/字段查看/合同查看/股票）均 = 所选公司。
+ * - PLAYER（选手）：数据管理查看 + 消息 + 区域总览；可查看所选公司的合同与全量字段；行情中交易（自身账户）。
+ *   四个范围均 = 所选公司（股票范围在仅持 stock:view 时为惰性，不影响权限）。
+ */
+function derivePermissions(
+  role: string,
+  companies: number[],
+): {
+  permissions: string[];
+  companyScopes: number[];
+  viewCompanyScopes: number[];
+  contractViewCompanyScopes: number[];
+  stockCompanyScopes: number[];
+} {
+  if (role === "SUPER_ADMIN") {
+    return {
+      permissions: [],
+      companyScopes: [],
+      viewCompanyScopes: [],
+      contractViewCompanyScopes: [],
+      stockCompanyScopes: [],
+    };
+  }
+  const baseView = [
+    "data:material:view",
+    "data:part:view",
+    "data:product:view",
+    "data:map:view",
+    "data:infrastructure:view",
+    "data:tech:view",
+    "data:fuel:view",
+    "data:vehicle:view",
+    "data:warehouse:view",
+    "data:productionLine:view",
+    "data:region:view",
+    "industryType:view",
+    "contractType:view",
+    "company:view",
+    "contract:view",
+    "message:view",
+    "stock:view",
+  ];
+  if (role === "COMPETITION_ADMIN") {
+    return {
+      permissions: [...baseView, "contract:manage", "contract:audit", "stock:edit"],
+      companyScopes: companies,
+      viewCompanyScopes: companies,
+      contractViewCompanyScopes: companies,
+      stockCompanyScopes: companies,
+    };
+  }
+  // PLAYER：仅查看/行情 + 自选公司合同与字段；不做合同审核
+  return {
+    permissions: [...baseView],
+    companyScopes: [],
+    viewCompanyScopes: companies,
+    contractViewCompanyScopes: companies,
+    stockCompanyScopes: companies,
+  };
+}
 
 async function loadCompanies() {
   if (companiesLoaded) return;
@@ -345,9 +264,19 @@ async function loadCompanies() {
   }
 }
 
-const permOnlyVisible = ref(false);
-const permTargetId = ref<number | null>(null);
-const permTargetRole = ref<string>("");
+// 公司选择框的标签/提示随身份变化（管理员=“管理的公司”，选手=“可查看/操作的公司”）
+const companyScopeLabel = computed(() =>
+  form.role === "COMPETITION_ADMIN" ? "管理的公司" : "可查看/操作的公司",
+);
+const companyScopePlaceholder = computed(() =>
+  form.role === "COMPETITION_ADMIN" ? "选择该管理员可管理的公司" : "选择该选手可查看/操作的公司",
+);
+const companyScopeHint = computed(() => {
+  if (form.role === "COMPETITION_ADMIN") {
+    return "权限自动派生：数据管理全部查看、创建/审核（参与方之一为所选公司）合同、查看所选公司全量字段、所选公司的股票低级管理与行情、区域总览与消息。";
+  }
+  return "权限自动派生：数据管理全部查看、区域总览与消息；可查看所选公司的合同与全量字段，并在行情中交易自己的资金账户。";
+});
 
 function roleTag(role: string) {
   const map: Record<string, string> = {
@@ -369,31 +298,9 @@ function roleLabel(role: string) {
 
 function permSummary(row: UserItem) {
   if (row.role === "SUPER_ADMIN") return { text: "全部权限", type: "danger" };
-  const n = row.permissions?.length || 0;
-  if (n === 0) return { text: "只读", type: "info" };
-  return { text: `${n} 项`, type: "success" };
-}
-
-// ===== 权限编辑器辅助 =====
-function isDomainChecked(domain: { actions: { key: string }[] }) {
-  return domain.actions.every((a) => permBuffer.value.includes(a.key));
-}
-function isDomainIndeterminate(domain: { actions: { key: string }[] }) {
-  const checked = domain.actions.filter((a) => permBuffer.value.includes(a.key)).length;
-  return checked > 0 && checked < domain.actions.length;
-}
-function toggleDomain(domain: { actions: { key: string }[] }, checked: boolean) {
-  const keys = domain.actions.map((a) => a.key);
-  const set = new Set(permBuffer.value);
-  if (checked) keys.forEach((k) => set.add(k));
-  else keys.forEach((k) => set.delete(k));
-  permBuffer.value = Array.from(set);
-}
-function selectAllPerms() {
-  permBuffer.value = [...ALL_PERMISSION_KEYS];
-}
-function clearAllPerms() {
-  permBuffer.value = [];
+  const n = row.viewCompanyScopes?.length || 0;
+  if (row.role === "COMPETITION_ADMIN") return { text: `管理员·${n} 公司`, type: "warning" };
+  return { text: `选手·${n} 公司`, type: "info" };
 }
 
 async function loadSystemUsers() {
@@ -431,10 +338,7 @@ function showCreateDialog(scope: AccountScope) {
   form.password = "";
   form.displayName = "";
   form.role = "PLAYER";
-  permBuffer.value = [];
-  companyScopeBuffer.value = [];
-  viewCompanyScopeBuffer.value = [];
-  contractViewCompanyScopeBuffer.value = [];
+  managedCompanies.value = [];
   loadCompanies();
   dialogVisible.value = true;
 }
@@ -448,45 +352,10 @@ function handleEdit(row: UserItem, scope: AccountScope) {
   form.displayName = row.displayName || "";
   form.role = row.role;
   form.password = "";
-  permBuffer.value = [...(row.permissions || [])];
-  companyScopeBuffer.value = [...(row.companyScopes || [])];
-  viewCompanyScopeBuffer.value = [...(row.viewCompanyScopes || [])];
-  contractViewCompanyScopeBuffer.value = [...(row.contractViewCompanyScopes || [])];
+  // 编辑时以「可查看字段范围」还原公司多选（四个范围在派生时一致）
+  managedCompanies.value = [...(row.viewCompanyScopes || [])];
   loadCompanies();
   dialogVisible.value = true;
-}
-
-function openPermDialog(row: UserItem) {
-  permTargetId.value = row.id;
-  permTargetRole.value = row.role;
-  permBuffer.value = [...(row.permissions || [])];
-  companyScopeBuffer.value = [...(row.companyScopes || [])];
-  viewCompanyScopeBuffer.value = [...(row.viewCompanyScopes || [])];
-  contractViewCompanyScopeBuffer.value = [...(row.contractViewCompanyScopes || [])];
-  loadCompanies();
-  permOnlyVisible.value = true;
-}
-
-async function savePermDialog() {
-  if (permTargetId.value == null) return;
-  submitting.value = true;
-  try {
-    const payload = {
-      permissions: permTargetRole.value === "SUPER_ADMIN" ? [] : permBuffer.value,
-      companyScopes: permTargetRole.value === "SUPER_ADMIN" ? [] : companyScopeBuffer.value,
-      viewCompanyScopes: permTargetRole.value === "SUPER_ADMIN" ? [] : viewCompanyScopeBuffer.value,
-      contractViewCompanyScopes:
-        permTargetRole.value === "SUPER_ADMIN" ? [] : contractViewCompanyScopeBuffer.value,
-    };
-    await usersApi.update(permTargetId.value, payload);
-    ElMessage.success("权限已保存");
-    permOnlyVisible.value = false;
-    loadAll();
-  } catch {
-    ElMessage.error("保存失败，请重试");
-  } finally {
-    submitting.value = false;
-  }
 }
 
 function handleResetPassword(row: UserItem) {
@@ -519,19 +388,16 @@ async function handleSubmit() {
     if (!valid) return;
     submitting.value = true;
     try {
-      const permissions = form.role === "SUPER_ADMIN" ? [] : permBuffer.value;
-      const companyScopes = form.role === "SUPER_ADMIN" ? [] : companyScopeBuffer.value;
-      const viewCompanyScopes = form.role === "SUPER_ADMIN" ? [] : viewCompanyScopeBuffer.value;
-      const contractViewCompanyScopes =
-        form.role === "SUPER_ADMIN" ? [] : contractViewCompanyScopeBuffer.value;
+      const derived = derivePermissions(form.role, managedCompanies.value);
       if (isEdit.value && editingId.value) {
         await usersApi.update(editingId.value, {
           role: form.role,
           displayName: form.displayName,
-          permissions,
-          companyScopes,
-          viewCompanyScopes,
-          contractViewCompanyScopes,
+          permissions: derived.permissions,
+          companyScopes: derived.companyScopes,
+          viewCompanyScopes: derived.viewCompanyScopes,
+          contractViewCompanyScopes: derived.contractViewCompanyScopes,
+          stockCompanyScopes: derived.stockCompanyScopes,
         });
       } else {
         const payload: Record<string, unknown> = {
@@ -539,10 +405,11 @@ async function handleSubmit() {
           password: form.password,
           displayName: form.displayName,
           role: form.role,
-          permissions,
-          companyScopes,
-          viewCompanyScopes,
-          contractViewCompanyScopes,
+          permissions: derived.permissions,
+          companyScopes: derived.companyScopes,
+          viewCompanyScopes: derived.viewCompanyScopes,
+          contractViewCompanyScopes: derived.contractViewCompanyScopes,
+          stockCompanyScopes: derived.stockCompanyScopes,
           competitionId:
             createScope.value === "competition" && competitionId.value
               ? competitionId.value
@@ -615,51 +482,5 @@ useResourceChanged("users", () => {
   border-radius: 6px;
   color: #909399;
   font-size: 13px;
-}
-.perm-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.perm-count {
-  font-size: 13px;
-  color: #606266;
-}
-.perm-editor {
-  max-height: 420px;
-  overflow-y: auto;
-  border: 1px solid #ebeef5;
-  border-radius: 6px;
-  padding: 8px 12px;
-}
-.perm-group {
-  padding: 6px 0;
-}
-.perm-group-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #303133;
-  background: #f5f7fa;
-  padding: 4px 8px;
-  border-radius: 4px;
-  margin-bottom: 6px;
-}
-.perm-domain {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 4px 0;
-  border-bottom: 1px dashed #f0f0f0;
-}
-.perm-domain-check {
-  width: 120px;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.perm-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
 }
 </style>
