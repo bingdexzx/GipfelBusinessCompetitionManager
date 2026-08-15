@@ -73,7 +73,14 @@ export class StockService {
     for (const r of overview) {
       for (const card of r.cards) {
         const key = `${r.region}:${card.id}`;
-        map.set(key, card.valid && typeof card.value === "number" ? (card.value as number) : null);
+        // 卡片值可能以字符串形式存储数字（CompanyFieldValue.value 为 String 列，NUMBER 字段存如 "50"），
+        // 需解析为 number 才能命中 effective 取值；否则会静默回退到手动值，导致列表显示的绑定值与弹窗不一致。
+        let val: number | null = null;
+        if (card.valid && card.value != null) {
+          const n = typeof card.value === "number" ? card.value : Number(card.value);
+          val = Number.isFinite(n) ? n : null;
+        }
+        map.set(key, val);
       }
     }
     return map;
