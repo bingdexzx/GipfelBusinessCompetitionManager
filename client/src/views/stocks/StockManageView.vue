@@ -264,6 +264,7 @@ async function saveStock() {
     industryAvgCarbon: f.industryAvgCarbon,
     happiness: f.happiness,
     companyId: f.companyId || null,
+    competitionId: compStore.competitionId,
   };
   try {
     if (f.id) await stockApi.update(f.id, payload);
@@ -303,7 +304,7 @@ async function saveAccount() {
     if (f.id) {
       await stockApi.updateAccount(f.id, { name: f.name, cashBalance: f.cashBalance });
     } else {
-      const payload: any = { name: f.name, ownerType: f.ownerType, cashBalance: f.cashBalance };
+      const payload: any = { name: f.name, ownerType: f.ownerType, cashBalance: f.cashBalance, competitionId: compStore.competitionId };
       if (f.ownerType === "COMPANY") {
         if (!f.companyId) return ElMessage.warning("请选择归属公司");
         payload.companyId = f.companyId;
