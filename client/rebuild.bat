@@ -1,9 +1,9 @@
 @echo off
 setlocal
 REM ============================================================
-REM  Rollback Electron to 40.x + install + build (China mirror)
+REM  Rollback Electron to 33.x + install + build (China mirror)
 REM
-REM  Prerequisite: package.json already has "electron": "^40.9.2".
+REM  Prerequisite: package.json already has "electron": "^33.0.0".
 REM  Run this in a REAL terminal (double-click, or run from cmd).
 REM  Do NOT run it inside the AI sandbox.
 REM ============================================================
@@ -20,8 +20,8 @@ set ELECTRON_CUSTOM_DIR={{ version }}
 set npm_config_registry=https://registry.npmmirror.com
 
 echo.
-echo [2/4] Pinning electron to 40.x and installing deps ...
-call npm install electron@^40.9.2 --save-dev --no-audit --no-fund
+echo [2/4] Pinning electron to 33.x and installing deps ...
+call npm install electron@^33.0.0 --save-dev --no-audit --no-fund
 if errorlevel 1 goto :error
 
 call npm install --no-audit --no-fund
