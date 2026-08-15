@@ -237,7 +237,7 @@ const regionGroups = computed(() => {
       key: `${r.region}::${c.id}`,
       region: r.region,
       cardId: c.id,
-      label: c.displayName || c.fieldName || `卡片#${c.id}`,
+      label: `${c.displayName || c.fieldName || `卡片#${c.id}`}（${r.region}）`,
       value: c.value,
       valid: c.valid,
     }));
@@ -253,7 +253,10 @@ function findCard(sel: string): any | null {
   for (const r of regionOverview.value) {
     if (r.region === region) {
       const c = r.cards.find((x: any) => x.id === cardId);
-      if (c) return { ...c, region };
+      if (c) {
+        const base = c.displayName || c.fieldName || `卡片#${c.id}`;
+        return { ...c, region, label: `${base}（${region}）` };
+      }
     }
   }
   return null;
