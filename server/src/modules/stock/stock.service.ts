@@ -209,26 +209,34 @@ export class StockService {
     return map;
   }
 
-  /** 推进一轮时更新 PB：联动模式刷新实时字段值，随机模式做 ±2 随机游走并钳制到 [0,20]。 */
+  /**
+   * 推进一轮时更新 PB 并据最新有效 PB 实时重算初始价：
+   * - 联动模式刷新实时字段值；
+   * - 随机模式做 ±2 随机游走并钳制到 [0,20]。
+   * 两种模式下初始价均按 computeInitPrice(净利润, 总股本, 有效PB) 实时重算（满足"每轮根据字段数据重算初始价"需求）。
+   */
   private async applyPbRound(stock: any): Promise<void> {
+    let industryPE: number;
+    let pbRandom: number | null = stock.pbRandom ?? null;
     if (stock.pbCompanyId && stock.pbFieldId) {
       const fv = await this.prisma.companyFieldValue.findFirst({
         where: { companyId: stock.pbCompanyId, industryFieldId: stock.pbFieldId },
       });
       const v = fv?.value != null ? Number(fv.value) : NaN;
-      const industryPE = Number.isFinite(v) && v > 0 ? v : stock.industryPE;
-      if (industryPE !== stock.industryPE) {
-        await this.prisma.stock.update({ where: { id: stock.id }, data: { industryPE } });
-      }
+      industryPE = Number.isFinite(v) && v > 0 ? v : stock.industryPE;
+      pbRandom = null;
     } else {
       const prev = stock.pbRandom ?? this.randomPb();
       const step = Math.random() * 4 - 2; // [-2, 2]
       const next = this.clampPb(prev + step);
-      await this.prisma.stock.update({
-        where: { id: stock.id },
-        data: { pbRandom: next, industryPE: next },
-      });
+      industryPE = next;
+      pbRandom = next;
     }
+    // 每轮根据当轮有效 PB 实时重算初始价
+    const initPrice = computeInitPrice(stock.initNetProfit, stock.totalShares, industryPE);
+    const data: Record<string, unknown> = { industryPE, initPrice };
+    if (pbRandom !== (stock.pbRandom ?? null)) data.pbRandom = pbRandom;
+    await this.prisma.stock.update({ where: { id: stock.id }, data });
   }
 
   /**
