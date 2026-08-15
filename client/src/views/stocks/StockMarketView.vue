@@ -24,7 +24,7 @@
               <div class="stock-main">
                 <div class="stock-name">{{ s.name }}</div>
                 <div class="stock-code">{{ s.code }}</div>
-                <div class="stock-price">现价 ¥{{ fmt(s.currentPrice) }}</div>
+                <div class="stock-price">¥{{ fmt(s.currentPrice) }}</div>
               </div>
               <div class="stock-change" :class="changeClass(s.changePct)">
                 <div class="chg-pct">{{ s.changePct > 0 ? "+" : "" }}{{ fmt(s.changePct) }}%</div>
