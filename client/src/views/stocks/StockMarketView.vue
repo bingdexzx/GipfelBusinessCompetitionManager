@@ -36,9 +36,9 @@
 
         <el-card shadow="never" class="block-card chart-card">
           <template #header>
-            <span class="card-title">
-              K 线图 · {{ selectedStock?.name || "—" }}
-              <span class="muted">（{{ selectedStock?.code || "" }}）</span>
+            <span v-if="selectedStock" class="card-title">
+              K 线图 · {{ selectedStock.name }}
+              <span class="muted">（{{ selectedStock.code }}）</span>
             </span>
           </template>
           <div v-if="selectedStock" ref="chartRef" class="kline-chart" v-loading="loadingCandles"></div>
