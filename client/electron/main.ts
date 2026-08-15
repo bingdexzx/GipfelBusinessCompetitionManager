@@ -1,11 +1,7 @@
 import { join } from 'path'
+import electron from 'electron'
 import Store from './utils/store'
 
-// 使用 Function 包裹 require 来避免 vite/rollup 对 import 的静态分析和转换。
-// vite-plugin-electron 标记 electron 为 external，但编译后的 CJS require('electron')
-// 在某些环境下会解析到 node_modules/electron（导出路径字符串）而非 Electron 内置 API。
-// 通过 new Function 确保 require 在运行时由 Electron 的模块系统解析。
-const electron = new Function('return require("electron")')() as typeof import('electron')
 const { app, BrowserWindow, ipcMain, Menu, session } = electron
 
 let store: Store
