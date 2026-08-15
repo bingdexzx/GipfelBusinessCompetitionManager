@@ -810,6 +810,14 @@ export class StockService {
       });
     }
 
+    // 做市商订单「仅当轮有效」：挂新单前先取消上一轮未成交的做市商订单。
+    // 否则未成交订单永久累积，股价波动后历史高价卖单/低价买单会抬高最低卖价、压低最高买价，
+    // 导致撮合循环「最高买 < 最低卖」直接 break、所有订单无法成交。
+    await this.prisma.stockOrder.updateMany({
+      where: { stockId: stock.id, competitionId, status: "PENDING", fundsAccountId: mmAccount.id },
+      data: { status: "CANCELLED" },
+    });
+
     // 计算做市商需要的总卖量，确保持仓足够
     let totalSellQty = 0;
     for (let i = 1; i <= levels; i++) {
