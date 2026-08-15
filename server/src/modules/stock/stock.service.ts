@@ -444,7 +444,19 @@ export class StockService {
     const where: Record<string, unknown> = { competitionId, name: { not: "AI做市商" } };
     if (operable) where.id = { in: operable };
     const accounts = await this.prisma.stockFundsAccount.findMany({ where, orderBy: { name: "asc" } });
-    return accounts;
+    // 为绑定了字段的账户附加字段余额
+    const result: any[] = [];
+    for (const acc of accounts) {
+      if (acc.bindFieldId && acc.companyId) {
+        const fv = await this.prisma.companyFieldValue.findFirst({
+          where: { companyId: acc.companyId, industryFieldId: acc.bindFieldId },
+        });
+        result.push({ ...acc, fieldBalance: fv?.value != null ? Number(fv.value) : null });
+      } else {
+        result.push({ ...acc, fieldBalance: null });
+      }
+    }
+    return result;
   }
 
   async findOneFundsAccount(user: ReqUser, id: number) {
@@ -477,9 +489,13 @@ export class StockService {
     let ownerType = dto.ownerType;
     let companyId = dto.companyId ?? null;
     let userId = dto.userId ?? null;
+    let bindFieldId = dto.bindFieldId ?? null;
+    let cashBalance = dto.cashBalance ?? 1000000;
+
     if (ownerType === "USER") {
       userId = userId ?? user.id;
       companyId = null;
+      bindFieldId = null; // 个人账户不绑定字段
       // 低级管理只能建自己的用户账户
       if (!this.isHighManager(user) && userId !== user.id) {
         throw new ForbiddenException("只能为自己创建用户资金账户");
@@ -491,6 +507,15 @@ export class StockService {
         const scopes = user.stockCompanyScopes && user.stockCompanyScopes.length ? user.stockCompanyScopes : [];
         if (!scopes.includes(companyId)) throw new ForbiddenException("只能为权限范围内的公司创建资金账户");
       }
+      // 如果绑定了字段，获取字段值作为初始现金
+      if (bindFieldId) {
+        const fv = await this.prisma.companyFieldValue.findFirst({
+          where: { companyId, industryFieldId: bindFieldId },
+        });
+        if (fv?.value != null) {
+          cashBalance = Number(fv.value);
+        }
+      }
     }
     const account = await this.prisma.stockFundsAccount.create({
       data: {
@@ -498,7 +523,8 @@ export class StockService {
         ownerType,
         companyId,
         userId,
-        cashBalance: dto.cashBalance ?? 1000000,
+        cashBalance,
+        bindFieldId,
         competitionId,
       },
     });
@@ -516,6 +542,18 @@ export class StockService {
     if (dto.cashBalance !== undefined) data.cashBalance = dto.cashBalance;
     if (dto.companyId !== undefined) data.companyId = dto.companyId;
     if (dto.userId !== undefined) data.userId = dto.userId;
+    if (dto.bindFieldId !== undefined) {
+      data.bindFieldId = dto.bindFieldId;
+      // 如果绑定了字段，获取字段值更新现金
+      if (dto.bindFieldId && account.companyId) {
+        const fv = await this.prisma.companyFieldValue.findFirst({
+          where: { companyId: account.companyId, industryFieldId: dto.bindFieldId },
+        });
+        if (fv?.value != null) {
+          data.cashBalance = Number(fv.value);
+        }
+      }
+    }
     const updated = await this.prisma.stockFundsAccount.update({ where: { id }, data });
     this.realtime.emitResourceChanged("stocks", updated.id, updated.competitionId ?? null, "updated");
     return updated;
@@ -574,9 +612,19 @@ export class StockService {
     if (dto.price < lowerLimit - 0.001) {
       throw new BadRequestException(`委托价不能低于 ¥${lowerLimit}（当前价 ¥${stock.currentPrice} 的 -10%）`);
     }
+    // 获取账户可用余额（绑定字段时取字段值）
+    let availableBalance = account.cashBalance;
+    if (account.bindFieldId && account.companyId) {
+      const fv = await this.prisma.companyFieldValue.findFirst({
+        where: { companyId: account.companyId, industryFieldId: account.bindFieldId },
+      });
+      if (fv?.value != null) {
+        availableBalance = Number(fv.value);
+      }
+    }
     if (dto.side === "BUY") {
       const need = dto.price * dto.quantity;
-      if (account.cashBalance < need - 1e-6) throw new BadRequestException("现金余额不足");
+      if (availableBalance < need - 1e-6) throw new BadRequestException("现金余额不足");
     } else {
       const holding = await this.prisma.stockHolding.findUnique({
         where: { fundsAccountId_stockId: { fundsAccountId: account.id, stockId: stock.id } },
@@ -663,6 +711,28 @@ export class StockService {
     const basePrice = stock.currentPrice;
     if (basePrice <= 0) return 0;
 
+    // 查询最近3轮K线，判断是否连续涨停/跌停
+    const recentCandles = await this.prisma.stockCandle.findMany({
+      where: { stockId: stock.id, competitionId },
+      orderBy: { round: "desc" },
+      take: 3,
+    });
+
+    // 判断连续涨停/跌停（涨跌幅接近±10%）
+    let consecutiveLimitUp = 0;
+    let consecutiveLimitDown = 0;
+    for (const candle of recentCandles) {
+      if (candle.changePct >= 9.9) {
+        consecutiveLimitUp++;
+        consecutiveLimitDown = 0;
+      } else if (candle.changePct <= -9.9) {
+        consecutiveLimitDown++;
+        consecutiveLimitUp = 0;
+      } else {
+        break;
+      }
+    }
+
     // 查找或创建做市商资金账户
     let mmAccount = await this.prisma.stockFundsAccount.findFirst({
       where: { competitionId, name: "AI做市商" },
@@ -724,6 +794,65 @@ export class StockService {
       await this.prisma.stockFundsAccount.update({
         where: { id: mmAccount.id },
         data: { cashBalance: { decrement: Math.round(basePrice * needShares * 100) / 100 } },
+      });
+    }
+
+    // 防止连续涨停/跌停的干预机制
+    const interventionQty = baseQuantity * 10; // 干预数量更大
+
+    if (consecutiveLimitUp >= 2) {
+      // 连续涨停2轮及以上，在当前价+5%挂大量卖单阻止继续涨停
+      const interventionPrice = Math.round(basePrice * 1.05 * 100) / 100;
+      orders.push({
+        stockId: stock.id,
+        fundsAccountId: mmAccount.id,
+        side: "SELL",
+        price: interventionPrice,
+        quantity: interventionQty,
+        amount: Math.round(interventionPrice * interventionQty * 100) / 100,
+        status: "PENDING",
+        round: currentRound,
+        competitionId,
+      });
+      // 同时在涨停价也挂卖单
+      const limitUpPrice = Math.round(basePrice * 1.1 * 100) / 100;
+      orders.push({
+        stockId: stock.id,
+        fundsAccountId: mmAccount.id,
+        side: "SELL",
+        price: limitUpPrice,
+        quantity: interventionQty,
+        amount: Math.round(limitUpPrice * interventionQty * 100) / 100,
+        status: "PENDING",
+        round: currentRound,
+        competitionId,
+      });
+    } else if (consecutiveLimitDown >= 2) {
+      // 连续跌停2轮及以上，在当前价-5%挂大量买单阻止继续跌停
+      const interventionPrice = Math.round(basePrice * 0.95 * 100) / 100;
+      orders.push({
+        stockId: stock.id,
+        fundsAccountId: mmAccount.id,
+        side: "BUY",
+        price: interventionPrice,
+        quantity: interventionQty,
+        amount: Math.round(interventionPrice * interventionQty * 100) / 100,
+        status: "PENDING",
+        round: currentRound,
+        competitionId,
+      });
+      // 同时在跌停价也挂买单
+      const limitDownPrice = Math.round(basePrice * 0.9 * 100) / 100;
+      orders.push({
+        stockId: stock.id,
+        fundsAccountId: mmAccount.id,
+        side: "BUY",
+        price: limitDownPrice,
+        quantity: interventionQty,
+        amount: Math.round(limitDownPrice * interventionQty * 100) / 100,
+        status: "PENDING",
+        round: currentRound,
+        competitionId,
       });
     }
 
@@ -826,7 +955,18 @@ export class StockService {
     const cashMap = new Map<number, number>();
     const holdingMap = new Map<number, { shares: number; costPrice: number }>();
     for (const o of orders) {
-      if (!cashMap.has(o.fundsAccountId)) cashMap.set(o.fundsAccountId, o.fundsAccount.cashBalance);
+      if (!cashMap.has(o.fundsAccountId)) {
+        // 绑定了字段的账户从字段值获取余额
+        const acc = o.fundsAccount;
+        if (acc.bindFieldId && acc.companyId) {
+          const fv = await this.prisma.companyFieldValue.findFirst({
+            where: { companyId: acc.companyId, industryFieldId: acc.bindFieldId },
+          });
+          cashMap.set(o.fundsAccountId, fv?.value != null ? Number(fv.value) : acc.cashBalance);
+        } else {
+          cashMap.set(o.fundsAccountId, acc.cashBalance);
+        }
+      }
     }
     const accountIds = Array.from(cashMap.keys());
     const existingHoldings = await this.prisma.stockHolding.findMany({
@@ -899,9 +1039,20 @@ export class StockService {
     const newRound = stock.round + 1;
 
     await this.prisma.$transaction(async (tx) => {
-      // 现金
+      // 现金（绑定字段的账户更新字段值，否则更新账户余额）
       for (const [accId, cash] of cashMap) {
-        await tx.stockFundsAccount.update({ where: { id: accId }, data: { cashBalance: Math.round(cash * 100) / 100 } });
+        const acc = orders.find((o) => o.fundsAccountId === accId)?.fundsAccount;
+        if (acc?.bindFieldId && acc?.companyId) {
+          // 绑定了字段：更新字段值
+          const roundedCash = Math.round(cash * 100) / 100;
+          await tx.companyFieldValue.updateMany({
+            where: { companyId: acc.companyId, industryFieldId: acc.bindFieldId },
+            data: { value: String(roundedCash) },
+          });
+        } else {
+          // 未绑定字段：更新账户余额
+          await tx.stockFundsAccount.update({ where: { id: accId }, data: { cashBalance: Math.round(cash * 100) / 100 } });
+        }
       }
       // 持仓（仅被撮合涉及的账户）
       for (const accId of touchedAccounts) {

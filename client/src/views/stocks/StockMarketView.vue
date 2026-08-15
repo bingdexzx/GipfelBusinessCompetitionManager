@@ -83,7 +83,7 @@
               </el-select>
             </el-form-item>
             <div v-if="currentAccount" class="cash-line">
-              现金余额：<b>{{ fmt(currentAccount.cashBalance) }}</b> 元
+              现金余额：<b>{{ fmt(currentAccount.bindFieldId ? (currentAccount.fieldBalance ?? 0) : currentAccount.cashBalance) }}</b> 元
             </div>
 
             <el-form-item label="方向">
@@ -135,50 +135,32 @@
           </el-form>
 
           <el-divider>我的持仓</el-divider>
-          <el-table :data="holdings" size="small" v-if="holdings.length">
-            <el-table-column prop="stock.code" label="代码" width="90" />
-            <el-table-column label="持股" align="right">
-              <template #default="{ row }">{{ fmt(row.shares) }}</template>
-            </el-table-column>
-            <el-table-column label="市值" align="right">
-              <template #default="{ row }">{{ fmt(row.marketValue) }}</template>
-            </el-table-column>
-          </el-table>
+          <div v-if="holdings.length" class="holding-list">
+            <div v-for="row in holdings" :key="row.stock?.id" class="holding-row">
+              <span class="holding-cell holding-name">{{ row.stock?.name || row.stock?.code || '—' }}</span>
+              <span class="holding-cell holding-shares">{{ fmt(row.shares) }}股</span>
+              <span class="holding-cell holding-value">¥{{ fmt(row.marketValue) }}</span>
+            </div>
+          </div>
           <div v-else class="empty-hint small">暂无持仓</div>
 
           <el-divider>我的订单</el-divider>
-          <el-table :data="orders" size="small" v-if="orders.length" max-height="200">
-            <el-table-column label="方向" width="50">
-              <template #default="{ row }">
-                <span :class="row.side === 'BUY' ? 'up' : 'down'" style="font-weight:600;">{{ row.side === 'BUY' ? '买' : '卖' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="委托价" align="right">
-              <template #default="{ row }">{{ fmt(row.price) }}</template>
-            </el-table-column>
-            <el-table-column label="数量" align="right">
-              <template #default="{ row }">{{ fmt(row.quantity) }}</template>
-            </el-table-column>
-            <el-table-column label="状态" width="56">
-              <template #default="{ row }">
-                <el-tag size="small" :type="row.status === 'PENDING' ? 'warning' : row.status === 'FILLED' ? 'success' : 'info'">
+          <div v-if="orders.length" class="order-list">
+            <div v-for="row in orders" :key="row.id" class="order-row">
+              <span class="order-name">{{ row.stock?.name || row.stock?.code || '—' }}</span>
+              <span class="order-side" :class="row.side === 'BUY' ? 'up' : 'down'">{{ row.side === 'BUY' ? '买' : '卖' }}</span>
+              <span class="order-price">{{ fmt(row.price) }}</span>
+              <span class="order-qty">{{ fmt(row.quantity) }}</span>
+              <span class="order-status">
+                <el-tag size="small" :type="row.status === 'PENDING' ? 'warning' : row.status === 'FILLED' ? 'success' : 'info'" style="font-size:11px; height:20px; padding:0 4px;">
                   {{ statusLabel(row.status) }}
                 </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="" width="36">
-              <template #default="{ row }">
-                <el-button
-                  v-if="row.status === 'PENDING'"
-                  size="small"
-                  text
-                  type="danger"
-                  @click="cancelOrder(row.id)"
-                  >撤</el-button
-                >
-              </template>
-            </el-table-column>
-          </el-table>
+              </span>
+              <span class="order-action">
+                <el-button v-if="row.status === 'PENDING'" link type="danger" @click="cancelOrder(row.id)" style="font-size:12px;">撤</el-button>
+              </span>
+            </div>
+          </div>
           <div v-else class="empty-hint small">暂无订单</div>
         </el-card>
       </div>
@@ -223,6 +205,8 @@ interface Account {
   name: string;
   ownerType: string;
   cashBalance: number;
+  bindFieldId?: number | null;
+  fieldBalance?: number | null;
 }
 interface Holding {
   stock: { id: number; code: string; name: string };
@@ -232,7 +216,7 @@ interface Holding {
 }
 interface Order {
   id: number;
-  stock?: { code: string };
+  stock?: { code: string; name?: string };
   side: string;
   price: number;
   quantity: number;
@@ -662,7 +646,7 @@ onBeforeUnmount(() => {
 }
 .market-body {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: 1fr 400px;
   gap: 16px;
   align-items: start;
 }
@@ -854,5 +838,93 @@ onBeforeUnmount(() => {
 .empty-hint.small {
   padding: 12px 0;
   font-size: 13px;
+}
+.market-side :deep(.el-divider) {
+  margin: 16px 0 12px;
+}
+.market-side :deep(.el-table) {
+  font-size: 14px;
+}
+.market-side :deep(.el-table th) {
+  font-size: 13px;
+}
+.market-side :deep(.el-table td) {
+  padding: 6px 0;
+}
+.order-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.order-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--color-border-light, #ebeef5);
+  font-size: 13px;
+}
+.order-row:last-child {
+  border-bottom: none;
+}
+.order-name {
+  width: 20%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+.order-side {
+  width: 15%;
+  text-align: center;
+  font-weight: 600;
+}
+.order-price {
+  width: 20%;
+  text-align: right;
+  padding-right: 4px;
+}
+.order-qty {
+  width: 18%;
+  text-align: right;
+  padding-right: 4px;
+}
+.order-status {
+  width: 15%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.order-action {
+  width: 12%;
+  text-align: center;
+}
+.holding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.holding-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.holding-cell {
+  flex: 1;
+  padding: 0 2px;
+}
+.holding-name {
+  flex: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.holding-shares {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.holding-value {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 </style>

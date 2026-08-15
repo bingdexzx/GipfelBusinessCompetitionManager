@@ -201,6 +201,12 @@ export class CreateFundsAccountDto {
   cashBalance?: number; // 初始现金（元），默认 1,000,000
 
   @IsOptional()
+  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Type(() => Number)
+  @IsInt()
+  bindFieldId?: number; // 绑定产业字段 ID（仅公司账户），现金将同步该字段值
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   competitionId?: number;
@@ -228,6 +234,12 @@ export class UpdateFundsAccountDto {
   @Type(() => Number)
   @IsInt()
   userId?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Type(() => Number)
+  @IsInt()
+  bindFieldId?: number | null; // 绑定产业字段 ID（仅公司账户），null 表示解绑
 }
 
 // 下单

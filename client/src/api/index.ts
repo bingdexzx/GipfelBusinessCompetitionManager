@@ -360,7 +360,7 @@ export const stockApi = {
   // 资金账户
   listAccounts: (competitionId: number) => {
     const params: Record<string, unknown> = { competitionId };
-    return api.get("/stocks/accounts/list", { params });
+    return api.get("/stocks/accounts/list", { params, cache: false });
   },
   getAccount: (id: number) => api.get(`/stocks/accounts/${id}`),
   accountHoldings: (id: number) => api.get(`/stocks/accounts/${id}/holdings`, { cache: false }),

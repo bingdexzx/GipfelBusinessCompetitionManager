@@ -619,6 +619,7 @@ model StockFundsAccount {
   companyId     Int?      // ownerType=COMPANY 时指向 Company.id（低级管理范围据此限定）
   userId        Int?      // ownerType=USER 时指向 User.id（自己的账户）
   cashBalance   Float     @default(1000000) // 现金余额（元）
+  bindFieldId   Int?      // 绑定产业字段 ID（仅公司账户），现金将同步该字段值
   competitionId Int?
   competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   orders        StockOrder[]

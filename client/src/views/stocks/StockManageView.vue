@@ -74,8 +74,14 @@
             <span v-else>{{ companyName(row.companyId) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="现金(元)" width="120" align="right">
-          <template #default="{ row }">{{ fmt(row.cashBalance) }}</template>
+        <el-table-column label="现金(元)" width="160" align="right">
+          <template #default="{ row }">
+            <template v-if="row.bindFieldId">
+              {{ fmt(row.fieldBalance != null ? row.fieldBalance : row.cashBalance) }}
+              <el-tag size="small" type="warning" effect="plain" class="field-link-tag">字段联动</el-tag>
+            </template>
+            <span v-else>{{ fmt(row.cashBalance) }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="操作" width="130" fixed="right">
           <template #default="{ row }">
@@ -168,22 +174,32 @@
           <el-input v-model="accountForm.name" :disabled="!!accountForm.id" />
         </el-form-item>
         <el-form-item label="账户类型" required>
-          <el-radio-group v-model="accountForm.ownerType" :disabled="!!accountForm.id">
+          <el-radio-group v-model="accountForm.ownerType" :disabled="!!accountForm.id" @change="onAccountTypeChange">
             <el-radio-button value="USER">个人</el-radio-button>
             <el-radio-button value="COMPANY">公司</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="accountForm.ownerType === 'COMPANY'" label="归属公司" required>
-          <el-select v-model="accountForm.companyId" placeholder="选择公司" style="width: 100%">
+          <el-select v-model="accountForm.companyId" placeholder="选择公司" style="width: 100%" @change="onAccountCompanyChange">
             <el-option v-for="c in scopedCompanies" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="accountForm.ownerType === 'COMPANY' && accountForm.companyId" label="绑定字段">
+          <el-select v-model="accountForm.bindFieldId" placeholder="选择产业字段（可选）" clearable style="width: 100%" @change="onAccountFieldChange">
+            <el-option label="不绑定（手动输入）" :value="null" />
+            <el-option v-for="f in accountFieldsForCompany" :key="f.id" :label="(f.name || f.fieldKey) + '（' + f.fieldType + '）'" :value="f.id" />
+          </el-select>
+          <div v-if="accountForm.bindFieldId && accountBoundFieldValue != null" class="field-hint">
+            字段当前值：<b>{{ fmt(accountBoundFieldValue) }}</b>
+          </div>
         </el-form-item>
         <el-form-item v-if="accountForm.ownerType === 'USER'" label="归属用户">
           <span class="muted">{{ authStore.user?.displayName || authStore.user?.username || "我自己" }}</span>
         </el-form-item>
-        <el-form-item label="初始现金(元)">
+        <el-form-item v-if="!accountForm.bindFieldId" label="初始现金(元)">
           <el-input-number v-model="accountForm.cashBalance" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
+        <el-alert v-if="accountForm.bindFieldId" type="info" :closable="false" title="已绑定产业字段，资金余额将自动同步字段值，交易时直接加减该字段。" />
       </el-form>
       <template #footer>
         <el-button @click="accountDialogVisible = false">取消</el-button>
@@ -389,13 +405,59 @@ const happinessLiveText = computed(() => {
 });
 
 const accountDialogVisible = ref(false);
-const accountForm = ref<any>({ id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000 });
+const accountForm = ref<any>({ id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null });
 
 const scopedCompanies = computed(() => {
   if (canManage.value) return companies.value;
   const scopes = authStore.user?.stockCompanyScopes || [];
   return companies.value.filter((c) => scopes.includes(c.id));
 });
+
+// 公司字段绑定相关
+const accountFieldsForCompany = computed(() => {
+  if (!accountForm.value.companyId) return [];
+  const c = pbCompanies.value.find((x: any) => x.id === accountForm.value.companyId);
+  return c?.fields || [];
+});
+const accountBoundFieldValue = computed(() => {
+  if (!accountForm.value.bindFieldId) return null;
+  const field = accountFieldsForCompany.value.find((f: any) => f.id === accountForm.value.bindFieldId);
+  // 需要从后端获取字段当前值，这里先返回 null，实际值在对话框打开时加载
+  return accountForm.value._bindFieldValue ?? null;
+});
+
+function onAccountTypeChange() {
+  accountForm.value.companyId = null;
+  accountForm.value.bindFieldId = null;
+  accountForm.value._bindFieldValue = null;
+}
+function onAccountCompanyChange() {
+  accountForm.value.bindFieldId = null;
+  accountForm.value._bindFieldValue = null;
+}
+async function onAccountFieldChange() {
+  if (!accountForm.value.bindFieldId || !accountForm.value.companyId) {
+    accountForm.value._bindFieldValue = null;
+    return;
+  }
+  // 获取字段当前值
+  try {
+    const res = await stockApi.pbSources(compStore.competitionId!);
+    const company = res.companies?.find((c: any) => c.id === accountForm.value.companyId);
+    const field = company?.fields?.find((f: any) => f.id === accountForm.value.bindFieldId);
+    if (field) {
+      // 需要获取字段的实际值，通过查询公司字段值
+      const fieldValues = await companiesApi.getFieldValues(accountForm.value.companyId);
+      const fieldValue = fieldValues.find((fv: any) => fv.industryFieldId === accountForm.value.bindFieldId);
+      accountForm.value._bindFieldValue = fieldValue?.value != null ? Number(fieldValue.value) : null;
+      if (accountForm.value._bindFieldValue != null) {
+        accountForm.value.cashBalance = accountForm.value._bindFieldValue;
+      }
+    }
+  } catch {
+    accountForm.value._bindFieldValue = null;
+  }
+}
 
 function fmt(n: number): string {
   if (n == null || isNaN(n)) return "—";
@@ -495,8 +557,10 @@ async function removeStock(row: any) {
 
 function openAccountDialog(row?: any) {
   accountForm.value = row
-    ? { ...row, cashBalance: row.cashBalance }
-    : { id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000 };
+    ? { ...row, cashBalance: row.cashBalance, bindFieldId: row.bindFieldId || null, _bindFieldValue: null }
+    : { id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null, _bindFieldValue: null };
+  // 加载公司字段数据
+  if (!pbCompanies.value.length) loadPbSources();
   accountDialogVisible.value = true;
 }
 async function saveAccount() {
@@ -504,14 +568,20 @@ async function saveAccount() {
   if (!f.name) return ElMessage.warning("请填写账户名");
   try {
     if (f.id) {
-      await stockApi.updateAccount(f.id, { name: f.name, cashBalance: f.cashBalance });
+      const payload: any = { name: f.name, bindFieldId: f.bindFieldId || null };
+      // 绑定产业字段后，现金余额由字段值驱动，无需（也不应）回写 cashBalance
+      if (!f.bindFieldId) payload.cashBalance = f.cashBalance;
+      await stockApi.updateAccount(f.id, payload);
     } else {
-      const payload: any = { name: f.name, ownerType: f.ownerType, cashBalance: f.cashBalance, competitionId: compStore.competitionId };
+      const payload: any = { name: f.name, ownerType: f.ownerType, competitionId: compStore.competitionId };
       if (f.ownerType === "COMPANY") {
         if (!f.companyId) return ElMessage.warning("请选择归属公司");
         payload.companyId = f.companyId;
+        payload.bindFieldId = f.bindFieldId || null;
+        if (!f.bindFieldId) payload.cashBalance = f.cashBalance;
       } else {
         payload.userId = authStore.user?.id;
+        payload.cashBalance = f.cashBalance;
       }
       await stockApi.createAccount(payload);
     }
@@ -559,6 +629,7 @@ async function confirmAdvance() {
     const mmInfo = res.marketMakerOrders > 0 ? `，做市商挂单 ${res.marketMakerOrders} 笔` : "";
     ElMessage.success(`已推进，处理 ${res.advanced} 只股票${mmInfo}`);
     await reloadStocks();
+    await reloadAccounts(); // 字段联动账户余额随交易更新，需刷新现金显示
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "推进失败");
   }
@@ -608,7 +679,14 @@ onMounted(reloadAll);
 .pb-hint {
   margin-bottom: 12px;
   font-size: 12px;
-  line-height: 1.6;
+}
+.field-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary, #5a5f6a);
+  margin-top: 4px;
+}
+.field-hint b {
+  color: var(--color-primary, #409eff);
 }
 .bound-value {
   display: flex;
@@ -625,5 +703,9 @@ onMounted(reloadAll);
   line-height: 16px;
   height: 18px;
   padding: 0 5px;
+}
+.field-link-tag {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 </style>
