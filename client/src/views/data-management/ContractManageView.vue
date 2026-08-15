@@ -469,6 +469,27 @@
         <el-button @click="showPrecheck = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 该产业不支持该合同：所选参与方公司产业缺少效果字段 -->
+    <el-dialog append-to-body v-model="showUnsupported" title="该产业不支持该合同" width="620px">
+      <el-alert
+        type="error"
+        :closable="false"
+        title="所选参与方公司所属产业缺少合同所需字段，无法创建该合同"
+      />
+      <el-table :data="missingEffectFields" border size="small" style="margin-top: 12px">
+        <el-table-column label="参与方" width="140">
+          <template #default="{ row }">{{ partyLabel(row.party) }}</template>
+        </el-table-column>
+        <el-table-column prop="companyName" label="公司" min-width="160" />
+        <el-table-column label="缺失字段" min-width="200">
+          <template #default="{ row }">{{ row.fieldName }}（{{ row.fieldKey }}）</template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button type="primary" @click="showUnsupported = false">我知道了</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -479,7 +500,7 @@ import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { onRealtime, offRealtime } from "@/realtime/socket";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import { useAuthStore } from "@/stores/auth";
-import { contractTypesApi, contractsApi, mapsApi, companyFieldsApi } from "@/api";
+import { contractTypesApi, contractsApi, mapsApi, companyFieldsApi, industryTypesApi } from "@/api";
 import { evalFormCondition, type FormConditionCtx } from "@/contracts/graph-model";
 import api from "@/api/request";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -501,6 +522,8 @@ const detailRow = ref<any>(null);
 const showPrecheck = ref(false);
 const prechecking = ref(false);
 const precheckResults = ref<any[]>([]);
+// 选参与方后校验：所选公司产业缺少效果字段时弹出的错误界面。
+const showUnsupported = ref(false);
 
 const partyNumbers = reactive<Record<string, string>>({});
 
@@ -534,6 +557,77 @@ const companyIndustryMap = computed<Record<number, number | null>>(() => {
   const m: Record<number, number | null> = {};
   for (const c of companies.value) m[c.id] = c.industryTypeId ?? null;
   return m;
+});
+
+// 产业类型字段集合（含隐藏字段）：industryTypeId → Set<fieldKey>。
+// 用于选参与方后校验「合同效果所引用的字段」在该公司所属产业中是否存在。
+const industryTypes = ref<any[]>([]);
+const industryFieldKeyMap = computed<Map<number, Set<string>>>(() => {
+  const m = new Map<number, Set<string>>();
+  for (const it of industryTypes.value) {
+    const set = new Set<string>();
+    for (const f of it.fields || []) if (f.fieldKey) set.add(f.fieldKey);
+    m.set(it.id, set);
+  }
+  return m;
+});
+
+// 从合同类型的效果树递归收集叶子「产业字段」效果引用的 (party, fieldKey)。
+// 效果树结构：{kind:"FIELD",party,fieldKey,...} / IF{then,else} / FOREACH{body} / ASSIGN（无子效果）。
+function collectEffectFieldRefs(
+  effects: any[],
+  out: { party: string; fieldKey: string }[] = [],
+): { party: string; fieldKey: string }[] {
+  for (const e of effects || []) {
+    if (!e || typeof e !== "object") continue;
+    if (e.kind === "FIELD") out.push({ party: e.party || "", fieldKey: e.fieldKey || "" });
+    else if (e.kind === "IF") {
+      collectEffectFieldRefs(e.then, out);
+      collectEffectFieldRefs(e.else, out);
+    } else if (e.kind === "FOREACH") collectEffectFieldRefs(e.body, out);
+  }
+  return out;
+}
+const effectFieldRefs = computed(() => collectEffectFieldRefs(parseJson(selectedType.value?.effects, [])));
+
+// 字段显示名（取首个含该 fieldKey 的产业字段中文名，汇总去重场景下同名 key 语义一致）。
+function fieldNameOf(fieldKey: string): string {
+  for (const it of industryTypes.value) {
+    const f = (it.fields || []).find((x: any) => x.fieldKey === fieldKey);
+    if (f) return f.name || f.label || fieldKey;
+  }
+  return fieldKey;
+}
+function partyLabel(role: string): string {
+  const roles = parseJson(selectedType.value?.partyRoles, []);
+  const p = roles.find((x: any) => x.role === role);
+  return p?.label || role;
+}
+
+// 已选参与方公司、但其所属产业缺少效果所需字段 → 触发「该产业不支持该合同」。
+const missingEffectFields = computed(() => {
+  const out: {
+    party: string;
+    fieldKey: string;
+    companyName: string;
+    fieldName: string;
+  }[] = [];
+  for (const ref of effectFieldRefs.value) {
+    if (!ref.party || !ref.fieldKey) continue;
+    const companyId = (createForm.parties as Record<string, number>)[ref.party];
+    if (companyId == null) continue; // 该参与方尚未选公司，暂不判定
+    const industryTypeId = companyIndustryMap.value[companyId];
+    const set = industryTypeId != null ? industryFieldKeyMap.value.get(industryTypeId) : undefined;
+    if (!set || !set.has(ref.fieldKey)) {
+      out.push({
+        party: ref.party,
+        fieldKey: ref.fieldKey,
+        companyName: companyName(companyId) || `公司#${companyId}`,
+        fieldName: fieldNameOf(ref.fieldKey),
+      });
+    }
+  }
+  return out;
 });
 // 参与方角色 → 当前所绑公司的产业类型 id（未绑定返回 undefined，交由求值器 fail-open）。
 function getPartyIndustry(role?: string): number | null | undefined {
@@ -947,6 +1041,14 @@ async function loadCompanies() {
     console.error(e);
   }
 }
+async function loadIndustryTypes() {
+  try {
+    const res: any = await industryTypesApi.list();
+    industryTypes.value = Array.isArray(res) ? res : res?.items || [];
+  } catch (e) {
+    console.error(e);
+  }
+}
 
 function onTypeChange() {
   createForm.parties = {};
@@ -1035,6 +1137,7 @@ function openCreate() {
   createForm.parties = {};
   createForm.inputs = {};
   for (const k of Object.keys(partyNumbers)) delete partyNumbers[k];
+  loadIndustryTypes();
   showCreate.value = true;
 }
 
@@ -1049,6 +1152,11 @@ async function handleCreate() {
       ElMessage.warning(`请为「${p.label}」选择公司`);
       return;
     }
+  }
+  // 所选公司产业缺少效果字段 → 该产业不支持该合同，阻止创建。
+  if (missingEffectFields.value.length) {
+    showUnsupported.value = true;
+    return;
   }
   const roles = parseJson(selectedType.value?.partyRoles, []);
   const partiesArr = roles.map((p: any) => ({
@@ -1216,22 +1324,35 @@ onMounted(() => {
   // 不会进新建流程，故按权限懒加载，避免无谓的 403 弹「权限不足」提示。
   if (authStore.can("contractType:view")) loadTypes();
   if (authStore.can("company:view")) loadCompanies();
+  if (authStore.can("industryType:view")) loadIndustryTypes();
   loadContracts();
   // 实时同步：监听合同状态变更广播，管理员或其他端操作后本页即刻刷新
   onRealtime("contract:changed", handleContractChanged);
 });
+
+// 选择公司参与方后自动校验：效果字段在所选公司产业中缺失时弹出「该产业不支持该合同」；
+// 改选到满足字段的公司后自动关闭。
+watch(
+  () => createForm.parties,
+  () => {
+    showUnsupported.value = missingEffectFields.value.length > 0;
+  },
+  { deep: true },
+);
 
 // 切换比赛时先清空旧数据再重新拉取，避免停留在上一个比赛的旧数据。
 useCompetitionReload(
   () => {
     if (authStore.can("contractType:view")) loadTypes();
     if (authStore.can("company:view")) loadCompanies();
+    if (authStore.can("industryType:view")) loadIndustryTypes();
     loadContracts();
   },
   () => {
     contracts.value = [];
     contractTypes.value = [];
     companies.value = [];
+    industryTypes.value = [];
   },
 );
 

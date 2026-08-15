@@ -1334,7 +1334,7 @@ const fieldOptions = computed(() => {
         f.fieldType === "LIST" || f.fieldType === "DICTIONARY"
           ? ` [${FIELD_TYPE_SHORT[f.fieldType as string] || f.fieldType}]`
           : "";
-      out.push({ value: key, label: `${it.name}·${f.name || f.label || key}${tag}` });
+      out.push({ value: key, label: `${f.name || f.label || key}${tag}` });
     }
   }
   return out;
