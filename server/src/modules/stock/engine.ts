@@ -93,9 +93,35 @@ export interface CandleInput {
   close: number;
 }
 
-export function buildCandle(open: number, close: number, round: number) {
-  const high = Math.max(open, close);
-  const low = Math.min(open, close);
+/**
+ * 构建 K 线数据。
+ * @param open 开盘价（上轮收盘）
+ * @param close 收盘价（本轮最终价，已限幅）
+ * @param round 轮次
+ * @param theoretical 理论价（限幅前），用于生成影线。不传则影线等于实体。
+ */
+export function buildCandle(open: number, close: number, round: number, theoretical?: number) {
+  // 影线：如果理论价超出限幅范围，影线延伸到限幅边界
+  const upper = open * 1.1;
+  const lower = open * 0.9;
+  let high = Math.max(open, close);
+  let low = Math.min(open, close);
+
+  if (theoretical != null && Number.isFinite(theoretical)) {
+    if (theoretical > upper) {
+      // 理论价超过上限，上影线延伸到上限
+      high = Math.round(upper * 100) / 100;
+    } else if (theoretical > high) {
+      high = theoretical;
+    }
+    if (theoretical < lower) {
+      // 理论价低于下限，下影线延伸到下限
+      low = Math.round(lower * 100) / 100;
+    } else if (theoretical < low) {
+      low = theoretical;
+    }
+  }
+
   const changePct = open !== 0 ? Math.round(((close - open) / open) * 100 * 100) / 100 : 0;
   return { round, open, high, low, close, changePct };
 }

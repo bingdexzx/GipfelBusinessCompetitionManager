@@ -885,7 +885,7 @@ export class StockService {
       if (sellRem.get(sell.id)! <= EPS) si++;
     }
 
-    const candle = buildCandle(stock.currentPrice, price.final, stock.round + 1);
+    const candle = buildCandle(stock.currentPrice, price.final, stock.round + 1, price.theoretical);
     const newRound = stock.round + 1;
 
     await this.prisma.$transaction(async (tx) => {
