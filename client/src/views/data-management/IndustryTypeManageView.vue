@@ -327,8 +327,8 @@
           <el-col :span="8">
             <el-form-item label="触发时机">
               <el-select v-model="fieldForm.timerTrigger" style="width: 100%">
-                <el-option label="财年开始 FY_START" value="FY_START" />
-                <el-option label="财年结束 FY_END" value="FY_END" />
+                <el-option label="财年开始" value="FY_START" />
+                <el-option label="财年结束" value="FY_END" />
               </el-select>
             </el-form-item>
           </el-col>
