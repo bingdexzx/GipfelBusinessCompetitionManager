@@ -7,6 +7,7 @@ release/
 logs/
 .env
 .workbuddy/
+.claude/
 build_tmp*.log
 .DS_Store
 
