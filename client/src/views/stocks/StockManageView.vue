@@ -37,13 +37,13 @@
         <el-table-column label="幸福度" min-width="95" align="right">
           <template #default="{ row }">
             <span>{{ fmt(row.effectiveHappiness ?? row.happiness) }}</span>
-            <el-tag v-if="row.happinessFieldRef" size="small" type="info" effect="plain" class="bind-tag">绑</el-tag>
+            <el-tag v-if="row.happinessFieldRef" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="碳排" min-width="95" align="right">
           <template #default="{ row }">
             <span>{{ fmt(row.effectiveCurrentCarbon ?? row.currentCarbon) }}</span>
-            <el-tag v-if="row.carbonFieldRef" size="small" type="info" effect="plain" class="bind-tag">绑</el-tag>
+            <el-tag v-if="row.carbonFieldRef" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="130" fixed="right">
@@ -78,7 +78,7 @@
           <template #default="{ row }">
             <template v-if="row.bindFieldId">
               {{ fmt(row.fieldBalance != null ? row.fieldBalance : row.cashBalance) }}
-              <el-tag size="small" type="warning" effect="plain" class="field-link-tag">字段联动</el-tag>
+              <el-tag size="small" type="success" effect="plain" class="field-link-tag">联动</el-tag>
             </template>
             <span v-else>{{ fmt(row.cashBalance) }}</span>
           </template>
