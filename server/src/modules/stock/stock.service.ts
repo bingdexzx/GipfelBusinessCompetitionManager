@@ -621,8 +621,11 @@ export class StockService {
    * 做市商在每轮推进时、撮合前自动挂单：
    * - 以当前价为基准，在上下各挂 N 档订单
    * - 每档价格偏离基准价 spreadPct%（如 2%）
-   * - 每档挂单量为 baseQuantity 股
+   * - 每档挂单量为 baseQuantity 股（越远越深）
    * - 买单价格递减，卖单价格递增，形成买卖盘深度
+   *
+   * 关键：做市商需要持有足够的股票才能卖，所以每轮先买入建仓，再卖出提供流动性。
+   * 撮合顺序是买价高的优先，所以做市商的买单（低于市价）通常不会与自己的卖单撮合。
    *
    * @param stock 股票对象
    * @param competitionId 比赛 id
@@ -658,8 +661,54 @@ export class StockService {
       });
     }
 
+    // 计算做市商需要的总卖量，确保持仓足够
+    let totalSellQty = 0;
+    for (let i = 1; i <= levels; i++) {
+      totalSellQty += baseQuantity * i;
+    }
+
+    // 检查做市商当前持仓，不足则先买入建仓（以当前价买入）
+    const mmHolding = await this.prisma.stockHolding.findUnique({
+      where: { fundsAccountId_stockId: { fundsAccountId: mmAccount.id, stockId: stock.id } },
+    });
+    const currentShares = mmHolding?.shares ?? 0;
+    const needShares = totalSellQty - currentShares;
+
     const orders: any[] = [];
     const currentRound = stock.round;
+
+    // 如果持仓不足，先以当前价买入建仓（这些买单会与玩家卖单或下一轮撮合）
+    if (needShares > 0) {
+      orders.push({
+        stockId: stock.id,
+        fundsAccountId: mmAccount.id,
+        side: "BUY",
+        price: basePrice, // 以当前价买入
+        quantity: needShares,
+        amount: Math.round(basePrice * needShares * 100) / 100,
+        status: "PENDING",
+        round: currentRound,
+        competitionId,
+      });
+      // 同时直接写入持仓（保证本轮卖单有库存）
+      // 注意：这样做是为了避免"先有鸡还是先有蛋"的问题
+      await this.prisma.stockHolding.upsert({
+        where: { fundsAccountId_stockId: { fundsAccountId: mmAccount.id, stockId: stock.id } },
+        create: {
+          fundsAccountId: mmAccount.id,
+          stockId: stock.id,
+          shares: totalSellQty,
+          costPrice: basePrice,
+          competitionId,
+        },
+        update: { shares: { increment: needShares } },
+      });
+      // 扣减做市商现金
+      await this.prisma.stockFundsAccount.update({
+        where: { id: mmAccount.id },
+        data: { cashBalance: { decrement: Math.round(basePrice * needShares * 100) / 100 } },
+      });
+    }
 
     for (let i = 1; i <= levels; i++) {
       const offset = spreadPct * i;
