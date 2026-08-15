@@ -13,28 +13,25 @@
           <template #header>
             <span class="card-title">股票列表</span>
           </template>
-          <el-table
-            :data="stocks"
-            highlight-current-row
-            :current-row-key="selectedStockId"
-            size="small"
-            @current-change="onSelectStock"
-            v-loading="loadingStocks"
-          >
-            <el-table-column prop="code" label="代码" width="90" />
-            <el-table-column prop="name" label="名称" min-width="110" show-overflow-tooltip />
-            <el-table-column label="当前价" width="100" align="right">
-              <template #default="{ row }">{{ fmt(row.currentPrice) }}</template>
-            </el-table-column>
-            <el-table-column label="涨跌幅" width="90" align="right">
-              <template #default="{ row }">
-                <span :class="changeClass(row.changePct)">{{ row.changePct > 0 ? "+" : "" }}{{ fmt(row.changePct) }}%</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="round" label="轮次" width="70" align="center" />
-            <el-table-column prop="industryPE" label="行业PE" width="80" align="right" />
-            <el-table-column prop="happiness" label="幸福度" width="80" align="right" />
-          </el-table>
+          <div v-loading="loadingStocks" class="stock-grid">
+            <div
+              v-for="s in stocks"
+              :key="s.id"
+              class="stock-card"
+              :class="{ active: s.id === selectedStockId }"
+              @click="selectStock(s.id)"
+            >
+              <div class="stock-main">
+                <div class="stock-name">{{ s.name }}</div>
+                <div class="stock-code">{{ s.code }}</div>
+              </div>
+              <div class="stock-change" :class="changeClass(s.changePct)">
+                <div class="chg-pct">{{ s.changePct > 0 ? "+" : "" }}{{ fmt(s.changePct) }}%</div>
+                <div class="chg-price">{{ s.changePrice > 0 ? "+" : "" }}{{ fmt(s.changePrice) }}</div>
+              </div>
+            </div>
+            <div v-if="!loadingStocks && stocks.length === 0" class="empty-hint">暂无股票</div>
+          </div>
         </el-card>
 
         <el-card shadow="never" class="block-card chart-card">
@@ -191,6 +188,7 @@ interface Stock {
   industryPE: number;
   happiness: number;
   changePct: number;
+  changePrice: number;
 }
 interface Candle {
   round: number;
@@ -266,15 +264,20 @@ async function reloadStocks() {
   loadingStocks.value = true;
   try {
     const res = await stockApi.list(1, 200, compStore.competitionId);
-    stocks.value = (res.items || res || []).map((s: any) => ({ ...s, changePct: 0 }) as Stock);
-    // 计算每只股票最近一轮涨跌幅
+    stocks.value = (res.items || res || []).map((s: any) => ({ ...s, changePct: 0, changePrice: 0 }) as Stock);
+    // 计算每只股票最近一轮涨跌幅与涨跌额（取最后一根 K 线的 close-open）
     await Promise.all(
       stocks.value.map(async (s) => {
         try {
           const c = await stockApi.candles(s.id);
-          s.changePct = c.candles.length ? c.candles[c.candles.length - 1].changePct : 0;
+          const last = c.candles.length ? c.candles[c.candles.length - 1] : null;
+          if (last) {
+            s.changePct = last.changePct;
+            s.changePrice = Math.round((last.close - last.open) * 100) / 100;
+          }
         } catch {
           s.changePct = 0;
+          s.changePrice = 0;
         }
       }),
     );
@@ -320,9 +323,6 @@ function selectStock(id: number) {
   if (s) trade.value.price = s.currentPrice;
   loadCandles(id);
   reloadAccountData();
-}
-function onSelectStock(row: any) {
-  if (row) selectStock(row.id);
 }
 async function onAccountChange() {
   await reloadAccountData();
@@ -428,6 +428,59 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+.stock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.stock-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border, #ebeef5);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--color-surface, #fff);
+  cursor: pointer;
+  transition: border-color var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard);
+}
+.stock-card:hover {
+  border-color: var(--color-primary, #409eff);
+}
+.stock-card.active {
+  border-color: var(--color-primary, #409eff);
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.15);
+}
+.stock-main {
+  min-width: 0;
+}
+.stock-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stock-code {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #92969e);
+  margin-top: 2px;
+}
+.stock-change {
+  text-align: right;
+  flex-shrink: 0;
+}
+.chg-pct {
+  font-size: 15px;
+  font-weight: 600;
+}
+.chg-price {
+  font-size: 12px;
+  margin-top: 2px;
 }
 .block-card {
   border-radius: var(--radius-md);
