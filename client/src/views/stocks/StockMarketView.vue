@@ -281,7 +281,8 @@ async function reloadStocks() {
         }
       }),
     );
-    if (!selectedStockId.value && stocks.value.length) selectStock(stocks.value[0].id);
+    const current = stocks.value.find((s) => s.id === selectedStockId.value);
+    if (!current && stocks.value.length) selectStock(stocks.value[0].id);
   } finally {
     loadingStocks.value = false;
   }
