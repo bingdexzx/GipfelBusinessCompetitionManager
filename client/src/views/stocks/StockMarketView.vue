@@ -24,6 +24,7 @@
               <div class="stock-main">
                 <div class="stock-name">{{ s.name }}</div>
                 <div class="stock-code">{{ s.code }}</div>
+                <div class="stock-price">现价 ¥{{ fmt(s.currentPrice) }}</div>
               </div>
               <div class="stock-change" :class="changeClass(s.changePct)">
                 <div class="chg-pct">{{ s.changePct > 0 ? "+" : "" }}{{ fmt(s.changePct) }}%</div>
@@ -484,6 +485,12 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--color-text-tertiary, #92969e);
   margin-top: 2px;
+}
+.stock-price {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #303133);
+  margin-top: 6px;
 }
 .stock-change {
   text-align: right;
