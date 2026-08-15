@@ -83,7 +83,7 @@
               </el-select>
             </el-form-item>
             <div v-if="currentAccount" class="cash-line">
-              现金余额：<b>{{ fmt(currentAccount.bindFieldId ? (currentAccount.fieldBalance ?? 0) : currentAccount.cashBalance) }}</b> 元
+              现金余额：<b>{{ fmt(currentAccount.fieldBalance != null ? currentAccount.fieldBalance : currentAccount.cashBalance) }}</b> 元
             </div>
 
             <el-form-item label="方向">

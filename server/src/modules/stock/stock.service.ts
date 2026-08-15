@@ -496,14 +496,23 @@ export class StockService {
     const where: Record<string, unknown> = { competitionId, name: { not: "AI做市商" } };
     if (operable) where.id = { in: operable };
     const accounts = await this.prisma.stockFundsAccount.findMany({ where, orderBy: { name: "asc" } });
-    // 为绑定了字段的账户附加字段余额
+    // 为绑定了字段的账户附加字段余额，并同步 cashBalance
     const result: any[] = [];
     for (const acc of accounts) {
       if (acc.bindFieldId && acc.companyId) {
         const fv = await this.prisma.companyFieldValue.findFirst({
           where: { companyId: acc.companyId, industryFieldId: acc.bindFieldId },
         });
-        result.push({ ...acc, fieldBalance: fv?.value != null ? Number(fv.value) : null });
+        const fieldBalance = fv?.value != null ? Number(fv.value) : null;
+        // 同步 cashBalance，避免其他接口读到旧值
+        if (fieldBalance != null && fieldBalance !== acc.cashBalance) {
+          await this.prisma.stockFundsAccount.update({
+            where: { id: acc.id },
+            data: { cashBalance: fieldBalance },
+          });
+          acc.cashBalance = fieldBalance;
+        }
+        result.push({ ...acc, fieldBalance });
       } else {
         result.push({ ...acc, fieldBalance: null });
       }
@@ -588,6 +597,7 @@ export class StockService {
     if (!this.can(user, "stock:edit")) throw new ForbiddenException("无股票管理权限");
     const account = await this.prisma.stockFundsAccount.findUnique({ where: { id } });
     if (!account) throw new NotFoundException("资金账户不存在");
+    if (account.name === "AI做市商") throw new BadRequestException("做市商账户不可修改");
     this.assertAccountOperable(account, user);
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) data.name = dto.name;
