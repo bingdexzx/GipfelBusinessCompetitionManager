@@ -84,6 +84,10 @@ export class CreateStockDto {
   happinessFieldRef?: string;
 
   @IsOptional()
+  @IsString()
+  industryAvgCarbonRefs?: string; // 行业碳排均值绑定的区域总览卡片引用数组 JSON [{region,cardId},...]
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   competitionId?: number; // 由 CompetitionScopeGuard 注入为操作人真实归属比赛
@@ -167,6 +171,10 @@ export class UpdateStockDto {
   @IsOptional()
   @IsString()
   happinessFieldRef?: string;
+
+  @IsOptional()
+  @IsString()
+  industryAvgCarbonRefs?: string; // 行业碳排均值绑定的区域总览卡片引用数组 JSON [{region,cardId},...]
 
   @IsOptional()
   @Type(() => Number)

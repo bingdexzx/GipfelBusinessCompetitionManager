@@ -587,6 +587,7 @@ model Stock {
   // —— 绑定区域总览卡片（实时引用）：JSON {region, cardId}，null/空 = 未绑定，使用上面的手动值 ——
   carbonFieldRef    String?  // 当前碳排绑定的区域总览卡片引用
   happinessFieldRef String?  // 当前幸福度绑定的区域总览卡片引用
+  industryAvgCarbonRefs String? // 行业碳排均值绑定的区域总览卡片引用数组 JSON [{region,cardId},...]，null/空=未绑定（用手动值）
   // —— 行业 PE 动态化 ——
   // industryPE 既是初始价公式的除数，也作为「有效 PE 缓存」：联动/随机得到的有效 PE 写入此列。
   // 联动模式：pbCompanyId + pbFieldId 同时非空，PE 取该公司产业字段实时值。

@@ -63,6 +63,28 @@ export class StockService {
   }
 
   /**
+   * 解析绑定引用数组字符串（JSON [{region, cardId}, ...]）。空 / 非法返回 []。
+   * 用于行业碳排均值「多字段绑定」：对多个区域总览字段取平均值。
+   */
+  private parseFieldRefs(raw?: string | null): { region: string; cardId: string }[] {
+    if (!raw) return [];
+    try {
+      const v = JSON.parse(raw);
+      if (!Array.isArray(v)) return [];
+      return v
+        .filter(
+          (x: any) =>
+            x &&
+            typeof x.region === "string" &&
+            (typeof x.cardId === "string" || typeof x.cardId === "number"),
+        )
+        .map((x: any) => ({ region: x.region, cardId: String(x.cardId) }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * 构建「区域:卡片 -> 实时值」映射，供股票绑定字段实时引用。
    * 仅当 competitionId 存在时查询；否则返回空映射（全部回退手动值）。
    */
@@ -106,12 +128,31 @@ export class StockService {
     return stock.happiness;
   }
 
-  /** 给股票对象附加有效碳排 / 幸福度（绑定字段时取实时值）与有效 PE。 */
+  /**
+   * 取行业碳排均值有效值：绑定多个区域总览字段时取「有效值的平均值」；
+   * 无有效绑定值（未绑定 / 全部失效 / 无值）时回退手动值 industryAvgCarbon。
+   */
+  private effectiveIndustryAvgCarbon(stock: any, map: Map<string, number | null>): number {
+    const refs = this.parseFieldRefs(stock.industryAvgCarbonRefs);
+    const vals: number[] = [];
+    for (const ref of refs) {
+      const v = map.get(`${ref.region}:${ref.cardId}`);
+      if (typeof v === "number") vals.push(v);
+    }
+    if (vals.length) {
+      const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+      return Math.round(avg * 100) / 100;
+    }
+    return stock.industryAvgCarbon;
+  }
+
+  /** 给股票对象附加有效碳排 / 幸福度 / 行业碳排均值（绑定字段时取实时值）与有效 PE。 */
   private decorateEffective(stock: any, map: Map<string, number | null>, pbMap?: Map<number, number>): any {
     return {
       ...stock,
       effectiveCurrentCarbon: this.effectiveCarbon(stock, map),
       effectiveHappiness: this.effectiveHappiness(stock, map),
+      effectiveIndustryAvgCarbon: this.effectiveIndustryAvgCarbon(stock, map),
       effectivePb: pbMap?.get(stock.id) ?? stock.industryPE,
       pbMode: stock.pbCompanyId && stock.pbFieldId ? "linked" : "random",
     };
@@ -349,6 +390,10 @@ export class StockService {
     if (dto.happinessFieldRef && !this.parseFieldRef(dto.happinessFieldRef)) {
       throw new BadRequestException("happinessFieldRef 格式非法，应为 JSON {region, cardId}");
     }
+    // 行业碳排均值多字段绑定：非空但非法（非数组或含非法项）则拒绝。
+    if (dto.industryAvgCarbonRefs && this.parseFieldRefs(dto.industryAvgCarbonRefs).length === 0) {
+      throw new BadRequestException("industryAvgCarbonRefs 格式非法，应为 JSON [{region, cardId}, ...]");
+    }
     const pb = await this.computePbData(null, dto);
     const initPrice = computeInitPrice(dto.initNetProfit, dto.totalShares, pb.industryPE);
     const stock = await this.prisma.stock.create({
@@ -363,6 +408,7 @@ export class StockService {
         happiness: dto.happiness,
         carbonFieldRef: dto.carbonFieldRef ?? null,
         happinessFieldRef: dto.happinessFieldRef ?? null,
+        industryAvgCarbonRefs: dto.industryAvgCarbonRefs ?? null,
         pbCompanyId: pb.pbCompanyId,
         pbFieldId: pb.pbFieldId,
         pbRandom: pb.pbRandom,
@@ -397,6 +443,12 @@ export class StockService {
         throw new BadRequestException("happinessFieldRef 格式非法，应为 JSON {region, cardId}");
       }
       data.happinessFieldRef = dto.happinessFieldRef ?? null;
+    }
+    if (dto.industryAvgCarbonRefs !== undefined) {
+      if (dto.industryAvgCarbonRefs && this.parseFieldRefs(dto.industryAvgCarbonRefs).length === 0) {
+        throw new BadRequestException("industryAvgCarbonRefs 格式非法，应为 JSON [{region, cardId}, ...]");
+      }
+      data.industryAvgCarbonRefs = dto.industryAvgCarbonRefs ?? null;
     }
     // 行业 PE 联动 / 随机：变更时重新解析有效 PE 并写入 industryPE（按需求不重算初始价）
     const pbChanged =
@@ -948,7 +1000,7 @@ export class StockService {
       sellAmount: match.totalSellAmount,
       happiness: this.effectiveHappiness(stock, fieldMap),
       currentCarbon: this.effectiveCarbon(stock, fieldMap),
-      industryAvgCarbon: stock.industryAvgCarbon,
+      industryAvgCarbon: this.effectiveIndustryAvgCarbon(stock, fieldMap),
     });
 
     // 账户现金 / 持仓运行时快照（撮合过程中实时扣减）

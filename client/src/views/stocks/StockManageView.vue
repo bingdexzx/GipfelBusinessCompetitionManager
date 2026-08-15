@@ -46,6 +46,12 @@
             <el-tag v-if="row.carbonFieldRef" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="行业碳排均值" min-width="120" align="right">
+          <template #default="{ row }">
+            <span>{{ fmt(row.effectiveIndustryAvgCarbon ?? row.industryAvgCarbon) }}</span>
+            <el-tag v-if="row.industryAvgCarbonRefs" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="130" fixed="right">
           <template #default="{ row }">
             <el-button size="small" text @click="openStockDialog(row)">编辑</el-button>
@@ -139,8 +145,24 @@
           </div>
           <el-input-number v-else v-model="stockForm.currentCarbon" :precision="2" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="行业碳排均值绑定字段">
+          <el-select
+            v-model="stockForm.industryAvgCarbonRefsSel"
+            multiple
+            filterable
+            placeholder="不绑定（手动输入），可多选取平均值"
+            clearable
+            style="width: 100%"
+          >
+            <el-option v-for="c in regionCards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="行业碳排均值" required>
-          <el-input-number v-model="stockForm.industryAvgCarbon" :precision="2" style="width: 100%" />
+          <div v-if="industryAvgCarbonBound" class="bound-value">
+            <span class="bound-num">{{ industryAvgCarbonLiveText }}</span>
+            <span class="muted">（实时引用 {{ stockForm.industryAvgCarbonRefsSel.length }} 个字段的平均值）</span>
+          </div>
+          <el-input-number v-else v-model="stockForm.industryAvgCarbon" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-form-item label="幸福度绑定字段">
           <el-select v-model="stockForm.happinessRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
@@ -298,7 +320,7 @@ const loadingStocks = ref(false);
 const loadingAccounts = ref(false);
 
 const stockDialogVisible = ref(false);
-const stockForm = ref<any>({ code: "", name: "", totalShares: 0, initNetProfit: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "", pbCompanyId: null, pbFieldId: null });
+const stockForm = ref<any>({ code: "", name: "", totalShares: 0, initNetProfit: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "", industryAvgCarbonRefsSel: [], pbCompanyId: null, pbFieldId: null });
 
 // PE 联动下拉数据源：比赛内公司及其可绑定的数值型产业字段
 const pbCompanies = ref<any[]>([]);
@@ -386,6 +408,35 @@ function buildRefJson(sel: string): string | null {
   return JSON.stringify({ region, cardId: cardIdStr });
 }
 
+// 行业碳排均值「多字段绑定」：JSON 数组字符串 ↔ 多选 key 数组（region::cardId）。
+function resolveRefsSel(refJson?: string | null): string[] {
+  if (!refJson) return [];
+  try {
+    const arr = JSON.parse(refJson);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(
+        (x: any) =>
+          x &&
+          typeof x.region === "string" &&
+          (typeof x.cardId === "string" || typeof x.cardId === "number"),
+      )
+      .map((x: any) => `${x.region}::${String(x.cardId)}`);
+  } catch {
+    return [];
+  }
+}
+function buildRefsJson(sel: string[]): string | null {
+  if (!sel || !sel.length) return null;
+  const refs = sel
+    .map((s) => {
+      const [region, cardIdStr] = s.split("::");
+      return cardIdStr ? { region, cardId: cardIdStr } : null;
+    })
+    .filter(Boolean);
+  return refs.length ? JSON.stringify(refs) : null;
+}
+
 const carbonBound = computed(() => !!stockForm.value.carbonRefSel);
 const carbonBoundCard = computed(() => findCard(stockForm.value.carbonRefSel));
 const carbonBoundLabel = computed(() => carbonBoundCard.value?.label || "");
@@ -403,6 +454,22 @@ const happinessLiveText = computed(() => {
   if (!c) return "—";
   if (!c.valid) return "字段失效";
   return c.value == null ? "—" : fmt(c.value);
+});
+const industryAvgCarbonBound = computed(() => (stockForm.value.industryAvgCarbonRefsSel || []).length > 0);
+const industryAvgCarbonLiveText = computed(() => {
+  const sels = stockForm.value.industryAvgCarbonRefsSel || [];
+  if (!sels.length) return "—";
+  const vals: number[] = [];
+  for (const sel of sels) {
+    const c = findCard(sel);
+    if (c && c.valid && c.value != null) {
+      const n = typeof c.value === "number" ? c.value : Number(c.value);
+      if (Number.isFinite(n)) vals.push(n);
+    }
+  }
+  if (!vals.length) return "字段失效";
+  const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+  return fmt(Math.round(avg * 100) / 100);
 });
 
 const accountDialogVisible = ref(false);
@@ -517,8 +584,8 @@ async function reloadAll() {
 
 function openStockDialog(row?: any) {
   stockForm.value = row
-    ? { ...row, carbonRefSel: resolveRefSel(row.carbonFieldRef), happinessRefSel: resolveRefSel(row.happinessFieldRef), pbCompanyId: row.pbCompanyId ?? null, pbFieldId: row.pbFieldId ?? null }
-    : { code: "", name: "", totalShares: 0, initNetProfit: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "", pbCompanyId: null, pbFieldId: null };
+    ? { ...row, carbonRefSel: resolveRefSel(row.carbonFieldRef), happinessRefSel: resolveRefSel(row.happinessFieldRef), industryAvgCarbonRefsSel: resolveRefsSel(row.industryAvgCarbonRefs), pbCompanyId: row.pbCompanyId ?? null, pbFieldId: row.pbFieldId ?? null }
+    : { code: "", name: "", totalShares: 0, initNetProfit: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "", industryAvgCarbonRefsSel: [], pbCompanyId: null, pbFieldId: null };
   // 确保 PE 联动下拉数据源就绪（编辑已关联股票时字段选项依赖它）
   if (!pbCompanies.value.length) loadPbSources();
   stockDialogVisible.value = true;
@@ -537,6 +604,7 @@ async function saveStock() {
     companyId: f.companyId || null,
     carbonFieldRef: buildRefJson(f.carbonRefSel),
     happinessFieldRef: buildRefJson(f.happinessRefSel),
+    industryAvgCarbonRefs: buildRefsJson(f.industryAvgCarbonRefsSel),
     pbCompanyId: f.pbCompanyId || null,
     pbFieldId: f.pbFieldId || null,
     competitionId: compStore.competitionId,
