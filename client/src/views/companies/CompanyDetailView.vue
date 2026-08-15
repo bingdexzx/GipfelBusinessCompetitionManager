@@ -37,9 +37,10 @@
         <el-table-column prop="name" label="字段" width="160" />
         <el-table-column label="值" min-width="440" class-name="value-col">
           <template #default="{ row }">
-            <!-- 计算字段：只读，展示自动计算结果 -->
+            <!-- 计算字段：只读，展示后端已算好的存储值（calcGraph 由服务端求值并写入 CompanyFieldValue，
+                 含 CONSUMER_DEMAND 等仅服务端可算的数据源，前端不可本地重算） -->
             <template v-if="row.isCalculated">
-              <span class="ro-num">{{ computedValue(row) }}</span>
+              <span class="ro-num">{{ row.editValue }}</span>
             </template>
             <!-- 以下均为只读展示：公司字段内容只能通过合同引擎修改 -->
             <template v-else-if="row.fieldType === 'STRING'">
@@ -88,7 +89,6 @@ import { ElMessage } from "element-plus";
 import api from "@/api/request";
 import { companyFieldsApi } from "@/api";
 import { useAuthStore } from "@/stores/auth";
-import { evalTree, parseFormulaTree } from "@/utils/expressionEval";
 import { onRealtime, offRealtime } from "@/realtime/socket";
 
 const route = useRoute();
@@ -184,7 +184,6 @@ async function loadFieldValues() {
       fieldType: f.fieldType,
       config: f.config || {},
       isCalculated: !!f.isCalculated,
-      formulaTree: parseFormulaTree(f.formula),
       editValue: normalizeEditValue(f, f.value),
     }));
   } catch (e: any) {
@@ -193,20 +192,6 @@ async function loadFieldValues() {
     fieldValuesLoading.value = false;
   }
 }
-// 计算字段的实时求值：以其它数值字段为作用域，遍历表达式树
-function computedValue(row: any): number {
-  if (!row.isCalculated) return Number(row.editValue) || 0;
-  try {
-    const scope: Record<string, any> = {};
-    for (const e of fieldEditors.value) {
-      if (e.fieldType === "NUMBER" && !e.isCalculated) scope[e.fieldKey] = Number(e.editValue) || 0;
-    }
-    return evalTree(row.formulaTree, scope);
-  } catch {
-    return 0;
-  }
-}
-
 // ===== 加载 =====
 async function load() {
   try {
