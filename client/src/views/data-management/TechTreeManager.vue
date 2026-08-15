@@ -162,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, nextTick } from "vue";
+import { ref, reactive, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { ElMessage } from "element-plus";
@@ -187,6 +187,9 @@ const detailData = ref<any>(null);
 const chartRef = ref<HTMLDivElement>();
 const panWrapRef = ref<HTMLDivElement>();
 let chart: echarts.ECharts | null = null;
+let resizeHandler: (() => void) | null = null;
+let mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+let mouseUpHandler: (() => void) | null = null;
 
 const form = reactive({
   name: "",
@@ -202,6 +205,25 @@ const formRules = {
 };
 
 onMounted(loadData);
+
+onBeforeUnmount(() => {
+  if (resizeHandler) {
+    window.removeEventListener("resize", resizeHandler);
+    resizeHandler = null;
+  }
+  if (mouseMoveHandler) {
+    window.removeEventListener("mousemove", mouseMoveHandler);
+    mouseMoveHandler = null;
+  }
+  if (mouseUpHandler) {
+    window.removeEventListener("mouseup", mouseUpHandler);
+    mouseUpHandler = null;
+  }
+  if (chart) {
+    chart.dispose();
+    chart = null;
+  }
+});
 
 // 切换比赛时先清空旧数据再重新拉取，避免停留在上一个比赛的旧数据。
 useCompetitionReload(loadData, () => {
@@ -357,6 +379,17 @@ function renderTree() {
   const uper = () => {
     panning = false;
   };
+
+  // 清理之前的事件监听器
+  if (mouseMoveHandler) {
+    window.removeEventListener("mousemove", mouseMoveHandler);
+  }
+  if (mouseUpHandler) {
+    window.removeEventListener("mouseup", mouseUpHandler);
+  }
+
+  mouseMoveHandler = mover;
+  mouseUpHandler = uper;
   window.addEventListener("mousemove", mover);
   window.addEventListener("mouseup", uper);
 
@@ -375,7 +408,13 @@ function renderTree() {
     { passive: false },
   );
 
-  window.addEventListener("resize", () => chart?.resize());
+  // 清理之前的 resize 事件监听器
+  if (resizeHandler) {
+    window.removeEventListener("resize", resizeHandler);
+  }
+
+  resizeHandler = () => chart?.resize();
+  window.addEventListener("resize", resizeHandler);
   chart.resize();
 }
 

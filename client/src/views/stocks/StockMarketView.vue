@@ -187,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import * as echarts from "echarts";
 import { Refresh, TrendCharts } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
@@ -630,8 +630,8 @@ function onResize() {
 }
 
 watch(selectedStock, (val) => {
-  if (!val) {
-    chart?.dispose();
+  if (!val && chart) {
+    chart.dispose();
     chart = null;
   }
 });
@@ -640,10 +640,12 @@ onMounted(async () => {
   window.addEventListener("resize", onResize);
   await reloadAll();
 });
-onUnmounted(() => {
+onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize);
-  chart?.dispose();
-  chart = null;
+  if (chart) {
+    chart.dispose();
+    chart = null;
+  }
 });
 </script>
 
