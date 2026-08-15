@@ -110,20 +110,20 @@
           </el-select>
           <div class="origin-hint">未选择产地表示任何节点都没有这种原料，无需填写价格。</div>
         </el-form-item>
-        <el-form-item label="碳排放系数"
+        <el-form-item label="碳排放系数" required
           ><el-input-number
             v-model="form.carbonEmissionCoefficient"
             :min="0"
             :precision="2"
             style="width: 100%"
         /></el-form-item>
-        <el-form-item label="类型">
+        <el-form-item label="类型" required>
           <el-select v-model="form.type" style="width: 100%">
             <el-option label="普通原料" value="NORMAL" />
             <el-option label="特殊原料" value="SPECIAL" />
           </el-select>
         </el-form-item>
-        <el-form-item label="价格">
+        <el-form-item label="价格" required>
           <template v-if="hasOrigin">
             <div class="np-editor">
               <div v-if="!originNodes.length" class="np-empty">（所选产地未匹配到地图节点）</div>
