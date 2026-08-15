@@ -97,11 +97,6 @@
         <el-form-item label="当前幸福度" required>
           <el-input-number v-model="stockForm.happiness" :min="0" :max="100" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="关联公司">
-          <el-select v-model="stockForm.companyId" placeholder="可选" clearable style="width: 100%">
-            <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-        </el-form-item>
         <el-alert
           v-if="!stockForm.id && previewInitPrice > 0"
           type="info"
