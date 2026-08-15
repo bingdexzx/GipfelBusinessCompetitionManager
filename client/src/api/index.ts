@@ -342,7 +342,7 @@ export const stockApi = {
   list: (page = 1, pageSize = 100, competitionId?: number) => {
     const params: Record<string, unknown> = { page, pageSize };
     if (competitionId != null) params.competitionId = competitionId;
-    return api.get("/stocks", { params });
+    return api.get("/stocks", { params, cache: false });
   },
   get: (id: number) => api.get(`/stocks/${id}`),
   candles: (id: number) => api.get(`/stocks/${id}/candles`, { cache: false }),
@@ -360,7 +360,7 @@ export const stockApi = {
   // 资金账户
   listAccounts: (competitionId: number) => {
     const params: Record<string, unknown> = { competitionId };
-    return api.get("/stocks/accounts/list", { params });
+    return api.get("/stocks/accounts/list", { params, cache: false });
   },
   getAccount: (id: number) => api.get(`/stocks/accounts/${id}`),
   accountHoldings: (id: number) => api.get(`/stocks/accounts/${id}/holdings`),

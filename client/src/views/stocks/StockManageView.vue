@@ -714,14 +714,17 @@ async function confirmAdvance() {
   }
 }
 
-// 绑定产业字段的资金账户，其现金余额实时等于字段值。
-// 当公司产业字段被合同 / 财年定时器 / 计算图改写时，刷新账户列表以同步现金显示。
+// 绑定产业字段的资金账户（现金实时=字段值）与 PE 联动的股票（有效PE=字段值），
+// 当公司产业字段被合同 / 财年定时器 / 计算图改写时，刷新账户与股票列表以同步显示。
 let accountReloadTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleAccountReload() {
   if (accountReloadTimer) clearTimeout(accountReloadTimer);
   accountReloadTimer = setTimeout(() => {
     accountReloadTimer = undefined;
-    if (compStore.competitionId) reloadAccounts();
+    if (compStore.competitionId) {
+      reloadAccounts();
+      reloadStocks();
+    }
   }, 400);
 }
 useResourceChanged("company-field", scheduleAccountReload);
