@@ -43,7 +43,12 @@ export const useAuthStore = defineStore("auth", () => {
       const action = perm.slice(colon + 1);
       if (action === "view") {
         // 读是某域内最弱能力：持有该域任意能力即视为可读
-        if (owned.some((p) => p === domain || p.startsWith(domain + ":"))) return true;
+        // 用 lastIndexOf 精确匹配域前缀，与后端 hasPermission 一致，避免 startsWith 误匹配嵌套域
+        if (owned.some((p) => {
+          if (p === domain) return true;
+          const lastColon = p.lastIndexOf(":");
+          return lastColon > 0 && p.slice(0, lastColon) === domain;
+        })) return true;
       } else if (action === "edit") {
         // 编辑可由管理满足（与后端 hasPermission 一致）
         if (owned.includes(`${domain}:manage`)) return true;
@@ -52,11 +57,9 @@ export const useAuthStore = defineStore("auth", () => {
     return false;
   }
 
-  /** 拥有给定权限中的任意一个即返回 true */
+  /** 拥有给定权限中的任意一个即返回 true（含同域蕴含） */
   function canAny(perms: string[]): boolean {
-    if (user.value?.role === "SUPER_ADMIN") return true;
-    const owned = user.value?.permissions ?? [];
-    return perms.some((p) => owned.includes(p));
+    return perms.some((p) => can(p));
   }
 
   /** 是否为某公司的审核员/管理员（用于合同审核范围判断） */

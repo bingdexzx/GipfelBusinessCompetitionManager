@@ -27,7 +27,6 @@ import { Ownership } from "../../common/guards/ownership.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
 import { RequirePermissions } from "../../permissions/permissions.decorator";
 
-@Ownership({ model: "stock" })
 @Controller("stocks")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @RequirePermissions("stock:view")
@@ -65,11 +64,13 @@ export class StockController {
   }
 
   @Get(":id")
+  @Ownership({ model: "stock" })
   findOne(@Param("id", ParseIntPipe) id: number) {
     return this.service.findOneStock(id);
   }
 
   @Get(":id/candles")
+  @Ownership({ model: "stock" })
   candles(@Param("id", ParseIntPipe) id: number) {
     return this.service.getCandles(id);
   }
@@ -82,12 +83,14 @@ export class StockController {
   }
 
   @Patch(":id")
+  @Ownership({ model: "stock" })
   @RequirePermissions("stock:manage")
   update(@CurrentUser() user: ReqUser, @Param("id", ParseIntPipe) id: number, @Body() dto: UpdateStockDto) {
     return this.service.updateStock(user, id, dto);
   }
 
   @Delete(":id")
+  @Ownership({ model: "stock" })
   @RequirePermissions("stock:manage")
   remove(
     @CurrentUser() user: ReqUser,
@@ -106,11 +109,13 @@ export class StockController {
   }
 
   @Get("accounts/:id")
+  @Ownership({ model: "stockFundsAccount" })
   getAccount(@CurrentUser() user: ReqUser, @Param("id", ParseIntPipe) id: number) {
     return this.service.findOneFundsAccount(user, id);
   }
 
   @Get("accounts/:id/holdings")
+  @Ownership({ model: "stockFundsAccount" })
   accountHoldings(@CurrentUser() user: ReqUser, @Param("id", ParseIntPipe) id: number) {
     return this.service.getAccountHoldings(user, id);
   }
@@ -122,12 +127,14 @@ export class StockController {
   }
 
   @Patch("accounts/:id")
+  @Ownership({ model: "stockFundsAccount" })
   @RequirePermissions("stock:edit")
   updateAccount(@CurrentUser() user: ReqUser, @Param("id", ParseIntPipe) id: number, @Body() dto: UpdateFundsAccountDto) {
     return this.service.updateFundsAccount(user, id, dto);
   }
 
   @Delete("accounts/:id")
+  @Ownership({ model: "stockFundsAccount" })
   @RequirePermissions("stock:edit")
   removeAccount(@CurrentUser() user: ReqUser, @Param("id", ParseIntPipe) id: number) {
     return this.service.removeFundsAccount(user, id);
@@ -152,6 +159,7 @@ export class StockController {
   }
 
   @Delete("orders/:id")
+  @Ownership({ model: "stockOrder" })
   cancel(@CurrentUser() user: ReqUser, @Param("id", ParseIntPipe) id: number) {
     return this.service.cancelOrder(user, id);
   }
