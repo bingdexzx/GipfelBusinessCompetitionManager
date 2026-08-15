@@ -76,7 +76,7 @@
     </el-card>
 
     <!-- 股票编辑对话框 -->
-    <el-dialog v-model="stockDialogVisible" :title="stockForm.id ? '编辑股票' : '新增股票'" width="560px">
+    <el-dialog append-to-body v-model="stockDialogVisible" :title="stockForm.id ? '编辑股票' : '新增股票'" width="560px">
       <el-form :model="stockForm" label-width="110px" size="small">
         <el-form-item label="股票代码" required>
           <el-input v-model="stockForm.code" :disabled="!!stockForm.id" placeholder="如 600001" />
@@ -121,7 +121,7 @@
     </el-dialog>
 
     <!-- 资金账户编辑对话框 -->
-    <el-dialog v-model="accountDialogVisible" :title="accountForm.id ? '编辑账户' : '新增资金账户'" width="520px">
+    <el-dialog append-to-body v-model="accountDialogVisible" :title="accountForm.id ? '编辑账户' : '新增资金账户'" width="520px">
       <el-form :model="accountForm" label-width="100px" size="small">
         <el-form-item label="账户名" required>
           <el-input v-model="accountForm.name" :disabled="!!accountForm.id" />
