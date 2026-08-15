@@ -13,6 +13,7 @@ import { hasPermission } from "../../permissions/catalog";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
 import { RealtimeService } from "../../realtime/realtime.service";
+import { RegionService } from "../regions/region.service";
 
 export interface ReqUser {
   id: number;
@@ -27,6 +28,7 @@ export class StockService {
   constructor(
     private prisma: PrismaService,
     private realtime: RealtimeService,
+    private regionService: RegionService,
   ) {}
 
   private isSuper(user: ReqUser) {
@@ -38,6 +40,69 @@ export class StockService {
   /** 是否为「高级管理」：可见全部账户、增删股票、推进轮次 */
   private isHighManager(user: ReqUser) {
     return this.isSuper(user) || this.can(user, "stock:manage");
+  }
+
+  /**
+   * 解析绑定引用字符串（JSON {region, cardId}）。空 / 非法返回 null。
+   * 非法非空串（无法解析为 {region:string, cardId:number}）视为格式错误。
+   */
+  private parseFieldRef(raw?: string | null): { region: string; cardId: number } | null {
+    if (!raw) return null;
+    try {
+      const v = JSON.parse(raw);
+      if (v && typeof v.region === "string" && typeof v.cardId === "number") {
+        return { region: v.region, cardId: v.cardId };
+      }
+    } catch {
+      /* 解析失败 */
+    }
+    return null;
+  }
+
+  /**
+   * 构建「区域:卡片 -> 实时值」映射，供股票绑定字段实时引用。
+   * 仅当 competitionId 存在时查询；否则返回空映射（全部回退手动值）。
+   */
+  private async resolveFieldValueMap(competitionId?: number): Promise<Map<string, number | null>> {
+    const map = new Map<string, number | null>();
+    if (!competitionId) return map;
+    const overview = await this.regionService.getMapOverview(competitionId);
+    for (const r of overview) {
+      for (const card of r.cards) {
+        const key = `${r.region}:${card.id}`;
+        map.set(key, card.valid && typeof card.value === "number" ? (card.value as number) : null);
+      }
+    }
+    return map;
+  }
+
+  /** 取当前碳排有效值：绑定且卡片有值则用实时值，否则（未绑定 / 失效）用手动值。 */
+  private effectiveCarbon(stock: any, map: Map<string, number | null>): number {
+    const ref = this.parseFieldRef(stock.carbonFieldRef);
+    if (ref) {
+      const v = map.get(`${ref.region}:${ref.cardId}`);
+      if (typeof v === "number") return v;
+    }
+    return stock.currentCarbon;
+  }
+
+  /** 取当前幸福度有效值：绑定且卡片有值则用实时值，否则用手动值。 */
+  private effectiveHappiness(stock: any, map: Map<string, number | null>): number {
+    const ref = this.parseFieldRef(stock.happinessFieldRef);
+    if (ref) {
+      const v = map.get(`${ref.region}:${ref.cardId}`);
+      if (typeof v === "number") return v;
+    }
+    return stock.happiness;
+  }
+
+  /** 给股票对象附加有效碳排 / 幸福度（绑定字段时取实时值）。 */
+  private decorateEffective(stock: any, map: Map<string, number | null>): any {
+    return {
+      ...stock,
+      effectiveCurrentCarbon: this.effectiveCarbon(stock, map),
+      effectiveHappiness: this.effectiveHappiness(stock, map),
+    };
   }
 
   /**
@@ -77,19 +142,22 @@ export class StockService {
   async findAllStocks(page = 1, pageSize = 50, competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
     const baseWhere = competitionId ? { competitionId } : {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
+    const fieldMap = await this.resolveFieldValueMap(competitionId);
+    const decorate = (items: any[]) => items.map((s) => this.decorateEffective(s, fieldMap));
     if (incremental) {
       const items = await this.prisma.stock.findMany({ where, orderBy: { code: "asc" } });
+      const decorated = decorate(items);
       const existingIds = requireExistingIds
         ? (await this.prisma.stock.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(items, existingIds);
+      return buildIncrementalResult(decorated, existingIds);
     }
     const skip = (page - 1) * pageSize;
     const [items, total] = await Promise.all([
       this.prisma.stock.findMany({ where, skip, take: pageSize, orderBy: { code: "asc" } }),
       this.prisma.stock.count({ where }),
     ]);
-    return { items, total, page, pageSize };
+    return { items: decorate(items), total, page, pageSize };
   }
 
   async findOneStock(id: number) {
@@ -113,6 +181,13 @@ export class StockService {
     if (!competitionId) throw new BadRequestException("缺少比赛上下文");
     const existing = await this.prisma.stock.findFirst({ where: { competitionId, code: dto.code } });
     if (existing) throw new ConflictException("股票代码已存在");
+    // 校验绑定引用格式（非空但非法则拒绝）
+    if (dto.carbonFieldRef && !this.parseFieldRef(dto.carbonFieldRef)) {
+      throw new BadRequestException("carbonFieldRef 格式非法，应为 JSON {region, cardId}");
+    }
+    if (dto.happinessFieldRef && !this.parseFieldRef(dto.happinessFieldRef)) {
+      throw new BadRequestException("happinessFieldRef 格式非法，应为 JSON {region, cardId}");
+    }
     const initPrice = computeInitPrice(dto.initNetProfit, dto.totalShares, dto.industryPE);
     const stock = await this.prisma.stock.create({
       data: {
@@ -124,6 +199,8 @@ export class StockService {
         currentCarbon: dto.currentCarbon,
         industryAvgCarbon: dto.industryAvgCarbon,
         happiness: dto.happiness,
+        carbonFieldRef: dto.carbonFieldRef ?? null,
+        happinessFieldRef: dto.happinessFieldRef ?? null,
         initPrice,
         currentPrice: initPrice,
         round: 0,
@@ -144,6 +221,18 @@ export class StockService {
     if (dto.currentCarbon !== undefined) data.currentCarbon = dto.currentCarbon;
     if (dto.industryAvgCarbon !== undefined) data.industryAvgCarbon = dto.industryAvgCarbon;
     if (dto.happiness !== undefined) data.happiness = dto.happiness;
+    if (dto.carbonFieldRef !== undefined) {
+      if (dto.carbonFieldRef && !this.parseFieldRef(dto.carbonFieldRef)) {
+        throw new BadRequestException("carbonFieldRef 格式非法，应为 JSON {region, cardId}");
+      }
+      data.carbonFieldRef = dto.carbonFieldRef ?? null;
+    }
+    if (dto.happinessFieldRef !== undefined) {
+      if (dto.happinessFieldRef && !this.parseFieldRef(dto.happinessFieldRef)) {
+        throw new BadRequestException("happinessFieldRef 格式非法，应为 JSON {region, cardId}");
+      }
+      data.happinessFieldRef = dto.happinessFieldRef ?? null;
+    }
     // 修改股本 / 净利润 / 行业 PE 会重算初始价
     const recompute =
       dto.totalShares !== undefined || dto.initNetProfit !== undefined || dto.industryPE !== undefined;
@@ -358,16 +447,17 @@ export class StockService {
     const where: Record<string, unknown> = { competitionId };
     if (dto.stockIds && dto.stockIds.length) where.id = { in: dto.stockIds };
     const stocks = await this.prisma.stock.findMany({ where });
+    const fieldMap = await this.resolveFieldValueMap(competitionId);
     const results: any[] = [];
     for (const stock of stocks) {
-      const r = await this.advanceOneStock(stock, competitionId);
+      const r = await this.advanceOneStock(stock, competitionId, fieldMap);
       if (r) results.push(r);
     }
     this.realtime.broadcastToCompetition(competitionId, "stock:round-advanced", { competitionId, count: results.length });
     return { advanced: results.length, results };
   }
 
-  private async advanceOneStock(stock: any, competitionId: number) {
+  private async advanceOneStock(stock: any, competitionId: number, fieldMap: Map<string, number | null>) {
     const orders = await this.prisma.stockOrder.findMany({
       where: { stockId: stock.id, competitionId, round: stock.round, status: "PENDING" },
       orderBy: { createdAt: "asc" },
@@ -382,8 +472,8 @@ export class StockService {
       lastClose: stock.currentPrice,
       buyAmount: match.totalBuyAmount,
       sellAmount: match.totalSellAmount,
-      happiness: stock.happiness,
-      currentCarbon: stock.currentCarbon,
+      happiness: this.effectiveHappiness(stock, fieldMap),
+      currentCarbon: this.effectiveCarbon(stock, fieldMap),
       industryAvgCarbon: stock.industryAvgCarbon,
     });
 

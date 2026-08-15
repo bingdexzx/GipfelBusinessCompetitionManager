@@ -269,6 +269,19 @@ export class RegionService {
     return result;
   }
 
+  /**
+   * 取某区域总览卡片的实时字段值，供外部模块「绑定区域总览字段」实时引用。
+   * 找不到区域 / 卡片 / 卡片失效时返回 null。
+   */
+  async getCardValue(competitionId: number | undefined, region: string, cardId: number): Promise<number | null> {
+    const overview = await this.getMapOverview(competitionId);
+    const regionEntry = overview.find((r) => r.region === region);
+    if (!regionEntry) return null;
+    const card = regionEntry.cards.find((c) => c.id === cardId);
+    if (!card || !card.valid) return null;
+    return typeof card.value === "number" ? card.value : null;
+  }
+
   /** 按区域名保存总览卡片配置（region 不存在则 find-or-create）。 */
   async saveOverviewCardsByName(competitionId: number | undefined, name: string, dto: SaveOverviewCardsDto) {
     let region = await this.getRegionByName(competitionId, name);

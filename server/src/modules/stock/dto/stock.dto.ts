@@ -52,6 +52,15 @@ export class CreateStockDto {
   @IsInt()
   companyId?: number; // 关联商赛公司（可选）
 
+  // 绑定区域总览卡片（实时引用）：JSON {region, cardId}，未绑定留空
+  @IsOptional()
+  @IsString()
+  carbonFieldRef?: string;
+
+  @IsOptional()
+  @IsString()
+  happinessFieldRef?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -102,6 +111,15 @@ export class UpdateStockDto {
   @Type(() => Number)
   @IsInt()
   companyId?: number | null;
+
+  // 绑定区域总览卡片（实时引用）：JSON {region, cardId}，未绑定留空
+  @IsOptional()
+  @IsString()
+  carbonFieldRef?: string;
+
+  @IsOptional()
+  @IsString()
+  happinessFieldRef?: string;
 }
 
 // 资金账户

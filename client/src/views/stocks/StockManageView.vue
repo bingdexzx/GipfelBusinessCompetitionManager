@@ -28,8 +28,18 @@
         <el-table-column prop="round" label="轮次" width="64" align="center" />
         <el-table-column prop="totalShares" label="总股本(万)" width="90" align="right" />
         <el-table-column prop="industryPE" label="行业PE" width="72" align="right" />
-        <el-table-column prop="happiness" label="幸福度" width="72" align="right" />
-        <el-table-column prop="currentCarbon" label="碳排" width="72" align="right" />
+        <el-table-column label="幸福度" width="92" align="right">
+          <template #default="{ row }">
+            <span>{{ fmt(row.effectiveHappiness ?? row.happiness) }}</span>
+            <el-tag v-if="row.happinessFieldRef" size="small" type="info" effect="plain" class="bind-tag">绑</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="碳排" width="92" align="right">
+          <template #default="{ row }">
+            <span>{{ fmt(row.effectiveCurrentCarbon ?? row.currentCarbon) }}</span>
+            <el-tag v-if="row.carbonFieldRef" size="small" type="info" effect="plain" class="bind-tag">绑</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="130" fixed="right">
           <template #default="{ row }">
             <el-button size="small" text @click="openStockDialog(row)">编辑</el-button>
@@ -88,14 +98,38 @@
         <el-form-item label="行业PE" required>
           <el-input-number v-model="stockForm.industryPE" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="当前碳排" required>
-          <el-input-number v-model="stockForm.currentCarbon" :precision="2" style="width: 100%" />
+        <el-form-item label="碳排绑定字段">
+          <el-select v-model="stockForm.carbonRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
+            <el-option label="不绑定（手动输入）" value="" />
+            <el-option-group v-for="grp in regionGroups" :key="grp.region" :label="grp.region">
+              <el-option v-for="c in grp.cards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="当前碳排">
+          <div v-if="carbonBound" class="bound-value">
+            <span class="bound-num">{{ carbonLiveText }}</span>
+            <span class="muted">（实时引用「{{ carbonBoundLabel }}」）</span>
+          </div>
+          <el-input-number v-else v-model="stockForm.currentCarbon" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-form-item label="行业碳排均值" required>
           <el-input-number v-model="stockForm.industryAvgCarbon" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="当前幸福度" required>
-          <el-input-number v-model="stockForm.happiness" :min="0" :max="100" :precision="2" style="width: 100%" />
+        <el-form-item label="幸福度绑定字段">
+          <el-select v-model="stockForm.happinessRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
+            <el-option label="不绑定（手动输入）" value="" />
+            <el-option-group v-for="grp in regionGroups" :key="grp.region" :label="grp.region">
+              <el-option v-for="c in grp.cards" :key="c.key" :label="c.label" :value="c.key" :disabled="!c.valid" />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="当前幸福度">
+          <div v-if="happinessBound" class="bound-value">
+            <span class="bound-num">{{ happinessLiveText }}</span>
+            <span class="muted">（实时引用「{{ happinessBoundLabel }}」）</span>
+          </div>
+          <el-input-number v-else v-model="stockForm.happiness" :min="0" :max="100" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-alert
           v-if="!stockForm.id && previewInitPrice > 0"
@@ -146,7 +180,7 @@
 import { ref, computed, onMounted } from "vue";
 import { Plus, Refresh, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { stockApi, companiesApi } from "@/api";
+import { stockApi, companiesApi, regionsApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 
@@ -166,6 +200,10 @@ interface Stock {
   industryPE: number;
   happiness: number;
   currentCarbon: number;
+  carbonFieldRef?: string | null;
+  happinessFieldRef?: string | null;
+  effectiveCurrentCarbon?: number;
+  effectiveHappiness?: number;
 }
 interface Account {
   id: number;
@@ -187,7 +225,77 @@ const loadingStocks = ref(false);
 const loadingAccounts = ref(false);
 
 const stockDialogVisible = ref(false);
-const stockForm = ref<any>({ code: "", name: "", totalShares: 0, initNetProfit: 0, industryPE: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null });
+const stockForm = ref<any>({ code: "", name: "", totalShares: 0, initNetProfit: 0, industryPE: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "" });
+
+// 区域总览卡片（用于绑定股票碳排/幸福度到区域总览字段）
+const regionOverview = ref<any[]>([]);
+const regionGroups = computed(() => {
+  const groups: Record<string, any[]> = {};
+  for (const r of regionOverview.value) {
+    if (!r.cards || !r.cards.length) continue;
+    const cards = r.cards.map((c: any) => ({
+      key: `${r.region}::${c.id}`,
+      region: r.region,
+      cardId: c.id,
+      label: c.displayName || c.fieldName || `卡片#${c.id}`,
+      value: c.value,
+      valid: c.valid,
+    }));
+    (groups[r.region] = groups[r.region] || []).push(...cards);
+  }
+  return Object.keys(groups).map((region) => ({ region, cards: groups[region] }));
+});
+
+function findCard(sel: string): any | null {
+  if (!sel) return null;
+  const [region, cardIdStr] = sel.split("::");
+  const cardId = Number(cardIdStr);
+  for (const r of regionOverview.value) {
+    if (r.region === region) {
+      const c = r.cards.find((x: any) => x.id === cardId);
+      if (c) return { ...c, region };
+    }
+  }
+  return null;
+}
+function parseRef(refJson?: string | null): { region: string; cardId: number } | null {
+  if (!refJson) return null;
+  try {
+    const v = JSON.parse(refJson);
+    if (v && typeof v.region === "string" && typeof v.cardId === "number") return v;
+  } catch {
+    /* 忽略 */
+  }
+  return null;
+}
+function resolveRefSel(refJson?: string | null): string {
+  const ref = parseRef(refJson);
+  return ref ? `${ref.region}::${ref.cardId}` : "";
+}
+function buildRefJson(sel: string): string | null {
+  if (!sel) return null;
+  const [region, cardIdStr] = sel.split("::");
+  return JSON.stringify({ region, cardId: Number(cardIdStr) });
+}
+
+const carbonBound = computed(() => !!stockForm.value.carbonRefSel);
+const carbonBoundCard = computed(() => findCard(stockForm.value.carbonRefSel));
+const carbonBoundLabel = computed(() => carbonBoundCard.value?.label || "");
+const carbonLiveText = computed(() => {
+  const c = carbonBoundCard.value;
+  if (!c) return "—";
+  if (!c.valid) return "字段失效";
+  return c.value == null ? "—" : fmt(c.value);
+});
+const happinessBound = computed(() => !!stockForm.value.happinessRefSel);
+const happinessBoundCard = computed(() => findCard(stockForm.value.happinessRefSel));
+const happinessBoundLabel = computed(() => happinessBoundCard.value?.label || "");
+const happinessLiveText = computed(() => {
+  const c = happinessBoundCard.value;
+  if (!c) return "—";
+  if (!c.valid) return "字段失效";
+  return c.value == null ? "—" : fmt(c.value);
+});
 const previewInitPrice = computed(() => {
   const { initNetProfit, totalShares, industryPE } = stockForm.value;
   if (!totalShares || !industryPE) return 0;
@@ -236,14 +344,22 @@ async function reloadCompanies() {
   const res = await companiesApi.list({ competitionId: compStore.competitionId });
   companies.value = res.items || res || [];
 }
+async function loadRegionOverview() {
+  if (!compStore.competitionId) return;
+  try {
+    regionOverview.value = (await regionsApi.mapOverview(compStore.competitionId)) || [];
+  } catch {
+    regionOverview.value = [];
+  }
+}
 async function reloadAll() {
-  await Promise.all([reloadStocks(), reloadAccounts(), reloadCompanies()]);
+  await Promise.all([reloadStocks(), reloadAccounts(), reloadCompanies(), loadRegionOverview()]);
 }
 
 function openStockDialog(row?: any) {
   stockForm.value = row
-    ? { ...row }
-    : { code: "", name: "", totalShares: 0, initNetProfit: 0, industryPE: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null };
+    ? { ...row, carbonRefSel: resolveRefSel(row.carbonFieldRef), happinessRefSel: resolveRefSel(row.happinessFieldRef) }
+    : { code: "", name: "", totalShares: 0, initNetProfit: 0, industryPE: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "" };
   stockDialogVisible.value = true;
 }
 async function saveStock() {
@@ -259,6 +375,8 @@ async function saveStock() {
     industryAvgCarbon: f.industryAvgCarbon,
     happiness: f.happiness,
     companyId: f.companyId || null,
+    carbonFieldRef: buildRefJson(f.carbonRefSel),
+    happinessFieldRef: buildRefJson(f.happinessRefSel),
     competitionId: compStore.competitionId,
   };
   try {
@@ -379,5 +497,21 @@ onMounted(reloadAll);
 }
 .muted {
   color: var(--color-text-tertiary, #92969e);
+}
+.bound-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+.bound-num {
+  font-weight: 600;
+}
+.bind-tag {
+  margin-left: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  height: 18px;
+  padding: 0 5px;
 }
 </style>

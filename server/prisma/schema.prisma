@@ -574,9 +574,12 @@ model Stock {
   totalShares      Float     // 总股本（万股）
   initNetProfit    Float     // 初始净利润（万）
   industryPE       Float     // 行业 PE
-  currentCarbon    Float     // 当前碳排
+  currentCarbon    Float     // 当前碳排（未绑定区域总览字段时使用；绑定后由字段实时值覆盖）
   industryAvgCarbon Float    // 行业碳排均值
-  happiness        Float     // 当前幸福度
+  happiness        Float     // 当前幸福度（未绑定区域总览字段时使用；绑定后由字段实时值覆盖）
+  // —— 绑定区域总览卡片（实时引用）：JSON {region, cardId}，null/空 = 未绑定，使用上面的手动值 ——
+  carbonFieldRef    String?  // 当前碳排绑定的区域总览卡片引用
+  happinessFieldRef String?  // 当前幸福度绑定的区域总览卡片引用
   // —— 派生 / 运行时字段 ——
   initPrice        Float     // 初始价 = ROUND(initNetProfit*10000/totalShares/industryPE, 2)
   currentPrice     Float     // 当前价（最新收盘价），初始 = initPrice
