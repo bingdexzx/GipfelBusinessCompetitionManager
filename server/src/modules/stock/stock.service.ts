@@ -441,7 +441,7 @@ export class StockService {
 
   async findAllFundsAccounts(user: ReqUser, competitionId: number) {
     const operable = await this.getOperableAccountIds(user, competitionId);
-    const where: Record<string, unknown> = { competitionId };
+    const where: Record<string, unknown> = { competitionId, name: { not: "AI做市商" } };
     if (operable) where.id = { in: operable };
     const accounts = await this.prisma.stockFundsAccount.findMany({ where, orderBy: { name: "asc" } });
     return accounts;
