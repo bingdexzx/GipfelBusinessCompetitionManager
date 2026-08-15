@@ -1,10 +1,15 @@
-import { app, BrowserWindow, ipcMain, Menu, session } from 'electron'
 import { join } from 'path'
 import Store from './utils/store'
 
-const store = new Store()
+// 使用 Function 包裹 require 来避免 vite/rollup 对 import 的静态分析和转换。
+// vite-plugin-electron 标记 electron 为 external，但编译后的 CJS require('electron')
+// 在某些环境下会解析到 node_modules/electron（导出路径字符串）而非 Electron 内置 API。
+// 通过 new Function 确保 require 在运行时由 Electron 的模块系统解析。
+const electron = new Function('return require("electron")')() as typeof import('electron')
+const { app, BrowserWindow, ipcMain, Menu, session } = electron
 
-let mainWindow: BrowserWindow | null = null
+let store: Store
+let mainWindow: InstanceType<typeof BrowserWindow> | null = null
 
 function createWindow() {
   Menu.setApplicationMenu(null)
@@ -31,6 +36,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Store 必须在 app ready 之后实例化，否则 app.getPath 不可用
+  store = new Store()
   // session 必须等 app ready 才能访问（顶层访问会抛 “Session can only be received when app is ready”）。
   session.defaultSession.setCertificateVerifyProc((request, callback) => {
     if (request.errorCode === 0) {
