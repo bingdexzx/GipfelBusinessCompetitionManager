@@ -274,7 +274,7 @@
 import { ref, computed, onMounted } from "vue";
 import { Plus, Refresh, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { stockApi, companiesApi, regionsApi } from "@/api";
+import { stockApi, companiesApi, regionsApi, companyFieldsApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
@@ -524,10 +524,11 @@ async function onAccountFieldChange(val?: number | null) {
     const company = res.companies?.find((c: any) => c.id === accountForm.value.companyId);
     const field = company?.fields?.find((f: any) => f.id === fieldId);
     if (field) {
-      // 需要获取字段的实际值，通过查询公司字段值
-      const fieldValues = await companiesApi.getFieldValues(accountForm.value.companyId);
-      const fieldValue = fieldValues.find((fv: any) => fv.industryFieldId === fieldId);
-      accountForm.value._bindFieldValue = fieldValue?.value != null ? Number(fieldValue.value) : null;
+      // 需要获取字段的实际值，通过查询公司字段值；无写入值则回退字段初始值 defaultValue
+      const res = await companyFieldsApi.get(accountForm.value.companyId);
+      const fieldValue = (res?.fields || []).find((fv: any) => fv.id === fieldId);
+      const raw = fieldValue?.value != null ? fieldValue.value : fieldValue?.defaultValue;
+      accountForm.value._bindFieldValue = raw != null ? Number(raw) : null;
       if (accountForm.value._bindFieldValue != null) {
         accountForm.value.cashBalance = accountForm.value._bindFieldValue;
       }

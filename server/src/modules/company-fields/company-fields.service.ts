@@ -196,6 +196,7 @@ export class CompanyFieldsService {
           isCalculated: !!f.isCalculated,
           formula: f.formula,
           value: v ? v.value : null,
+          defaultValue: f.defaultValue,
           updatedAt: v ? v.updatedAt : null,
           // 透出 visible，便于前端（区域总览数据框下拉等）兜底过滤隐藏字段
           visible: f.visible !== false,
