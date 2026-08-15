@@ -364,6 +364,7 @@ function renderChart() {
   if (!chartRef.value) return;
   if (!chart) chart = echarts.init(chartRef.value);
 
+  // ECharts 蜡烛图数据格式：[开盘, 收盘, 最低, 最高]
   const ohlc = candles.value.map((c) => [c.open, c.close, c.low, c.high]);
   const volumes = candles.value.map((c) => ({
     value: c.close,
@@ -526,9 +527,10 @@ function renderChart() {
           color0: downColor,      // 跌：绿填充
           borderColor: upColor,
           borderColor0: downColor,
+          borderWidth: 1,
         },
-        barMaxWidth: 16,
-        barMinWidth: 4,
+        barMaxWidth: 20,
+        barMinWidth: 8,
       },
       // MA5
       {
