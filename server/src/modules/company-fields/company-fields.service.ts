@@ -315,6 +315,83 @@ export class CompanyFieldsService {
   }
 
   /**
+   * 消费者需求变更后的级联重算入口。
+   *
+   * 计算字段可通过产业计算图的 CONSUMER_DEMAND 数据源引用「本产业实例所在地所属区域下的
+   * 消费者需求件数之和」。消费者需求被增/删/改后，该聚合值随之变化，但此前从未触发依赖它的
+   * 计算字段重算，导致其显示值停留在旧值（即"产品件数求和同步失败"缺陷）。
+   *
+   * 本方法按区域收窄：仅重算「所在地所属区域与变更需求区域相交」且产业计算图含 CONSUMER_DEMAND
+   * 节点的公司，避免全量重算；重算后统一广播 company-field:changed，前端三处（公司详情/区域总览/
+   * 仪表盘）监听该事件会自动重拉字段值。
+   *
+   * 区域匹配与 industry-calc-engine.resolveConsumerDemandTotal 保持对称：公司命中当且仅当
+   * 变更需求的 region ∈ {公司所在地节点名, 所在地节点所属 region}。
+   *
+   * @param competitionId 比赛 id
+   * @param demandRegion   被变更的消费者需求的 region（可能为区域名或节点名）
+   */
+  async recomputeConsumerDemandDependentFields(
+    competitionId: number,
+    demandRegion: string,
+  ) {
+    if (!demandRegion) return;
+    const companies = await this.prisma.company.findMany({
+      where: { competitionId },
+      include: { industryType: { include: { fields: true } } },
+    });
+    if (companies.length === 0) return;
+
+    // 本比赛地图节点，用于把公司「所在地节点名」解析为其所属 region。
+    const nodes = await this.prisma.mapNode.findMany({
+      where: { competitionId },
+      select: { name: true, region: true },
+    });
+    const nodeByName = new Map<string, any>(nodes.map((n) => [n.name, n]));
+
+    for (const c of companies) {
+      if (!c.industryTypeId || !c.industryType) continue;
+      const fields = (c.industryType.fields || []) as any[];
+      // 仅当该产业类型存在「引用 CONSUMER_DEMAND 的计算字段」时才可能受影响。
+      const hasCd = fields.some(
+        (f) => f.isCalculated && f.calcGraph && f.calcGraph.includes("CONSUMER_DEMAND"),
+      );
+      if (!hasCd) continue;
+
+      // 解析公司所在地节点名（location 字段，可能以 JSON 编码的节点名存储）。
+      const locField = fields.find((f) => f.fieldKey === "location");
+      let locationNodeName: string | null = null;
+      if (locField) {
+        const v = await this.prisma.companyFieldValue.findFirst({
+          where: { companyId: c.id, industryFieldId: locField.id },
+        });
+        const raw = v?.value ?? locField.defaultValue;
+        locationNodeName = parseFieldStringValue(raw);
+      }
+      if (!locationNodeName) continue;
+
+      // 公司所属区域集合 = {所在地节点名, 所在地节点所属 region}，
+      // 与 resolveConsumerDemandTotal 的 regions 集合对称；需求 region 落在该集合内即受影响。
+      const companyRegions = new Set<string>([locationNodeName]);
+      const node = nodeByName.get(locationNodeName);
+      if (node?.region) companyRegions.add(node.region);
+      if (!companyRegions.has(demandRegion)) continue;
+
+      try {
+        await this.recomputeCalculatedFieldsForCompany(c.id);
+        this.realtime.broadcastToCompetition(competitionId, "company-field:changed", {
+          companyId: c.id,
+          competitionId,
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `消费者需求变更触发公司 #${c.id} 计算字段重算失败：${err?.message || err}`,
+        );
+      }
+    }
+  }
+
+  /**
    * 财年定时器触发入口：把本比赛中所有「启用了该触发时机」的产业字段，
    * 自动写为其配置设定值（按字段类型序列化），覆盖该产业类型下的全部公司，随后级联重算下游计算字段。
    *

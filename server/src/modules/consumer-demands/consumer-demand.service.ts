@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeService } from "../../realtime/realtime.service";
+import { CompanyFieldsService } from "../company-fields/company-fields.service";
 import { CreateConsumerDemandDto, UpdateConsumerDemandDto } from "./dto/consumer-demand.dto";
 import { assertSameCompetition } from "../../common/scope";
 
@@ -9,6 +10,7 @@ export class ConsumerDemandService {
   constructor(
     private prisma: PrismaService,
     private realtime: RealtimeService,
+    private companyFields: CompanyFieldsService,
   ) {}
 
   /** 按比赛 + 可选区域过滤列出消费者需求（区域总览前端会按区域分组）。 */
@@ -51,6 +53,11 @@ export class ConsumerDemandService {
       },
     });
     this.realtime.emitResourceChanged("consumer-demand", item.id, item.competitionId ?? null, "created");
+    // 需求变更会影响依赖 CONSUMER_DEMAND 数据源的计算字段（如产品件数求和），
+    // 重算本比赛下受影响公司的计算字段并广播，前端三处展示会自动刷新。
+    if (item.competitionId != null) {
+      await this.companyFields.recomputeConsumerDemandDependentFields(item.competitionId, item.region);
+    }
     return item;
   }
 
@@ -66,6 +73,9 @@ export class ConsumerDemandService {
     if (dto.note !== undefined) data.note = dto.note;
     const updated = await this.prisma.consumerDemand.update({ where: { id }, data });
     this.realtime.emitResourceChanged("consumer-demand", id, updated.competitionId ?? null, "updated");
+    if (updated.competitionId != null) {
+      await this.companyFields.recomputeConsumerDemandDependentFields(updated.competitionId, updated.region);
+    }
     return updated;
   }
 
@@ -74,6 +84,9 @@ export class ConsumerDemandService {
     assertSameCompetition(item.competitionId, competitionId);
     await this.prisma.consumerDemand.delete({ where: { id } });
     this.realtime.emitResourceChanged("consumer-demand", id, item.competitionId ?? null, "deleted");
+    if (item.competitionId != null) {
+      await this.companyFields.recomputeConsumerDemandDependentFields(item.competitionId, item.region);
+    }
     return { message: "已删除" };
   }
 }
