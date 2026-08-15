@@ -139,14 +139,15 @@ export class UpdateStockDto {
   companyId?: number | null;
 
   // 行业 PB 联动：pbCompanyId 与 pbFieldId 须同时提供或同时留空；清空二者即切回随机模式。
+  // null 表示「清空绑定、切回随机」，不能像创建时那样把 null 转 undefined（否则清空被当成"未传"而沿用旧绑定值）。
   @IsOptional()
-  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Transform(({ value }) => (value === "" ? undefined : value))
   @Type(() => Number)
   @IsInt()
   pbCompanyId?: number | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === "" || value === null ? undefined : value))
+  @Transform(({ value }) => (value === "" ? undefined : value))
   @Type(() => Number)
   @IsInt()
   pbFieldId?: number | null;
