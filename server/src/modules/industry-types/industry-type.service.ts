@@ -103,6 +103,12 @@ function validateTimerSpec(
     throw new BadRequestException("财年定时器触发时机必须是 FY_START 或 FY_END");
   if (value == null || !String(value).trim())
     throw new BadRequestException("启用财年定时器时必须填写触发后写入的设定值");
+  // 引用本产业字段模式：timerValue 形如 `field:<fieldKey>`，跳过字面量类型校验
+  if (typeof value === "string" && value.startsWith("field:")) {
+    if (!value.slice("field:".length).trim())
+      throw new BadRequestException("定时器的字段引用格式必须为 field:<字段键>");
+    return;
+  }
   const v = String(value);
   switch (fieldType) {
     case "NUMBER":

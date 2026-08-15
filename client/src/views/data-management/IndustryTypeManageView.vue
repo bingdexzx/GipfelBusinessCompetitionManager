@@ -334,24 +334,55 @@
           </el-col>
           <el-col :span="16">
             <el-form-item label="设定值">
-              <el-input
-                v-if="fieldForm.fieldType === 'NUMBER'"
-                v-model="fieldForm.timerValue"
-                placeholder="数值，如 100"
-              />
-              <el-switch
-                v-else-if="fieldForm.fieldType === 'BOOLEAN'"
-                :model-value="fieldForm.timerValue === 'true'"
-                @change="(v: any) => (fieldForm.timerValue = v ? 'true' : 'false')"
-              />
-              <el-input
-                v-else-if="fieldForm.fieldType === 'DICTIONARY' || fieldForm.fieldType === 'LIST'"
-                v-model="fieldForm.timerValue"
-                type="textarea"
-                :rows="2"
-                :placeholder="timerValuePlaceholder"
-              />
-              <el-input v-else v-model="fieldForm.timerValue" placeholder="文本" />
+              <div class="timer-value-wrap">
+                <el-radio-group v-model="timerValueMode" size="small">
+                  <el-radio-button value="const">常量值</el-radio-button>
+                  <el-radio-button value="field">引用本产业字段</el-radio-button>
+                </el-radio-group>
+                <template v-if="timerValueMode === 'field'">
+                  <el-select
+                    v-model="timerValueRef"
+                    placeholder="选择本产业同类型字段"
+                    style="width: 100%; margin-top: 8px"
+                  >
+                    <el-option
+                      v-for="f in timerRefCandidates"
+                      :key="f.fieldKey"
+                      :label="`${f.name}（${f.fieldKey}）`"
+                      :value="f.fieldKey"
+                    />
+                  </el-select>
+                  <span class="hint">触发时把该字段写为所选字段的当前值</span>
+                </template>
+                <template v-else>
+                  <el-input
+                    v-if="fieldForm.fieldType === 'NUMBER'"
+                    v-model="fieldForm.timerValue"
+                    placeholder="数值，如 100"
+                    style="margin-top: 8px"
+                  />
+                  <el-switch
+                    v-else-if="fieldForm.fieldType === 'BOOLEAN'"
+                    :model-value="fieldForm.timerValue === 'true'"
+                    @change="(v: any) => (fieldForm.timerValue = v ? 'true' : 'false')"
+                    style="margin-top: 8px"
+                  />
+                  <el-input
+                    v-else-if="fieldForm.fieldType === 'DICTIONARY' || fieldForm.fieldType === 'LIST'"
+                    v-model="fieldForm.timerValue"
+                    type="textarea"
+                    :rows="2"
+                    :placeholder="timerValuePlaceholder"
+                    style="margin-top: 8px"
+                  />
+                  <el-input
+                    v-else
+                    v-model="fieldForm.timerValue"
+                    placeholder="文本"
+                    style="margin-top: 8px"
+                  />
+                </template>
+              </div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -535,7 +566,13 @@
             <el-tag size="small" type="success">
               {{ fieldDetailRow?.timerTrigger === "FY_END" ? "财年末触发" : "财年初触发" }}
             </el-tag>
-            <span style="margin-left: 6px">设定值：{{ fieldDetailRow?.timerValue ?? "—" }}</span>
+            <span style="margin-left: 6px"
+              >设定值：{{
+                (fieldDetailRow?.timerValue || "").startsWith("field:")
+                  ? "引用字段 " + (fieldDetailRow?.timerValue || "").slice("field:".length)
+                  : (fieldDetailRow?.timerValue ?? "—")
+              }}</span
+            >
           </template>
           <span v-else>否</span>
         </el-descriptions-item>
@@ -699,6 +736,18 @@ const timerValuePlaceholder = computed(() =>
     ? 'JSON 对象，如 {"a":1,"b":2}'
     : 'JSON 数组，如 [1,2,3]',
 );
+// 财年定时器设定值来源：const=常量值；field=引用本产业字段
+const timerValueMode = ref<"const" | "field">("const");
+const timerValueRef = ref("");
+// 可引用的候选字段：本产业内与当前字段「同类型、非自身、非计算字段」
+const timerRefCandidates = computed(() =>
+  (fields.value || []).filter(
+    (f: any) =>
+      f.fieldType === fieldForm.fieldType &&
+      f.fieldKey !== fieldForm.fieldKey &&
+      !f.isCalculated,
+  ),
+);
 // 产业计算图由 IndustryFieldGraphEditor 以 v-model 编辑（fieldForm.calcGraph 为 JSON 字符串）。
 
 
@@ -782,6 +831,8 @@ function resetFieldForm() {
   fieldForm.timerEnabled = false;
   fieldForm.timerTrigger = "FY_START";
   fieldForm.timerValue = "";
+  timerValueMode.value = "const";
+  timerValueRef.value = "";
 }
 
 async function openFields(row: any) {
@@ -817,7 +868,15 @@ function editField(row: any) {
   fieldForm.visible = row.visible !== false;
   fieldForm.timerEnabled = !!row.timerEnabled;
   fieldForm.timerTrigger = row.timerTrigger || "FY_START";
-  fieldForm.timerValue = row.timerValue || "";
+  if (typeof row.timerValue === "string" && row.timerValue.startsWith("field:")) {
+    timerValueMode.value = "field";
+    timerValueRef.value = row.timerValue.slice("field:".length);
+    fieldForm.timerValue = "";
+  } else {
+    timerValueMode.value = "const";
+    timerValueRef.value = "";
+    fieldForm.timerValue = row.timerValue || "";
+  }
 }
 
 // 计算字段：直接进入全屏蓝图编辑器（左上角设置字段细节，右侧画布组合计算）
@@ -853,7 +912,12 @@ async function submitField() {
       ElMessage.warning("请选择财年定时器的触发时机");
       return;
     }
-    if (
+    if (timerValueMode.value === "field") {
+      if (!timerValueRef.value) {
+        ElMessage.warning("请选择要引用的本产业字段");
+        return;
+      }
+    } else if (
       fieldForm.fieldType === "BOOLEAN"
         ? fieldForm.timerValue !== "true" && fieldForm.timerValue !== "false"
         : !String(fieldForm.timerValue ?? "").trim()
@@ -905,12 +969,17 @@ async function submitField() {
       formula: null,
       sortOrder: fieldForm.sortOrder ?? 0,
       visible: fieldForm.visible !== false,
-      // 财年定时器：启用且非计算字段时落库触发时机与设定值；否则清空三列
+      // 财年定时器：启用且非计算字段时落库触发时机与设定值；否则清空三列。
+      // 引用模式下 timerValue 存为 `field:<字段键>`；常量模式存字面量。
       timerEnabled: fieldForm.timerEnabled && !fieldForm.isCalculated,
       timerTrigger:
         fieldForm.timerEnabled && !fieldForm.isCalculated ? fieldForm.timerTrigger : null,
-      timerValue:
-        fieldForm.timerEnabled && !fieldForm.isCalculated ? fieldForm.timerValue || null : null,
+      timerValue: (() => {
+        if (!(fieldForm.timerEnabled && !fieldForm.isCalculated)) return null;
+        return timerValueMode.value === "field"
+          ? "field:" + (timerValueRef.value || "")
+          : fieldForm.timerValue || null;
+      })(),
     };
     if (fieldForm.id) {
       await industryTypesApi.updateField(fieldForm.id, payload);

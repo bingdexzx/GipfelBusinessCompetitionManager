@@ -96,7 +96,10 @@ export class CreateIndustryFieldDto {
   @IsIn(["FY_START", "FY_END"])
   timerTrigger?: string;
 
-  // 触发后写入的设定值（按字段类型序列化的原始字符串；DICTIONARY/LIST 为 JSON 文本）。timerEnabled=true 时必填。
+  // 触发后写入的设定值：
+  // - 普通常量：按字段类型序列化的原始字符串（NUMBER 数值 / BOOLEAN true|false / STRING 文本 / DICTIONARY|LIST 为 JSON 文本）；
+  // - 引用本产业字段：写成 `field:<字段键>`，触发时把该字段写为同产业「该字段键的当前值」。
+  // timerEnabled=true 时必填。
   @IsOptional()
   @IsString()
   timerValue?: string;
@@ -156,7 +159,10 @@ export class UpdateIndustryFieldDto {
   @IsIn(["FY_START", "FY_END"])
   timerTrigger?: string;
 
-  // 触发后写入的设定值（按字段类型序列化的原始字符串；DICTIONARY/LIST 为 JSON 文本）。timerEnabled=true 时必填。
+  // 触发后写入的设定值：
+  // - 普通常量：按字段类型序列化的原始字符串（NUMBER 数值 / BOOLEAN true|false / STRING 文本 / DICTIONARY|LIST 为 JSON 文本）；
+  // - 引用本产业字段：写成 `field:<字段键>`，触发时把该字段写为同产业「该字段键的当前值」。
+  // timerEnabled=true 时必填。
   @IsOptional()
   @IsString()
   timerValue?: string;

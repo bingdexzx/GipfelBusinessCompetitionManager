@@ -20,6 +20,10 @@ function castScalar(type: "NUMBER" | "STRING" | "BOOLEAN", v: any): string {
   return String(v);
 }
 
+// 财年定时器「引用本产业字段」的设定值前缀：timerValue 形如 `field:<fieldKey>` 表示
+// 触发时把目标字段写为「同产业该 fieldKey 字段的当前值」（而非固定字面量）。
+const TIMER_REF_PREFIX = "field:";
+
 // 把任意输入按产业字段定义序列化/校验为存储字符串
 function serializeFieldValue(field: any, raw: any): string {
   const cfg = parseConfig(field.config);
@@ -424,11 +428,29 @@ export class CompanyFieldsService {
         select: { id: true },
       });
       for (const c of companies) {
+        // 取出该公司全部字段当前值（含定义），构建 fieldKey→{field,value} 映射。
+        // 所有定时器字段的目标值都基于这份「触发前」快照计算，避免相互引用导致顺序依赖。
+        const allVals = await this.prisma.companyFieldValue.findMany({
+          where: { companyId: c.id },
+          include: { industryField: true },
+        });
+        const byKey = new Map<string, { field: any; value: string }>();
+        for (const v of allVals) {
+          if (v.industryField)
+            byKey.set(v.industryField.fieldKey, { field: v.industryField, value: v.value });
+        }
+
         const upserts: any[] = [];
         for (const f of fields) {
           try {
-            const raw = this.timerRawValue(f);
-            const value = serializeFieldValue(f, raw);
+            const resolved = this.resolveTimerWriteValue(f, byKey);
+            if (resolved == null) {
+              this.logger.warn(
+                `财年定时器：公司 #${c.id} 字段 #${f.id}(${f.fieldKey}) 引用了不存在的字段，跳过`,
+              );
+              continue;
+            }
+            const value = serializeFieldValue(f, resolved.raw);
             upserts.push(
               this.prisma.companyFieldValue.upsert({
                 where: {
@@ -474,6 +496,49 @@ export class CompanyFieldsService {
         return JSON.parse(v);
       default:
         return v;
+    }
+  }
+
+  // 财年定时器设定值解析：
+  // - 普通常量：timerValue 为字面量（向后兼容），交由 timerRawValue 按类型还原；
+  // - 引用本产业字段：timerValue 形如 `field:<fieldKey>`，触发时取该公司「被引用字段的当前值」作为写入值。
+  //   引用源缺失时返回 null（调用方 warn 跳过，不中断整体定时器）。
+  private resolveTimerWriteValue(
+    field: any,
+    byKey: Map<string, { field: any; value: string }>,
+  ): { raw: any } | null {
+    const tv = field.timerValue;
+    if (typeof tv === "string" && tv.startsWith(TIMER_REF_PREFIX)) {
+      const refKey = tv.slice(TIMER_REF_PREFIX.length);
+      const ref = byKey.get(refKey);
+      if (!ref) return null;
+      return { raw: this.storedToRaw(ref.field, ref.value) };
+    }
+    return { raw: this.timerRawValue(field) };
+  }
+
+  // 把字段存储字符串（CompanyFieldValue.value）还原为 serializeFieldValue 期望的输入形状。
+  // 与 timerRawValue 互为反向：timerRawValue 处理「配置字面量」，本方法处理「已存储的字段值」。
+  private storedToRaw(field: any, value: string | null): any {
+    if (value == null) {
+      return field.fieldType === "NUMBER" ? 0 : field.fieldType === "BOOLEAN" ? false : "";
+    }
+    switch (field.fieldType) {
+      case "NUMBER":
+        return value === "" ? 0 : parseFloat(value);
+      case "BOOLEAN":
+        return String(value).trim().toLowerCase() === "true";
+      case "STRING":
+        return parseFieldStringValue(value);
+      case "DICTIONARY":
+      case "LIST":
+        try {
+          return JSON.parse(value);
+        } catch {
+          return field.fieldType === "LIST" ? [] : {};
+        }
+      default:
+        return value;
     }
   }
 
