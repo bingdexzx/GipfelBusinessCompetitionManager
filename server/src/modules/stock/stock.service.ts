@@ -615,6 +615,93 @@ export class StockService {
 
   // ---------------- 推进轮次 ----------------
 
+  /**
+   * AI 做市商：为指定股票自动生成买卖挂单，提供流动性。
+   *
+   * 做市商在每轮推进时、撮合前自动挂单：
+   * - 以当前价为基准，在上下各挂 N 档订单
+   * - 每档价格偏离基准价 spreadPct%（如 2%）
+   * - 每档挂单量为 baseQuantity 股
+   * - 买单价格递减，卖单价格递增，形成买卖盘深度
+   *
+   * @param stock 股票对象
+   * @param competitionId 比赛 id
+   * @param config 做市商配置 { enabled, spreadPct, levels, baseQuantity }
+   * @returns 生成的订单数量
+   */
+  private async generateMarketMakerOrders(
+    stock: any,
+    competitionId: number,
+    config: { enabled?: boolean; spreadPct?: number; levels?: number; baseQuantity?: number },
+  ): Promise<number> {
+    if (!config.enabled) return 0;
+
+    const spreadPct = (config.spreadPct ?? 2) / 100; // 默认 2% 点差
+    const levels = config.levels ?? 3; // 默认 3 档
+    const baseQuantity = config.baseQuantity ?? 1000; // 默认每档 1000 股
+
+    const basePrice = stock.currentPrice;
+    if (basePrice <= 0) return 0;
+
+    // 查找或创建做市商资金账户
+    let mmAccount = await this.prisma.stockFundsAccount.findFirst({
+      where: { competitionId, name: "AI做市商" },
+    });
+    if (!mmAccount) {
+      mmAccount = await this.prisma.stockFundsAccount.create({
+        data: {
+          name: "AI做市商",
+          ownerType: "COMPANY",
+          cashBalance: 1_000_000_000, // 10 亿初始资金
+          competitionId,
+        },
+      });
+    }
+
+    const orders: any[] = [];
+    const currentRound = stock.round;
+
+    for (let i = 1; i <= levels; i++) {
+      const offset = spreadPct * i;
+      // 买单：价格递减，数量递增（越远越深）
+      const buyPrice = Math.round(basePrice * (1 - offset) * 100) / 100;
+      const buyQty = baseQuantity * i;
+      if (buyPrice > 0) {
+        orders.push({
+          stockId: stock.id,
+          fundsAccountId: mmAccount.id,
+          side: "BUY",
+          price: buyPrice,
+          quantity: buyQty,
+          amount: Math.round(buyPrice * buyQty * 100) / 100,
+          status: "PENDING",
+          round: currentRound,
+          competitionId,
+        });
+      }
+
+      // 卖单：价格递增，数量递增
+      const sellPrice = Math.round(basePrice * (1 + offset) * 100) / 100;
+      const sellQty = baseQuantity * i;
+      orders.push({
+        stockId: stock.id,
+        fundsAccountId: mmAccount.id,
+        side: "SELL",
+        price: sellPrice,
+        quantity: sellQty,
+        amount: Math.round(sellPrice * sellQty * 100) / 100,
+        status: "PENDING",
+        round: currentRound,
+        competitionId,
+      });
+    }
+
+    if (orders.length > 0) {
+      await this.prisma.stockOrder.createMany({ data: orders });
+    }
+    return orders.length;
+  }
+
   async advanceRound(user: ReqUser, competitionId: number, dto: AdvanceRoundDto = {}) {
     if (!this.isHighManager(user)) throw new ForbiddenException("仅高级管理可推进轮次");
     const where: Record<string, unknown> = { competitionId };
@@ -622,13 +709,30 @@ export class StockService {
     const stocks = await this.prisma.stock.findMany({ where });
     const fieldMap = await this.resolveFieldValueMap(competitionId);
     const results: any[] = [];
+
+    // 做市商配置：从 dto 中读取，未传则使用默认值
+    const mmConfig = {
+      enabled: dto.marketMaker?.enabled ?? true, // 默认启用
+      spreadPct: dto.marketMaker?.spreadPct ?? 2,
+      levels: dto.marketMaker?.levels ?? 3,
+      baseQuantity: dto.marketMaker?.baseQuantity ?? 1000,
+    };
+
+    let totalMmOrders = 0;
     for (const stock of stocks) {
       await this.applyPbRound(stock);
+      // AI 做市商：在撮合前自动生成买卖挂单，提供流动性
+      const mmCount = await this.generateMarketMakerOrders(stock, competitionId, mmConfig);
+      totalMmOrders += mmCount;
       const r = await this.advanceOneStock(stock, competitionId, fieldMap);
       if (r) results.push(r);
     }
-    this.realtime.broadcastToCompetition(competitionId, "stock:round-advanced", { competitionId, count: results.length });
-    return { advanced: results.length, results };
+    this.realtime.broadcastToCompetition(competitionId, "stock:round-advanced", {
+      competitionId,
+      count: results.length,
+      marketMakerOrders: totalMmOrders,
+    });
+    return { advanced: results.length, results, marketMakerOrders: totalMmOrders };
   }
 
   private async advanceOneStock(stock: any, competitionId: number, fieldMap: Map<string, number | null>) {

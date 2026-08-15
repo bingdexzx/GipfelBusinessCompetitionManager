@@ -258,10 +258,41 @@ export class CreateOrderDto {
   competitionId?: number;
 }
 
+// 做市商配置
+export class MarketMakerConfigDto {
+  @IsOptional()
+  enabled?: boolean; // 是否启用做市商，默认 true
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.1)
+  @Max(20)
+  spreadPct?: number; // 点差百分比（如 2 表示 2%），默认 2
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  levels?: number; // 挂单档数（买卖各 N 档），默认 3
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(100)
+  @Max(100000)
+  baseQuantity?: number; // 每档基础数量（股），默认 1000
+}
+
 // 推进轮次（高级管理）
 export class AdvanceRoundDto {
   @IsOptional()
   @IsArray()
   @IsInt({ each: true })
   stockIds?: number[]; // 不传则推进比赛内全部股票
+
+  @IsOptional()
+  @Type(() => MarketMakerConfigDto)
+  marketMaker?: MarketMakerConfigDto; // 做市商配置
 }

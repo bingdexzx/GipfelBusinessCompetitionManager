@@ -385,6 +385,6 @@ export const stockApi = {
   },
 
   // 推进轮次（高级管理）
-  advanceRound: (competitionId: number, dto: { stockIds?: number[] } = {}) =>
+  advanceRound: (competitionId: number, dto: { stockIds?: number[]; marketMaker?: { enabled?: boolean; spreadPct?: number; levels?: number; baseQuantity?: number } } = {}) =>
     api.post(`/stocks/advance-round?competitionId=${competitionId}`, dto),
 };

@@ -12,7 +12,7 @@
           <span class="card-title">股票（{{ stocks.length }}）</span>
           <div class="card-actions">
             <el-button type="primary" :icon="Plus" @click="openStockDialog()">新增股票</el-button>
-            <el-button type="warning" :icon="VideoPlay" @click="advanceRound">推进一轮</el-button>
+            <el-button type="warning" :icon="VideoPlay" @click="openAdvanceDialog">推进一轮</el-button>
           </div>
         </div>
       </template>
@@ -188,6 +188,45 @@
       <template #footer>
         <el-button @click="accountDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveAccount">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 做市商配置对话框 -->
+    <el-dialog append-to-body v-model="mmDialogVisible" title="推进轮次 — AI 做市商配置" width="520px">
+      <el-alert
+        type="info"
+        :closable="false"
+        title="AI 做市商将在每轮撮合前自动挂单，为市场提供流动性（买卖盘深度）。"
+        style="margin-bottom: 16px;"
+      />
+      <el-form :model="mmConfig" label-width="120px" size="small">
+        <el-form-item label="启用做市商">
+          <el-switch v-model="mmConfig.enabled" />
+          <span class="muted" style="margin-left: 8px;">关闭后仅撮合玩家挂单</span>
+        </el-form-item>
+        <template v-if="mmConfig.enabled">
+          <el-form-item label="点差百分比">
+            <el-input-number v-model="mmConfig.spreadPct" :min="0.1" :max="20" :step="0.5" :precision="1" style="width: 100%" />
+            <div class="form-hint">每档价格偏离当前价的百分比（如 2 表示 ±2%）</div>
+          </el-form-item>
+          <el-form-item label="挂单档数">
+            <el-input-number v-model="mmConfig.levels" :min="1" :max="10" :step="1" style="width: 100%" />
+            <div class="form-hint">买卖各挂 N 档，形成盘口深度</div>
+          </el-form-item>
+          <el-form-item label="每档基础数量">
+            <el-input-number v-model="mmConfig.baseQuantity" :min="100" :max="100000" :step="100" style="width: 100%" />
+            <div class="form-hint">每档挂单量（越远档越多：第 N 档 = 基础量 × N）</div>
+          </el-form-item>
+          <el-alert
+            type="warning"
+            :closable="false"
+            :title="`预览：以当前价 ¥100 为例，做市商将挂 ${mmConfig.levels * 2} 笔订单（买卖各 ${mmConfig.levels} 档），点差 ${mmConfig.spreadPct}%`"
+          />
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="mmDialogVisible = false">取消</el-button>
+        <el-button type="warning" :icon="VideoPlay" @click="confirmAdvance">确认推进</el-button>
       </template>
     </el-dialog>
   </div>
@@ -498,15 +537,27 @@ async function removeAccount(row: any) {
   }
 }
 
-async function advanceRound() {
+// 做市商配置
+const mmDialogVisible = ref(false);
+const mmConfig = ref({
+  enabled: true,
+  spreadPct: 2,
+  levels: 3,
+  baseQuantity: 1000,
+});
+
+function openAdvanceDialog() {
+  mmDialogVisible.value = true;
+}
+
+async function confirmAdvance() {
+  mmDialogVisible.value = false;
   try {
-    await ElMessageBox.confirm("将汇总本轮所有挂单并撮合，生成新价与 K 线。确认推进？", "推进一轮", { type: "warning" });
-  } catch {
-    return;
-  }
-  try {
-    const res = await stockApi.advanceRound(compStore.competitionId!);
-    ElMessage.success(`已推进，处理 ${res.advanced} 只股票`);
+    const res = await stockApi.advanceRound(compStore.competitionId!, {
+      marketMaker: mmConfig.value,
+    });
+    const mmInfo = res.marketMakerOrders > 0 ? `，做市商挂单 ${res.marketMakerOrders} 笔` : "";
+    ElMessage.success(`已推进，处理 ${res.advanced} 只股票${mmInfo}`);
     await reloadStocks();
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "推进失败");
@@ -547,6 +598,12 @@ onMounted(reloadAll);
 }
 .muted {
   color: var(--color-text-tertiary, #92969e);
+}
+.form-hint {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #92969e);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 .pb-hint {
   margin-bottom: 12px;
