@@ -1328,14 +1328,16 @@ const fieldOptions = computed(() => {
   for (const it of industryTypes.value) {
     for (const f of it.fields || []) {
       const key = f.fieldKey as string;
-      // 隐藏字段（visible=false）不在任何客户端（含合同编辑器）的目标下拉中出现
-      if (!key || seen.has(key) || f.visible === false) continue;
-      seen.add(key);
+      const name = (f.name || f.label || key) as string;
+      // 隐藏字段（visible=false）不在任何客户端（含合同编辑器）的目标下拉中出现；
+      // 按「字段显示名」汇总去重：不同产业若存在同名（name 相同）字段，仅保留一条。
+      if (!key || seen.has(name) || f.visible === false) continue;
+      seen.add(name);
       const tag =
         f.fieldType === "LIST" || f.fieldType === "DICTIONARY"
           ? ` [${FIELD_TYPE_SHORT[f.fieldType as string] || f.fieldType}]`
           : "";
-      out.push({ value: key, label: `${f.name || f.label || key}${tag}`, fieldType: f.fieldType });
+      out.push({ value: key, label: `${name}${tag}`, fieldType: f.fieldType });
     }
   }
   return out;
