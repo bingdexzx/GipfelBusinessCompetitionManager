@@ -7,7 +7,8 @@ REM  Package the Electron client into a Windows (win32) NSIS
 REM  installer. All downloads use China (npmmirror) mirrors to
 REM  avoid GitHub timeouts.
 REM
-REM  Output: client\release\Gipfel Setup <version>.exe
+REM  Output: client\release\Gipfel Setup <version>-ia32.exe  (32-bit installer)
+REM           client\release\Gipfel Setup <version>-x64.exe   (64-bit installer)
 REM ============================================================
 
 REM --- China mirrors ---
