@@ -679,8 +679,17 @@ export function inputOutType(type: string): string {
   }
 }
 
+// 产业字段现值(FIELD)值源节点的输出端口类型：随所选字段的数据类型变化。
+const FIELD_PORT_TYPE: Record<string, string> = {
+  STRING: "文本",
+  NUMBER: "数字",
+  BOOLEAN: "布尔",
+  LIST: "列表",
+  DICTIONARY: "字典",
+};
+
 // 数值源(value)节点的输出端口数据类型：取决于其取值方式。
-export function valueOutType(valueType: string): string {
+export function valueOutType(valueType: string, fieldType?: string): string {
   switch (valueType) {
     case "ENTITY":
       return "属性值(数字/文本)";
@@ -695,7 +704,7 @@ export function valueOutType(valueType: string): string {
     case "ROUTE":
       return "数字(路程)";
     case "FIELD":
-      return "数字(产业字段)";
+      return FIELD_PORT_TYPE[fieldType || ""] || "数字(产业字段)";
     case "INDUSTRY_IS":
       return "布尔";
     default:
@@ -828,7 +837,7 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
       if (nodeOutputs(node)[idx] === "researchCost") return "浮点数(研发费用)";
       return inputOutType(node.data.type || "number");
     }
-    if (node.type === "value") return valueOutType(node.data.valueType || "INPUT");
+    if (node.type === "value") return valueOutType(node.data.valueType || "INPUT", node.data.fieldType);
     if (node.type === "list-op" || node.type === "dict-op" || node.type === "calc" || node.type === "compare")
       return opOutputType(node.data.op as string);
     const h = nodeOutputs(node)[idx];

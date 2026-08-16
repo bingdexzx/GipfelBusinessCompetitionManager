@@ -429,6 +429,7 @@
                     allow-create
                     default-first-option
                     style="width: 100%"
+                    @change="onFieldKeyChange"
                   >
                     <el-option
                       v-for="f in fieldOptions"
@@ -1323,7 +1324,7 @@ const FIELD_TYPE_SHORT: Record<string, string> = {
 };
 const fieldOptions = computed(() => {
   const seen = new Set<string>();
-  const out: { value: string; label: string }[] = [];
+  const out: { value: string; label: string; fieldType?: string }[] = [];
   for (const it of industryTypes.value) {
     for (const f of it.fields || []) {
       const key = f.fieldKey as string;
@@ -1334,7 +1335,7 @@ const fieldOptions = computed(() => {
         f.fieldType === "LIST" || f.fieldType === "DICTIONARY"
           ? ` [${FIELD_TYPE_SHORT[f.fieldType as string] || f.fieldType}]`
           : "";
-      out.push({ value: key, label: `${f.name || f.label || key}${tag}` });
+      out.push({ value: key, label: `${f.name || f.label || key}${tag}`, fieldType: f.fieldType });
     }
   }
   return out;
@@ -1352,6 +1353,28 @@ const fieldTypeByKey = computed<Record<string, string>>(() => {
   }
   return map;
 });
+
+// FIELD 值源节点选字段后，同步 node.data.fieldType，使输出端口类型随字段数据类型变化。
+function onFieldKeyChange(key: string) {
+  if (!selectedNode.value) return;
+  const f = fieldOptions.value.find((x) => x.value === key);
+  selectedNode.value.data.fieldType = f?.fieldType || "";
+}
+
+// 产业类型加载后回填图里 FIELD 值源节点的 data.fieldType，
+// 使重新打开编辑器时端口类型也能随字段类型正确显示、并参与连线类型校验。
+watch(
+  [industryTypes, () => graph.nodes],
+  () => {
+    if (!industryTypes.value.length) return;
+    for (const n of graph.nodes) {
+      if (n.type === "value" && (n.data.valueType || "INPUT") === "FIELD" && n.data.fieldKey) {
+        n.data.fieldType = fieldTypeByKey.value[n.data.fieldKey] || "";
+      }
+    }
+  },
+  { deep: true, immediate: true },
+);
 
 // 「产业字段比较」(FIELD_COMPARE) 选中了列表/字典字段时给出告警：
 // 数值比较符 (≥/≤/>/</=) 对列表/字典比较的是元素个数（长度），而非内部数值。
