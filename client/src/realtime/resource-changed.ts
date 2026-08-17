@@ -1,5 +1,5 @@
 // 实时数据同步：后端在单条/批量记录被创建、更新或删除时，通过 WebSocket 广播
-// "resource:changed" { resource, id, competitionId, action }（action: created|updated|deleted|bulk）。
+// "resource:changed" { resource, id, competitionId, action, seq, ts }。
 // 本模块统一处理该事件：
 //   1) 删除（action=deleted）：精确从本地全量副本中移除该 id（client/src/api/cache.ts 的
 //      removeFullItemByResource），避免触发整表重拉；随后的增量刷新会通过 existingIds 再次确认删除。
@@ -12,6 +12,7 @@ import { removeFullItemByResource, SEG_TO_RESOURCE } from "@/api/cache";
 import { reconcileAllIncremental, bumpResourceEvent } from "@/api/request";
 
 let _bound = false;
+let _lastSeq = 0; // 记录最后收到的事件序号（用于重连补发）
 
 // O4：实时重拉去抖 —— 同一资源在短时间内的多次事件合并为一次 window 广播，
 // 避免「批量创建/更新」触发的一连串组件重拉（每次重拉都打后台增量请求）。
@@ -30,14 +31,32 @@ function scheduleResourceReload(resource: string, detail: Record<string, any>): 
   );
 }
 
+/** 获取最后收到的事件序号（用于重连补发） */
+export function getLastSeq(): number {
+  return _lastSeq;
+}
+
 /** 注册全局「资源变更」监听（幂等，多次调用只生效一次）。建议在实时连接建立后调用。 */
 export function bindResourceChanged() {
   if (_bound) return;
   _bound = true;
   onRealtime(
     "resource:changed",
-    (payload: { resource?: string; id?: number; action?: string; competitionId?: number }) => {
+    (payload: {
+      resource?: string;
+      id?: number;
+      action?: string;
+      competitionId?: number;
+      seq?: number;
+      ts?: number;
+    }) => {
       if (!payload || typeof payload.resource !== "string") return;
+
+      // 更新最后收到的事件序号
+      if (payload.seq && payload.seq > _lastSeq) {
+        _lastSeq = payload.seq;
+      }
+
       // 删除：精确移除本地副本中的该条目（无需重拉整表）
       if (payload.action === "deleted" && payload.id != null) {
         void removeFullItemByResource(payload.resource, payload.id);
@@ -53,6 +72,8 @@ export function bindResourceChanged() {
         id: payload.id ?? null,
         action: payload.action ?? "changed",
         competitionId: payload.competitionId ?? null,
+        seq: payload.seq ?? null,
+        ts: payload.ts ?? null,
       });
     },
   );
@@ -78,9 +99,63 @@ export function bindResourceChanged() {
     },
   );
 
-  // 断线重连成功后主动对账：清理「断线 / 实时事件丢失期间」被删除的条目，
-  // 无需等用户手动刷新或 5 分钟强制全量周期。首次连接时本地通常无基线，会自动跳过。
+  // 权限变更事件：定向推送到具体用户
+  // 前端订阅后拉取 /auth/me 刷新权限状态
+  onRealtime(
+    "permissions:changed",
+    (payload: { userId?: number; version?: number }) => {
+      if (!payload || !payload.userId) return;
+      // 派发 window 事件通知 auth store 刷新
+      window.dispatchEvent(
+        new CustomEvent("permissions-changed", {
+          detail: { userId: payload.userId, version: payload.version },
+        }),
+      );
+    },
+  );
+
+  // 重连补发结果处理
+  onRealtime(
+    "sync:replay:result",
+    (payload: { events?: Array<{ event: string; data: any; ts: number }> }) => {
+      if (!payload || !Array.isArray(payload.events)) return;
+      // 处理补发的事件
+      for (const evt of payload.events) {
+        if (evt.event === "resource:changed" && evt.data) {
+          const data = evt.data;
+          if (data.seq && data.seq > _lastSeq) {
+            _lastSeq = data.seq;
+          }
+          // 触发资源变更处理
+          if (data.action === "deleted" && data.id != null) {
+            void removeFullItemByResource(data.resource, data.id);
+          }
+          bumpResourceEvent(data.resource);
+          const mappedResource = SEG_TO_RESOURCE[data.resource];
+          if (mappedResource) bumpResourceEvent(mappedResource);
+          scheduleResourceReload(data.resource, {
+            resource: data.resource,
+            id: data.id ?? null,
+            action: data.action ?? "changed",
+            competitionId: data.competitionId ?? null,
+            seq: data.seq ?? null,
+            ts: data.ts ?? null,
+          });
+        }
+      }
+    },
+  );
+
+  // 断线重连成功后：先请求补发遗漏事件，再对账
   onRealtime("connect", () => {
+    // 请求补发遗漏事件
+    if (_lastSeq > 0) {
+      const socket = (window as any).__gipfel_socket;
+      if (socket && socket.connected) {
+        socket.emit("sync:replay", { afterSeq: _lastSeq });
+      }
+    }
+    // 对账：清理「断线 / 实时事件丢失期间」被删除的条目
     void reconcileAllIncremental();
   });
 }

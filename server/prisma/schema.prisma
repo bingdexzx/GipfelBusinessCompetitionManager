@@ -7,11 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ========== 枚举值定义（注释形式） ==========
+// 由于 SQLite 不支持原生 enum，使用 String + 注释定义合法值
+// UserRole: SUPER_ADMIN | COMPETITION_ADMIN | PLAYER
+// ContractStatus: DRAFT | EXECUTED | TERMINATED
+// OrderSide: BUY | SELL
+// OrderStatus: PENDING | FILLED | CANCELLED
+// FiscalYearStatus: ACTIVE | CLOSED
+
 model User {
   id            Int         @id @default(autoincrement())
   username      String      @unique
   passwordHash  String
-  role          String      @default("PLAYER")
+  role          String      @default("PLAYER") // SUPER_ADMIN | COMPETITION_ADMIN | PLAYER
   displayName   String?
   competitionId Int?
   competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
@@ -46,7 +54,7 @@ model FiscalYear {
   id            Int         @id @default(autoincrement())
   competitionId Int
   year          Int
-  status        String      @default("ACTIVE") // ACTIVE, CLOSED
+  status        String      @default("ACTIVE") // ACTIVE | CLOSED
   competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -57,7 +65,7 @@ model FiscalYear {
 model Competition {
   id              Int                @id @default(autoincrement())
   name            String             @unique
-  status          String             @default("ACTIVE")
+  status          String             @default("ACTIVE") // ACTIVE, ARCHIVED
   fiscalYears     FiscalYear[]
   users           User[]
   companies       Company[]
@@ -481,6 +489,7 @@ model ContractType {
   effects      String    // JSON: 效果定义数组（见合同引擎文档）。仅支持 FIELD 效果。
   conditions   String    @default("[]") // JSON: 前置检查数组（FIELD_COMPARE / INDUSTRY_IS）
   graph        String?   // JSON: 可视化编辑器图结构（节点+连线+布局），可选
+  schemaVersion Int      @default(1) // 配置 schema 版本号（用于读时兼容、写时升级）
   enabled      Boolean   @default(true)
   contracts    Contract[]
   createdAt    DateTime  @default(now())

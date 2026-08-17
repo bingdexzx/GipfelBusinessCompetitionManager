@@ -49,7 +49,11 @@ export const SEG_TO_RESOURCE: Record<string, string> = {
   "path-types": "pathType",
   "tech-nodes": "techNode",
   regions: "region",
-  stocks: "stock", // 股票相关（含子路径 accounts/orders/holdings，由 _p= 区分集合）
+  stocks: "stock", // 股票主体
+  "stock-accounts": "stockAccount", // 股票资金账户（细分资源，S6 修复）
+  "stock-orders": "stockOrder", // 股票订单（细分资源，S6 修复）
+  "stock-holdings": "stockHolding", // 股票持仓（细分资源，S6 修复）
+  "stock-candles": "stockCandle", // 股票 K 线（细分资源，S6 修复）
   "company-fields": "companyField", // 公司产业字段（派生集合，由 request.ts 特殊处理）
   maps: "map", // 仅用于 /maps/full（复合地图由 request.ts 特殊处理）
 };

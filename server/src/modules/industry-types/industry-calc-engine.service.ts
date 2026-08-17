@@ -1,12 +1,8 @@
 import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { safeEvaluate } from "../../common/safe-expression";
-import {
-  applyOp,
-  EXPR_HELPERS,
-  toNumber,
-  isTruthy,
-} from "../contracts/contract-engine.service";
+import { EXPR_HELPERS, applyOp } from "../../common/engine-ops";
+import { toNumber, isTruthy } from "../contracts/engine/values";
 
 /**
  * 计算图求值所需的上下文（调用方传入）：

@@ -2,366 +2,44 @@ import { Injectable, BadRequestException } from "@nestjs/common";
 import { safeEvaluate } from "../../common/safe-expression";
 import { PrismaService } from "../../prisma/prisma.service";
 
-// 数据管理实体类型 → Prisma 模型名（用于 ENTITY 取值时按 id 读取真实属性）。
-// 仅保留可被「产业字段效果」引用的主数据实体（数值来源），不再涉及任何公司子资源表。
-type EntityType =
-  | "MATERIAL"
-  | "PART"
-  | "PRODUCT"
-  | "TECH_NODE"
-  | "WAREHOUSE"
-  | "PRODUCTION_LINE"
-  | "FUEL"
-  | "VEHICLE"
-  | "INFRASTRUCTURE"
-  | "MAP_NODE";
+// 导入拆分后的引擎子模块
+import {
+  toNumber,
+  isTruthy,
+  toNumberArray,
+  deepEqual,
+  castScalar,
+  safeParse,
+  ENTITY_MODEL,
+  compareOp,
+  COMPARE_OP_LABEL,
+  type ValueSpec,
+  type EntityType,
+  type PartyDef,
+  type EvalCtx,
+  type CompareOp,
+} from "./engine/values";
+import {
+  EXPR_HELPERS,
+  OP_NAMES,
+  type OpName,
+} from "../../common/engine-ops";
+import {
+  type FieldEffectOp,
+} from "./engine/effects";
+import {
+  createCheckResult,
+  createSkippedCheckResult,
+  createPassedCheckResult,
+  createFailedCheckResult,
+  getCheckErrorMessage,
+  condKindLabel,
+  type ConditionSpec,
+  type CheckResult,
+} from "./engine/conditions";
 
-const ENTITY_MODEL: Record<EntityType, string> = {
-  MATERIAL: "material",
-  PART: "part",
-  PRODUCT: "product",
-  TECH_NODE: "techNode",
-  WAREHOUSE: "warehouse",
-  PRODUCTION_LINE: "productionLine",
-  FUEL: "fuel",
-  VEHICLE: "vehicle",
-  INFRASTRUCTURE: "infrastructure",
-  MAP_NODE: "mapNode",
-};
-
-interface PartyDef {
-  role: string;
-  companyId: number | null;
-  isHost?: boolean;
-}
-
-// 数值来源：
-//  - ENTITY：从数据管理实体读取真实属性（如 Material.nodePrices），可再乘以某输入字段
-//  - INPUT：用户创建合同时手动填写
-//  - CONST：常量（可为数字、字符串，或数组/对象——JSON 字符串会自动解析）
-//  - FORMULA：受限安全表达式（见 common/safe-expression），作用域为 inputs
-//  - OP：列表/字典运算（递归表达 op + args，每个 arg 又是一个 ValueSpec）
-//  - VAR：变量引用（取自运行期 scope，如 FOREACH 循环变量 / ASSIGN 赋值结果）
-//  - ROUTE：地图路程（按创建合同时用户选择的节点路径求相邻节点最短路之和）
-//  - FIELD：产业字段现值（读取某参与方公司当前的 CompanyFieldValue，与 FIELD 效果互为读写两端）
-interface ValueSpec {
-  type: "ENTITY" | "INPUT" | "CONST" | "FORMULA" | "OP" | "VAR" | "ROUTE" | "FIELD" | "INDUSTRY_IS";
-  // ENTITY
-  entityType?: EntityType;
-  entityRef?: string; // inputs 中存放实体 id 的字段 key
-  attribute?: string; // 读取实体的哪个属性，如 price / researchCost / pricePerLiter
-  multiplyByInput?: string; // 可选：再乘以某输入字段（如 quantity）
-  // INPUT
-  key?: string;
-  // CONST（可为数字、字符串，或数组/对象——JSON 字符串会自动解析）
-  value?: any;
-  // FORMULA
-  expr?: string;
-  // OP（列表/字典运算）
-  op?: string; // 运算名，见 applyOp
-  args?: ValueSpec[]; // 递归参数，每个又是一个 ValueSpec
-  // VAR（变量引用）
-  name?: string; // 变量名，取自运行期 scope（回退 inputs）
-  // ROUTE（地图路程，输入源）：节点路径来自创建合同时用户选择的输入项（type=nodeRoute）
-  routeRef?: string; // inputs 中存放节点 id 有序列表的字段 key
-  nodeIds?: number[]; // 兼容旧数据：设计期固定的节点 id（已废弃，改用 routeRef）
-  // FIELD（产业字段现值，数据源）：读取某参与方公司当前的产业字段值
-  party?: string; // 参与方角色（对应 contract.parties 中的 role）
-  fieldKey?: string; // IndustryField.fieldKey
-  // INDUSTRY_IS（产业类型判断，布尔值源）：company.industryTypeId === industryTypeId
-  industryTypeId?: number;
-}
-
-// 求值的运行期上下文：
-//  - 地图路程（ROUTE）：按比赛隔离地图，并缓存邻接表避免重复查询
-//  - 产业字段现值（FIELD）：需要按参与方角色定位公司
-interface EvalCtx {
-  competitionId?: number;
-  cache?: Map<number, Map<number, { to: number; d: number }[]>>;
-  parties?: Map<string, PartyDef>; // role -> 参与方（FIELD 取值用）
-}
-
-// OP 运算名（列表 / 字典 / 通用）。
-// 这些名字同时作为可视化编辑器运算节点的下拉选项（字符串稳定，勿改大小写语义）。
-export const OP_NAMES = [
-  // 列表
-  "LIST_APPEND",
-  "LIST_CONCAT",
-  "LIST_LEN",
-  "LIST_CONTAINS",
-  "LIST_INDEX_OF",
-  "LIST_UNIQUE",
-  "LIST_FLATTEN",
-  "LIST_SUM_OF",
-  "LIST_JOIN",
-  "LIST_SLICE",
-  "LIST_REVERSE",
-  "LIST_SORT",
-  "LIST_RANGE",
-  "LIST_ADD",
-  "LIST_SUB",
-  // 字典
-  "DICT_GET",
-  "DICT_KEYS",
-  "DICT_VALUES",
-  "DICT_ENTRIES",
-  "DICT_HAS_KEY",
-  "DICT_MERGE",
-  "DICT_FROM_PAIRS",
-  "DICT_FROM_KEYS",
-  "DICT_INVERT",
-  "DICT_ADD",
-  "DICT_SUB",
-  "DICT_APPEND",
-  "DICT_SUM",
-  // 通用
-  "LEN",
-  "CONTAINS",
-  "SUM_OF",
-] as const;
-export type OpName = (typeof OP_NAMES)[number];
-
-// 产业字段效果：改写公司在其产业类型下的自定义字段值（CompanyFieldValue）。
-// 字段以 fieldKey 定位，公司所属产业类型决定实际的 IndustryField 记录。
-// 这是合同引擎唯一允许改写的目标（账户/库存/科技/资产等已全部移除）。
-interface FieldEffect {
-  kind: "FIELD";
-  party: string;
-  fieldKey: string; // IndustryField.fieldKey
-  op: "ADD" | "SUB" | "SET";
-  value: ValueSpec;
-}
-// 控制流效果：让 effects 从扁平列表升级为可嵌套的结构化程序。
-//  - IF：按条件在 then / else 两条分支中选择执行
-//  - FOREACH：遍历列表，每次迭代把元素写入循环变量后执行 body
-//  - ASSIGN：把某 ValueSpec 求值结果写入运行期变量（供 VAR 引用）
-interface IfEffect {
-  kind: "IF";
-  cond: ValueSpec;
-  then: Effect[];
-  else?: Effect[];
-}
-interface ForEachEffect {
-  kind: "FOREACH";
-  items: ValueSpec; // 求值为数组
-  var: string; // 循环变量名（在 body 内用 VAR 引用）
-  body: Effect[];
-}
-interface AssignEffect {
-  kind: "ASSIGN";
-  name: string; // 变量名
-  value: ValueSpec;
-}
-type Effect = FieldEffect | IfEffect | ForEachEffect | AssignEffect;
-
-// 前置检查类型：合同执行前对公司状态的核验（仅产业字段 / 产业类型）。
-// 任一检查不过则中止执行。
-type CompareOp =
-  | "GTE"
-  | "LTE"
-  | "GT"
-  | "LT"
-  | "EQ"
-  | "CONTAINS" // 列表含元素 / 字典含键值
-  | "HAS_KEY" // 字典含指定键
-  | "LEN_GTE"
-  | "LEN_LTE"
-  | "LEN_EQ"
-  | "ELEMENT_EQ"; // 列表元素结构相等（仅 LIST_COMPARE 用）
-export interface ConditionSpec {
-  id?: string;
-  label?: string;
-  errorMessage?: string; // 检查不通过时展示给用户的错误信息（留空则用系统默认说明）
-  kind:
-    | "FIELD_COMPARE" // 产业字段比较：fieldKey + op + value（兼容旧版，左操作数固定为某参与方字段）
-    | "VALUE_COMPARE" // 数值互相比较：value1 op value2，两操作数都是自由数值源
-    | "INDUSTRY_IS" // 参与方是否属于指定产业类型：industryTypeId
-    | "DICT_COMPARE" // 两个字典互相比较：value1 的键须全部∈ value2 的键；满足后逐键 value1[k] op value2[k]
-    | "LIST_COMPARE"; // 两个列表互相比较：value1/value2 均为列表，op∈{ELEMENT_EQ,CONTAINS,GT,GTE,EQ}
-  party?: string; // 参与方角色（FIELD_COMPARE / INDUSTRY_IS 用；VALUE_COMPARE / DICT_COMPARE 无参与方）
-  fieldKey?: string;
-  industryTypeId?: number;
-  op?: CompareOp;
-  value?: ValueSpec; // FIELD_COMPARE 的右操作数
-  value1?: ValueSpec; // VALUE_COMPARE / DICT_COMPARE / LIST_COMPARE 左操作数
-  value2?: ValueSpec; // VALUE_COMPARE / DICT_COMPARE / LIST_COMPARE 右操作数
-  // 控制流：若本检查挂在某个 IF 分支之下，仅当该分支条件成立时才执行；
-  // when = "then" 表示 IF 条件为真时执行，"else" 表示 IF 条件为假时执行。cond 为 IF 的条件值源。
-  branch?: { when: "then" | "else"; cond: ValueSpec };
-}
-
-export interface CheckResult {
-  kind: string;
-  party: string;
-  label?: string;
-  passed: boolean;
-  actual?: any;
-  expected?: any;
-  detail: string;
-  customError?: boolean; // 是否使用了该检查自定义的错误信息（展示时不再拼接 label 前缀）
-  skipped?: boolean; // 因所属 IF 分支未触发而被跳过（不阻塞执行）
-}
-
-function compareOp(actual: number, op: CompareOp, expected: number): boolean {
-  switch (op) {
-    case "GT":
-      return actual > expected;
-    case "LT":
-      return actual < expected;
-    case "EQ":
-      return actual === expected;
-    case "LTE":
-      return actual <= expected;
-    case "GTE":
-    default:
-      return actual >= expected;
-  }
-}
-
-/** 比较算子中文标签（用于检查详情展示）。 */
-const COMPARE_OP_LABEL: Record<string, string> = {
-  GTE: "≥",
-  LTE: "≤",
-  GT: ">",
-  LT: "<",
-  EQ: "=",
-  CONTAINS: "包含",
-  HAS_KEY: "含键",
-  LEN_GTE: "长度≥",
-  LEN_LTE: "长度≤",
-  LEN_EQ: "长度=",
-  ELEMENT_EQ: "元素相等",
-};
-
-/** 检查类型原始枚举 → 中文显示名（避免错误提示/结果表中直接出现 VALUE_COMPARE 等原始 kind）。 */
-const COND_KIND_LABEL: Record<string, string> = {
-  VALUE_COMPARE: "数值比较",
-  FIELD_COMPARE: "字段比较",
-  INDUSTRY_IS: "产业类型核对",
-  DICT_COMPARE: "字典比较",
-  LIST_COMPARE: "列表比较",
-  ACCOUNT_COMPARE: "账户比较",
-  INVENTORY_GTE: "库存下限",
-  ASSET_OWNED: "资产持有",
-  VEHICLE_COUNT: "载具数量",
-  VEHICLE_LOCATION: "载具位置",
-  TECH_COMPLETED: "科技完成",
-  INFRA_ACTIVE: "基建启用",
-  INFRA_LIST_FILTER: "基建范围校验",
-  VEHICLE_LIST_FILTER: "载具范围校验",
-};
-function condKindLabel(kind: string): string {
-  return COND_KIND_LABEL[kind] || kind;
-}
-
-/** 任意值转数字（布尔/空串/非有限值兜底为 0）。 */
-export function toNumber(v: any): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "boolean") return v ? 1 : 0;
-  if (v == null || v === "") return 0;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/** 真值判定：非 null、非空字符串、非零数字、非空数组 / 非空对象均视为真。 */
-export function isTruthy(v: any): boolean {
-  if (v == null) return false;
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number") return v !== 0;
-  if (typeof v === "string") return v.trim().length > 0;
-  if (Array.isArray(v)) return v.length > 0;
-  if (typeof v === "object") return Object.keys(v).length > 0;
-  return Boolean(v);
-}
-
-/** 把输入值规范为数字数组（支持数组、JSON 字符串数组、逗号分隔字符串）。 */
-export function toNumberArray(v: any): number[] {
-  const parse = (x: any) => toNumber(x);
-  if (Array.isArray(v)) return v.map(parse).filter((x) => Number.isFinite(x));
-  if (typeof v === "string") {
-    const s = v.trim();
-    if (!s) return [];
-    try {
-      const arr = JSON.parse(s);
-      if (Array.isArray(arr)) return arr.map(parse).filter((x) => Number.isFinite(x));
-    } catch {
-      /* 非 JSON，尝试逗号分隔 */
-    }
-    const parts = s
-      .split(",")
-      .map((t) => parse(t.trim()))
-      .filter((x) => Number.isFinite(x));
-    return parts;
-  }
-  return [];
-}
-
-/** 深度相等（数组/对象递归比较），用于 contains / 结构相等。 */
-export function deepEqual(a: any, b: any): boolean {
-  if (a === b) return true;
-  if (typeof a !== typeof b) return false;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((x, i) => deepEqual(x, b[i]));
-  }
-  if (a && b && typeof a === "object" && typeof b === "object") {
-    const ka = Object.keys(a);
-    const kb = Object.keys(b);
-    return ka.length === kb.length && ka.every((k) => deepEqual(a[k], b[k]));
-  }
-  return false;
-}
-
-/** 把标量按字段配置类型强制（NUMBER/BOOLEAN/STRING），与产业字段存储逻辑一致。 */
-function castScalar(type: string | undefined, val: any): any {
-  const t = (type || "STRING").toUpperCase();
-  if (t === "NUMBER") return toNumber(val);
-  if (t === "BOOLEAN")
-    return val === true || val === "true" || val === 1 || val === "1" || val === "是";
-  if (val == null) return "";
-  if (typeof val === "object") return JSON.stringify(val);
-  return String(val);
-}
-
-/**
- * 表达式作用域里的列表/字典辅助函数（"编程语言能力"）。
- * 配合安全求值器（common/safe-expression）的受限数组能力（[1,2,3]、sum…），
- * 这里补齐不擅长的字典操作与便捷函数。
- */
-export const EXPR_HELPERS: Record<string, (...a: any[]) => any> = {
-  len: (x: any) =>
-    Array.isArray(x)
-      ? x.length
-      : x && typeof x === "object"
-        ? Object.keys(x).length
-        : x == null
-          ? 0
-          : String(x).length,
-  push: (arr: any, ...items: any[]) => (Array.isArray(arr) ? [...arr, ...items] : [arr, ...items]),
-  concat: (a: any, b: any) => [...(Array.isArray(a) ? a : [a]), ...(Array.isArray(b) ? b : [b])],
-  contains: (c: any, x: any) =>
-    Array.isArray(c)
-      ? c.some((i) => deepEqual(i, x))
-      : c && typeof c === "object"
-        ? Object.keys(c).includes(x as any) || Object.values(c).some((v) => deepEqual(v, x))
-        : false,
-  indexIn: (arr: any, x: any) => (Array.isArray(arr) ? arr.findIndex((i) => deepEqual(i, x)) : -1),
-  keys: (o: any) => (o && typeof o === "object" ? Object.keys(o) : []),
-  values: (o: any) => (o && typeof o === "object" ? Object.values(o) : []),
-  get: (o: any, k: any) => (o == null ? undefined : o[k]),
-  has: (o: any, k: any) => o != null && o[k] !== undefined,
-  hasKey: (o: any, k: any) => o != null && typeof o === "object" && k in o,
-  merge: (...objs: any[]) =>
-    objs.reduce(
-      (acc, o) => Object.assign(acc, o && typeof o === "object" && !Array.isArray(o) ? o : {}),
-      {},
-    ),
-  unique: (arr: any) =>
-    Array.isArray(arr) ? arr.filter((v, i) => arr.findIndex((x) => deepEqual(x, v)) === i) : arr,
-  flatten: (arr: any) => (Array.isArray(arr) ? arr.flat(Infinity) : arr),
-  join: (arr: any, sep = ",") => (Array.isArray(arr) ? arr.map(String).join(sep) : String(arr)),
-  sumOf: (arr: any) =>
-    Array.isArray(arr) ? arr.reduce((s: number, x: any) => s + toNumber(x), 0) : 0,
-};
+// 注意：类型定义和工具函数已拆分到 engine/ 子模块
+// 通过 import 从 engine/values.ts, engine/effects.ts, engine/conditions.ts, engine/compute.ts, common/engine-ops.ts 导入
 
 /**
  * 统一的数值来源求值（替代 execute/runConditions 中重复的两份实现）。
@@ -1850,7 +1528,7 @@ export class ContractEngineService {
     inputs: string;
     contractType: { effects: string; conditions?: string };
   }): Promise<{ log: any[]; result: any }> {
-    const effects: Effect[] = this.safeParse(contract.contractType.effects, "contractType.effects");
+    const effects = this.safeParse(contract.contractType.effects, "contractType.effects") as any[];
     const conditions: ConditionSpec[] = this.safeParse(
       contract.contractType.conditions || "[]",
       "contractType.conditions",
@@ -2393,7 +2071,7 @@ export class ContractEngineService {
               cfv?.value,
               def.fieldType,
               this.parseFieldConfig(def.config),
-              c.op || "LEN_GTE",
+              (c.op || "LEN_GTE") as CompareOp,
               expected,
             );
             passed = r.passed;

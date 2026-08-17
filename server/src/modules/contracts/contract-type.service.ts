@@ -2,6 +2,13 @@ import { Injectable, BadRequestException, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateContractTypeDto, UpdateContractTypeDto } from "./dto/contract-type.dto";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
+import {
+  validatePartyRoles,
+  validateInputSchema,
+  validateEffects,
+  validateConditions,
+  validateGraph,
+} from "../../common/validators/json-schema";
 
 @Injectable()
 export class ContractTypeService {
@@ -36,11 +43,8 @@ export class ContractTypeService {
   }
 
   async create(dto: CreateContractTypeDto) {
-    this.validateJson(dto.partyRoles, "partyRoles");
-    this.validateJson(dto.inputSchema, "inputSchema");
-    this.validateJson(dto.effects, "effects");
-    if (dto.conditions !== undefined) this.validateJson(dto.conditions, "conditions");
-    if (dto.graph !== undefined) this.validateJson(dto.graph, "graph");
+    // 三层校验：编辑器内（保存前）→ 服务端写入时
+    this.validateJsonFields(dto);
 
     const existing = await this.prisma.contractType.findUnique({
       where: { key: dto.key },
@@ -68,11 +72,8 @@ export class ContractTypeService {
     const item = await this.prisma.contractType.findUnique({ where: { id } });
     if (!item) throw new NotFoundException(`合同类型 ${id} 不存在`);
 
-    if (dto.partyRoles !== undefined) this.validateJson(dto.partyRoles, "partyRoles");
-    if (dto.inputSchema !== undefined) this.validateJson(dto.inputSchema, "inputSchema");
-    if (dto.effects !== undefined) this.validateJson(dto.effects, "effects");
-    if (dto.conditions !== undefined) this.validateJson(dto.conditions, "conditions");
-    if (dto.graph !== undefined) this.validateJson(dto.graph, "graph");
+    // 三层校验：编辑器内（保存前）→ 服务端写入时
+    this.validateJsonFields(dto);
 
     const updated = await this.prisma.contractType.update({
       where: { id },
@@ -126,6 +127,48 @@ export class ContractTypeService {
       JSON.parse(str);
     } catch (e) {
       throw new BadRequestException(`${label} 不是合法 JSON: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * 三层校验：服务端写入时校验
+   * 使用 json-schema.ts 的校验函数对 JSON字段进行结构校验
+   */
+  private validateJsonFields(dto: Partial<CreateContractTypeDto | UpdateContractTypeDto>) {
+    const errors: string[] = [];
+
+    if (dto.partyRoles !== undefined) {
+      const str = this.toStored(dto.partyRoles);
+      const result = validatePartyRoles(str);
+      if (!result.success) errors.push(`partyRoles: ${result.error}`);
+    }
+
+    if (dto.inputSchema !== undefined) {
+      const str = this.toStored(dto.inputSchema);
+      const result = validateInputSchema(str);
+      if (!result.success) errors.push(`inputSchema: ${result.error}`);
+    }
+
+    if (dto.effects !== undefined) {
+      const str = this.toStored(dto.effects);
+      const result = validateEffects(str);
+      if (!result.success) errors.push(`effects: ${result.error}`);
+    }
+
+    if (dto.conditions !== undefined) {
+      const str = this.toStored(dto.conditions);
+      const result = validateConditions(str);
+      if (!result.success) errors.push(`conditions: ${result.error}`);
+    }
+
+    if (dto.graph !== undefined) {
+      const str = this.toStored(dto.graph);
+      const result = validateGraph(str);
+      if (!result.success) errors.push(`graph: ${result.error}`);
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException(`JSON 字段校验失败:\n${errors.join("\n")}`);
     }
   }
 

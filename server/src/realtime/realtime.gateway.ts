@@ -134,4 +134,22 @@ export class RealtimeGateway implements OnGatewayInit {
       client.leave(`comp-${payload.competitionId}`);
     }
   }
+
+  /**
+   * 处理重连补发请求
+   * 客户端重连后发送 sync:replay，服务端补发遗漏的事件
+   */
+  @SubscribeMessage("sync:replay")
+  handleSyncReplay(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { afterSeq?: number },
+  ) {
+    if (!payload || typeof payload.afterSeq !== "number") return;
+    const events = this.realtime.getEventsAfter(payload.afterSeq);
+    if (events.length > 0) {
+      client.emit("sync:replay:result", { events });
+    } else {
+      client.emit("sync:replay:result", { events: [] });
+    }
+  }
 }

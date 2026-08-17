@@ -4,6 +4,7 @@ import { ConfigModule } from "./common/config/config.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HealthController } from "./health.controller";
 import { VersionController } from "./version.controller";
+import { PermissionsController } from "./permissions/permissions.controller";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { MustChangePasswordGuard } from "./common/guards/must-change-password.guard";
 import { CompetitionScopeGuard } from "./common/guards/competition-scope.guard";
@@ -34,7 +35,7 @@ import { StockModule } from "./modules/stock/stock.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 
 @Module({
-  controllers: [HealthController, VersionController],
+  controllers: [HealthController, VersionController, PermissionsController],
   providers: [
     // 全局守卫执行顺序：鉴权 → 强制改密 → 比赛归属 → 资源归属 → 路由级 RBAC（PermissionsGuard）。
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -24,7 +24,26 @@ export interface PermissionDomain {
   /** UI 分组，如 "数据管理" */
   group: string;
   actions: PermissionAction[];
+  /**
+   * 动作等级表（可选）。
+   * key = 动作 token，value = 整数等级（越大越强）。
+   * 缺省时使用 DEFAULT_ACTION_RANKS。
+   * 等级判定：hasPermission(domain:actionX) 满足 ⟺ 用户持有该域任一动作 actionZ 且 rank(Z) ≥ rank(X)。
+   */
+  actionRank?: Record<string, number>;
 }
+
+/**
+ * 全局默认动作等级表。
+ * 大部分域使用此默认值；合同域等特殊域通过 PermissionDomain.actionRank 覆盖。
+ */
+export const DEFAULT_ACTION_RANKS: Record<string, number> = {
+  view: 10,
+  edit: 20,
+  manage: 30,
+  execute: 40,
+  audit: 50,
+};
 
 export const PERMISSION_CATALOG: PermissionDomain[] = [
   {
@@ -147,14 +166,12 @@ export const PERMISSION_CATALOG: PermissionDomain[] = [
     group: "合同",
     actions: [
       { key: "contract:view", action: "view", label: "查看" },
+      { key: "contract:audit", action: "audit", label: "审核（公司范围，仅限范围内公司合同）" },
       { key: "contract:execute", action: "execute", label: "执行（比赛级，不限公司）" },
-      {
-        key: "contract:audit",
-        action: "audit",
-        label: "审核（公司范围，仅限范围内公司合同）",
-      },
       { key: "contract:manage", action: "manage", label: "管理（新建/删除）" },
     ],
+    // D1 确认：manage ⊇ execute ⊇ audit ⊇ view
+    actionRank: { view: 10, audit: 20, execute: 30, manage: 40 },
   },
   {
     key: "industryType",
@@ -269,9 +286,19 @@ export function isValidPermissions(perms: unknown): perms is string[] {
 }
 
 /**
+ * 获取域的动作等级表。
+ * 优先使用域自定义 actionRank，否则使用全局默认 DEFAULT_ACTION_RANKS。
+ */
+function getDomainActionRank(domain: string): Record<string, number> {
+  const domainDef = PERMISSION_CATALOG.find((d) => d.key === domain);
+  return domainDef?.actionRank ?? DEFAULT_ACTION_RANKS;
+}
+
+/**
  * 判断某用户是否满足所需权限。
  * - SUPER_ADMIN 隐式拥有全部权限（兼容旧行为，始终放行）。
  * - 其余角色：要求 required 中每一项都在用户的 permissions 列表中（AND 语义）。
+ * - 动作蕴含：用户持有该域任一动作 actionZ 且 rank(Z) ≥ rank(X) 即视为满足 domain:actionX。
  */
 export function hasPermission(
   role: string | undefined,
@@ -285,27 +312,25 @@ export function hasPermission(
   const owned = new Set(perms);
   return req.every((need) => {
     if (owned.has(need)) return true;
-    // 同域动作层级蕴含（manage ⊇ edit ⊇ view）：让「已有写/管理权限者天然可读」，
-    // 从而给读接口统一加 view 守卫时不会让既有的 edit/manage 授权失效。
+    // 解析 domain:action
     const colon = need.lastIndexOf(":");
     if (colon === -1) return false;
     const domain = need.slice(0, colon);
     const action = need.slice(colon + 1);
-    if (action === "view") {
-      // 读是某域内最弱的能力：持有该域任意能力（view/edit/manage/execute/audit 等）即视为可读。
-      // 使用 lastIndexOf 精确匹配域前缀，避免 startsWith 误匹配嵌套域（如 data:material:view 匹配 data:material:edit:xxx）
-      return perms.some((p) => {
-        if (p === domain) return true;
-        const lastColon = p.lastIndexOf(":");
-        return lastColon > 0 && p.slice(0, lastColon) === domain;
-      });
-    }
-    if (action === "edit") {
-      // 编辑可由管理满足。
-      return owned.has(`${domain}:manage`);
-    }
-    // manage / execute / audit 等：需精确持有，不做向下蕴含。
-    return false;
+    // 获取该域的动作等级表
+    const ranks = getDomainActionRank(domain);
+    const requiredRank = ranks[action];
+    if (requiredRank == null) return false; // 未知动作，精确匹配
+    // 检查用户是否持有该域任一动作且等级 >= 所需等级
+    return perms.some((p) => {
+      const lastColon = p.lastIndexOf(":");
+      if (lastColon <= 0) return false;
+      const pDomain = p.slice(0, lastColon);
+      const pAction = p.slice(lastColon + 1);
+      if (pDomain !== domain) return false;
+      const pRank = ranks[pAction];
+      return pRank != null && pRank >= requiredRank;
+    });
   });
 }
 

@@ -22,9 +22,21 @@ export interface UserInfo {
   competitionId?: number | null;
 }
 
+/** 权限目录元数据（从后端获取） */
+export interface PermissionCatalog {
+  domains: any[];
+  groups: any[];
+  actionRank: Record<string, number>;
+  roleTemplates: Record<string, any>;
+  superAdminOnlyPermissions: string[];
+  allKeys: string[];
+  labels: Record<string, string>;
+}
+
 export const useAuthStore = defineStore("auth", () => {
   const token = ref<string>(getAccountItem("token") || "");
   const user = ref<UserInfo | null>(null);
+  const permissionCatalog = ref<PermissionCatalog | null>(null);
 
   const isLoggedIn = computed(() => !!token.value);
   const isSuperAdmin = computed(() => user.value?.role === "SUPER_ADMIN");
@@ -101,9 +113,23 @@ export const useAuthStore = defineStore("auth", () => {
     try {
       user.value = await authApi.getProfile();
       startHeartbeat();
+      // 获取权限目录（登录后拉取一次）
+      await fetchPermissionCatalog();
     } catch (e) {
       console.error("Failed to fetch profile:", e);
       logout();
+    }
+  }
+
+  /** 获取权限目录（从后端 /api/permissions/catalog） */
+  async function fetchPermissionCatalog() {
+    if (permissionCatalog.value) return; // 已缓存
+    try {
+      const res = await api.get("/api/permissions/catalog", { silent: true });
+      permissionCatalog.value = res as PermissionCatalog;
+    } catch (e) {
+      console.error("Failed to fetch permission catalog:", e);
+      // 静默失败，不影响登录
     }
   }
 
@@ -143,6 +169,7 @@ export const useAuthStore = defineStore("auth", () => {
     stopHeartbeat();
     token.value = "";
     user.value = null;
+    permissionCatalog.value = null; // 清空权限目录缓存
     // 仅移除账号命名空间下的 token（保留该账号其余已持久化数据，下次登录可恢复）；
     // activeUserId 指针保留，由 token 是否存在决定登录态（见 competition.loadFromStorage 守卫）。
     removeAccountItem("token");
@@ -153,9 +180,35 @@ export const useAuthStore = defineStore("auth", () => {
   window.removeEventListener("auth:kicked", logout);
   window.addEventListener("auth:kicked", logout);
 
+  // 监听权限变更事件（实时推送）
+  // 当管理员修改某账号的权限/角色/范围时，后端会定向推送 permissions:changed 事件
+  // 前端收到后拉取最新的用户信息，更新 can()/菜单/按钮
+  async function refreshProfile() {
+    if (!token.value) return;
+    try {
+      user.value = await authApi.getProfile();
+    } catch (e) {
+      console.error("Failed to refresh profile:", e);
+      // 静默失败，保持旧状态
+    }
+  }
+
+  window.removeEventListener("permissions-changed", handlePermissionsChanged);
+  window.addEventListener("permissions-changed", handlePermissionsChanged);
+
+  function handlePermissionsChanged(event: Event) {
+    const detail = (event as CustomEvent).detail;
+    if (!detail || !user.value) return;
+    // 只处理当前用户的权限变更
+    if (detail.userId === user.value.id) {
+      void refreshProfile();
+    }
+  }
+
   return {
     token,
     user,
+    permissionCatalog,
     isLoggedIn,
     isSuperAdmin,
     needsPasswordChange,
@@ -165,6 +218,8 @@ export const useAuthStore = defineStore("auth", () => {
     changePassword,
     login,
     fetchProfile,
+    fetchPermissionCatalog,
+    refreshProfile,
     logout,
     startHeartbeat,
     stopHeartbeat,

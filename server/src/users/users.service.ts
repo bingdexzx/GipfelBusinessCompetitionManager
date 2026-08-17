@@ -1,16 +1,40 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException, ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../prisma/prisma.service";
+import { RealtimeService } from "../realtime/realtime.service";
 import { CreateUserDto, UpdateUserDto, UpdatePasswordDto } from "./dto/user.dto";
 import {
   parsePermissions,
   serializePermissions,
   isValidPermissions,
-  parseCompanyScopes,
-  serializeCompanyScopes,
 } from "../permissions/catalog";
+import { assertGrantAllowed } from "../permissions/role-templates";
 import { applyUpdatedAfter, buildIncrementalResult } from "../common/sync";
 
+// ========== 范围字段作用域对象类型 ==========
+
+/** 范围模式 */
+export type ScopeMode = "none" | "company" | "all";
+
+/** 作用域对象 */
+export interface ScopeObject {
+  mode: ScopeMode;
+  companyIds: number[];
+}
+
+/** 合同审核范围（companyScopes）：company 仅限所列公司；none 无可审核合同 */
+export type CompanyScopes = ScopeObject;
+
+/** 全量字段读取范围（viewCompanyScopes）：all 不限制；company 仅限所列公司 */
+export type ViewCompanyScopes = ScopeObject;
+
+/** 合同查看范围（contractViewCompanyScopes）：all 不限制；company 仅限所列公司 */
+export type ContractViewCompanyScopes = ScopeObject;
+
+/** 股票管理范围（stockCompanyScopes）：none 仅自身 USER 账户；company 限所列公司；all 全量 */
+export type StockCompanyScopes = ScopeObject;
+
+/** 用户视图（含作用域对象） */
 export interface UserView {
   id: number;
   username: string;
@@ -18,17 +42,67 @@ export interface UserView {
   displayName: string | null;
   competitionId: number | null;
   permissions: string[];
-  companyScopes: number[];
-  viewCompanyScopes: number[];
-  contractViewCompanyScopes: number[];
-  stockCompanyScopes: number[];
+  companyScopes: CompanyScopes;
+  viewCompanyScopes: ViewCompanyScopes;
+  contractViewCompanyScopes: ContractViewCompanyScopes;
+  stockCompanyScopes: StockCompanyScopes;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+// ========== 范围字段解析/序列化 ==========
+
+/** 解析范围字段（兼容旧格式数组和新格式对象） */
+export function parseScope(raw: string | null | undefined, defaultMode: ScopeMode = "none"): ScopeObject {
+  if (!raw) return { mode: defaultMode, companyIds: [] };
+  try {
+    const parsed = JSON.parse(raw);
+    // 新格式：对象
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "mode" in parsed) {
+      return {
+        mode: parsed.mode || defaultMode,
+        companyIds: Array.isArray(parsed.companyIds) ? parsed.companyIds.filter((x: any) => typeof x === "number") : [],
+      };
+    }
+    // 旧格式：数组（兼容）
+    if (Array.isArray(parsed)) {
+      const ids = parsed.filter((x: any) => typeof x === "number" || (typeof x === "string" && !isNaN(Number(x)))).map(Number);
+      return { mode: ids.length > 0 ? "company" : defaultMode, companyIds: ids };
+    }
+  } catch {
+    // JSON 解析失败
+  }
+  return { mode: defaultMode, companyIds: [] };
+}
+
+/** 序列化范围字段 */
+export function serializeScope(scope: ScopeObject | null | undefined, defaultMode: ScopeMode = "none"): string | null {
+  if (!scope) return null;
+  const mode = scope.mode || defaultMode;
+  const companyIds = scope.companyIds || [];
+  // 如果是默认模式且无公司列表，返回 null（节省存储）
+  if (mode === defaultMode && companyIds.length === 0) return null;
+  return JSON.stringify({ mode, companyIds });
+}
+
+/** 解析公司范围（兼容旧格式）- 已废弃，使用 parseScope 代替 */
+export function parseCompanyScopes(raw: string | null | undefined): number[] {
+  const scope = parseScope(raw);
+  return scope.companyIds;
+}
+
+/** 序列化公司范围（兼容旧格式）- 已废弃，使用 serializeScope 代替 */
+export function serializeCompanyScopes(scopes: number[] | null | undefined): string | null {
+  if (!scopes || scopes.length === 0) return null;
+  return serializeScope({ mode: "company", companyIds: scopes });
+}
+
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private realtime: RealtimeService,
+  ) {}
 
   private toView(user: {
     id: number;
@@ -51,10 +125,10 @@ export class UsersService {
       displayName: user.displayName,
       competitionId: user.competitionId,
       permissions: parsePermissions(user.permissions),
-      companyScopes: parseCompanyScopes((user as any).companyScopes),
-      viewCompanyScopes: parseCompanyScopes((user as any).viewCompanyScopes),
-      contractViewCompanyScopes: parseCompanyScopes((user as any).contractViewCompanyScopes),
-      stockCompanyScopes: parseCompanyScopes((user as any).stockCompanyScopes),
+      companyScopes: parseScope((user as any).companyScopes, "none"),
+      viewCompanyScopes: parseScope((user as any).viewCompanyScopes, "all"),
+      contractViewCompanyScopes: parseScope((user as any).contractViewCompanyScopes, "all"),
+      stockCompanyScopes: parseScope((user as any).stockCompanyScopes, "none"),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -106,17 +180,18 @@ export class UsersService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
+    const targetRole = dto.role || "PLAYER";
     const user = await this.prisma.user.create({
       // 注：companyScopes 已存在于数据库，但本地 Prisma Client 因生成锁未重新生成，
       // 故此处整体按 any 写入（运行时列已存在，可正常落库）。
       data: {
         username: dto.username,
         passwordHash,
-        role: dto.role || "PLAYER",
+        role: targetRole,
         displayName: dto.displayName,
         competitionId: dto.competitionId ?? null,
         mustChangePassword: true,
-        permissions: this.sanitize(dto.permissions),
+        permissions: this.sanitize(dto.permissions, targetRole, actor?.role),
         companyScopes: this.sanitizeScopes(dto.companyScopes),
         viewCompanyScopes: this.sanitizeScopes(dto.viewCompanyScopes),
         contractViewCompanyScopes: this.sanitizeScopes(dto.contractViewCompanyScopes),
@@ -127,16 +202,17 @@ export class UsersService {
   }
 
   async update(actor: any, id: number, dto: UpdateUserDto) {
-    await this.findOne(id);
+    const target = await this.findOne(id);
     // 角色修改限制：仅超级管理员可修改任何账号的角色，且只有超级管理员可授予
     // 超级管理员角色，杜绝竞赛管理员把自身或其它账号提权为超管。
     if (dto.role !== undefined && actor?.role !== "SUPER_ADMIN") {
       throw new ForbiddenException("仅超级管理员可修改账号角色");
     }
+    const targetRole = dto.role || target.role;
     const data: Record<string, unknown> = {};
     if (dto.role !== undefined) data.role = dto.role;
     if (dto.displayName !== undefined) data.displayName = dto.displayName;
-    if (dto.permissions !== undefined) data.permissions = this.sanitize(dto.permissions);
+    if (dto.permissions !== undefined) data.permissions = this.sanitize(dto.permissions, targetRole, actor?.role);
     if (dto.companyScopes !== undefined)
       data.companyScopes = this.sanitizeScopes(dto.companyScopes);
     if (dto.viewCompanyScopes !== undefined)
@@ -146,6 +222,19 @@ export class UsersService {
     if (dto.stockCompanyScopes !== undefined)
       data.stockCompanyScopes = this.sanitizeScopes(dto.stockCompanyScopes);
     const user = await this.prisma.user.update({ where: { id }, data });
+
+    // 如果修改了权限/角色/范围，推送权限变更事件
+    if (
+      dto.permissions !== undefined ||
+      dto.role !== undefined ||
+      dto.companyScopes !== undefined ||
+      dto.viewCompanyScopes !== undefined ||
+      dto.contractViewCompanyScopes !== undefined ||
+      dto.stockCompanyScopes !== undefined
+    ) {
+      this.realtime.emitPermissionsChanged(id, user.tokenVersion);
+    }
+
     return this.toView(user);
   }
 
@@ -183,15 +272,34 @@ export class UsersService {
     return { message: "用户已删除" };
   }
 
-  /** 只保留合法权限 key；非法/重复/空数组 → null（数据库存 null 表示未单独配置） */
-  private sanitize(perms?: string[]): string | null {
+  /**
+   * 校验并序列化权限列表
+   * - 校验权限 key 是否合法
+   * - 校验是否在角色授予上限范围内
+   * - 非法/重复/空数组 → null（数据库存 null 表示未单独配置）
+   */
+  private sanitize(perms?: string[], targetRole?: string, actorRole?: string): string | null {
     if (!perms || !isValidPermissions(perms)) return null;
+
+    // 授予上限校验（仅在提供了角色信息时执行）
+    if (targetRole && actorRole) {
+      const result = assertGrantAllowed(actorRole, targetRole, perms);
+      if (!result.allowed) {
+        throw new ForbiddenException(`权限授予超出上限: ${result.violations.join("; ")}`);
+      }
+    }
+
     return serializePermissions(perms);
   }
 
-  /** 公司范围：过滤为合法数字数组；空 → null */
-  private sanitizeScopes(scopes?: number[]): string | null {
-    if (!scopes || scopes.length === 0) return null;
-    return serializeCompanyScopes(scopes);
+  /** 范围字段：校验并序列化为作用域对象 */
+  private sanitizeScopes(scopes?: ScopeObject | number[]): string | null {
+    if (!scopes) return null;
+    // 兼容旧格式（数组）
+    if (Array.isArray(scopes)) {
+      return serializeScope({ mode: scopes.length > 0 ? "company" : "none", companyIds: scopes });
+    }
+    // 新格式（对象）
+    return serializeScope(scopes);
   }
 }

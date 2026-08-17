@@ -556,10 +556,13 @@ async function _cachedGet<T = any>(url: string, config?: any): Promise<T> {
     return m.value as T;
   }
 
+  // F2 修复：记录请求发起时刻（而非完成时刻），确保事件晚于发起时刻时 memo 失效
+  const startedAt = Date.now();
   const p = cachedGetImpl(url, silentConfig).finally(() => _getInflight.delete(key));
   _getInflight.set(key, p);
   const result = await p;
-  _memo.set(key, { time: Date.now(), value: result });
+  // 使用 startedAt 而非 Date.now()，消除时序竞态窗口
+  _memo.set(key, { time: startedAt, value: result });
   return result as T;
 }
 
@@ -677,6 +680,14 @@ export async function reconcileAllIncremental(): Promise<void> {
     );
   } catch {
     /* 忽略：对账失败不阻断主流程 */
+  } finally {
+    // F3 修复：对账完成后派发 sync:reconciled 事件，通知组件统一重载
+    // 使用 400ms 防抖，避免一次重连触发多次组件重拉
+    window.dispatchEvent(
+      new CustomEvent("sync:reconciled", {
+        detail: { collections: cols?.map((c) => c.collectionKey) || [] },
+      }),
+    );
   }
 }
 

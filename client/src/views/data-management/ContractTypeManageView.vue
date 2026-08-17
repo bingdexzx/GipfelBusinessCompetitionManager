@@ -4,6 +4,11 @@
       <h2 class="mm-title">合同类型管理</h2>
       <div class="mm-actions">
         <el-button
+          :disabled="!authStore.can('contractType:manage')"
+          @click="openSimpleNew"
+          >简单新建</el-button
+        >
+        <el-button
           type="primary"
           :disabled="!authStore.can('contractType:manage')"
           @click="openGraphNew"
@@ -33,9 +38,15 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="openDetail(row)">配置</el-button>
+          <el-button
+            size="small"
+            :disabled="!authStore.can('contractType:manage')"
+            @click="openSimple(row)"
+            >简单编辑</el-button
+          >
           <el-button
             size="small"
             type="primary"
@@ -98,6 +109,21 @@
         @saved="onGraphSaved"
       />
     </el-dialog>
+
+    <!-- 简单模式编辑器 -->
+    <el-dialog append-to-body
+      v-model="showSimple"
+      :title="simpleTarget ? `简单编辑 · ${simpleTarget.name}` : '简单新建合同类型'"
+      width="80%"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <SimpleContractTypeEditor
+        :contract-type="simpleTarget"
+        @cancel="showSimple = false"
+        @saved="onSimpleSaved"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -107,6 +133,7 @@ import { useAuthStore } from "@/stores/auth";
 import { contractTypesApi } from "@/api";
 import { ElMessage, ElMessageBox } from "element-plus";
 import ContractTypeGraphEditor from "@/components/contracts/ContractTypeGraphEditor.vue";
+import SimpleContractTypeEditor from "@/components/contracts/simple/SimpleContractTypeEditor.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 
 const authStore = useAuthStore();
@@ -118,6 +145,8 @@ const showDetail = ref(false);
 const detailRow = ref<any>(null);
 const showGraph = ref(false);
 const graphTarget = ref<any>(null);
+const showSimple = ref(false);
+const simpleTarget = ref<any>(null);
 
 const filteredTypes = computed(() => {
   if (!searchText.value) return types.value;
@@ -192,6 +221,32 @@ function onGraphSaved() {
 }
 function onGraphClosed() {
   graphTarget.value = null;
+}
+
+function openSimpleNew() {
+  simpleTarget.value = null;
+  showSimple.value = true;
+}
+
+function openSimple(row: any) {
+  simpleTarget.value = row;
+  showSimple.value = true;
+}
+
+async function onSimpleSaved(data: any) {
+  try {
+    if (simpleTarget.value) {
+      await contractTypesApi.update(simpleTarget.value.id, data);
+      ElMessage.success("已更新");
+    } else {
+      await contractTypesApi.create(data);
+      ElMessage.success("已创建");
+    }
+    showSimple.value = false;
+    load();
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function toggleEnabled(row: any) {
