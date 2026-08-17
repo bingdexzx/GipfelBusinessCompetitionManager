@@ -306,21 +306,10 @@ export class MarketMakerConfigDto {
   baseQuantity?: number; // 每档基础数量（股），默认 1000
 }
 
-// 推进轮次（高级管理）
-export class AdvanceRoundDto {
-  @IsOptional()
-  @IsArray()
-  @IsInt({ each: true })
-  stockIds?: number[]; // 不传则推进比赛内全部股票
-
-  @IsOptional()
-  @Type(() => MarketMakerConfigDto)
-  marketMaker?: MarketMakerConfigDto; // 做市商配置
-
-  @IsOptional()
-  @Type(() => StockConfigDto)
-  stockConfig?: StockConfigDto; // 本次推进的 stockConfig 覆盖（不传则用比赛级配置）
-}
+// 注意：StockConfigDto 必须声明在 AdvanceRoundDto 之前——
+// class-transformer 的 @Type() 装饰器会在「装饰期」立即调用其类型函数（() => StockConfigDto），
+// 若 StockConfigDto 在其后声明则处于 TDZ，会在模块加载（及服务端启动）时抛
+// "Cannot access 'StockConfigDto' before initialization"。
 
 /** 股票引擎全局配置（比赛级 stockConfig，S8）。全部字段可选，缺失回退默认值。 */
 export class StockConfigDto {
@@ -397,4 +386,20 @@ export class StockConfigDto {
   @Min(0)
   @Max(1)
   tradePriceWeight?: number; // 最终价中成交价权重
+}
+
+// 推进轮次（高级管理）
+export class AdvanceRoundDto {
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  stockIds?: number[]; // 不传则推进比赛内全部股票
+
+  @IsOptional()
+  @Type(() => MarketMakerConfigDto)
+  marketMaker?: MarketMakerConfigDto; // 做市商配置
+
+  @IsOptional()
+  @Type(() => StockConfigDto)
+  stockConfig?: StockConfigDto; // 本次推进的 stockConfig 覆盖（不传则用比赛级配置）
 }

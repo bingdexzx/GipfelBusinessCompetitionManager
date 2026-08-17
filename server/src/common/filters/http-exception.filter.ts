@@ -4,13 +4,16 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
+  Injectable,
 } from "@nestjs/common";
 import { Request, Response } from "express";
-import { formatOperator, getOperator, getIp } from "../logging/operator.context";
+import { formatOperator, getOperator, getIp, getRequestId } from "../logging/operator.context";
 import { logger } from "../logging/logger.config";
 import { sanitize } from "../logging/sanitize";
+import { writeAuditLog } from "../logging/audit";
 
 @Catch()
+@Injectable()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -71,6 +74,28 @@ export class HttpExceptionFilter implements ExceptionFilter {
         body,
       });
     }
+
+    // R10 错误上下文落库：把异常摘要（路径/方法/状态码/错误类）写入 AuditLog，
+    // 与写操作审计共用一张表（kind="error"），脱敏后落库，日志文件保留全文。
+    const op = getOperator();
+    const rid = getRequestId();
+    const errorSummary =
+      exception instanceof Error
+        ? `${exception.constructor.name}: ${exception.message}`
+        : "非 Error 类型异常";
+    writeAuditLog({
+      kind: "error",
+      action: request.method,
+      operatorId: op?.id ?? null,
+      operatorName: op?.username ?? null,
+      model: null,
+      recordId: null,
+      competitionId: null,
+      statusCode: status,
+      errorSummary,
+      ip,
+      requestId: rid ?? null,
+    });
 
     response.status(status).json({
       code: status,

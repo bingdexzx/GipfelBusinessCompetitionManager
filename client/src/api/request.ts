@@ -602,8 +602,12 @@ const RESOURCE_TO_SEG: Record<string, string> = Object.fromEntries(
  * 副本的集合本就无脏数据，跳过）。
  */
 export async function reconcileAllIncremental(): Promise<void> {
+  // 声明提升到 try 之外：finally 中需要读取本次对账涉及的集合列表，
+  // 而 const [cols, maps] 若写在 try 内则对 finally 不可见（块级作用域），会导致 TS 报错且对账事件丢失集合信息。
+  let cols: any[] = [];
+  let maps: any[] = [];
   try {
-    const [cols, maps] = await Promise.all([listFullCollections(), listMapSyncKeys()]);
+    [cols, maps] = await Promise.all([listFullCollections(), listMapSyncKeys()]);
 
     // 普通集合：逐集合发一次增量请求
     await Promise.all(

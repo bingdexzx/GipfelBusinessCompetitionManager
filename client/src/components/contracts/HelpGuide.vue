@@ -25,7 +25,7 @@
           </ul>
         </div>
 
-        <div v-if="tips.length > 0" class="help-tips">
+        <div v-if="tips?.length" class="help-tips">
           <h4>💡 提示</h4>
           <ul>
             <li v-for="(tip, idx) in tips" :key="idx">{{ tip }}</li>

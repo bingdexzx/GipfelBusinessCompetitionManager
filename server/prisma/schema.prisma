@@ -698,3 +698,28 @@ model StockCandle {
 
   @@unique([stockId, round])
 }
+
+// 审计日志（R10 安全加固）：数据库写操作与异常上下文落库。
+// 写操作审计由 PrismaService.$allOperations 异步写入（kind="write"）；
+// 异常上下文由 HttpExceptionFilter 写入（kind="error"）。日志文件保留现场快照，本表为「审计真相」。
+model AuditLog {
+  id            Int      @id @default(autoincrement())
+  kind          String   @default("write") // write | error
+  operatorId    Int?
+  operatorName  String?
+  action        String // 写操作：<Model>:<create|update|...>；异常：<HTTP 方法>
+  model         String? // 受影响的 Prisma 模型名（写操作）
+  recordId      String? // 受影响记录主键 / 批量数量
+  competitionId Int?
+  changes       String? // 变更摘要（JSON 字符串，脱敏后）
+  statusCode    Int? // 异常上下文：HTTP 状态码
+  errorSummary  String? // 异常上下文：错误摘要（脱敏）
+  ip            String?
+  requestId     String?
+  createdAt     DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([operatorId, createdAt])
+  @@index([model, createdAt])
+  @@index([requestId])
+}
