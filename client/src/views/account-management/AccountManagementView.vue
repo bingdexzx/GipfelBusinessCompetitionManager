@@ -191,8 +191,8 @@ let companiesLoaded = false;
 /**
  * 根据身份与所选公司派生权限集合与四个范围。
  * - SUPER_ADMIN：空（隐式全权限）。
- * - COMPETITION_ADMIN（管理员）：数据管理查看 + 创建/审核合同 + 查看公司字段 + 股票低级管理+查看 + 区域总览 + 消息；
- *   四个范围（审核/字段查看/合同查看/股票）均 = 所选公司。
+ * - COMPETITION_ADMIN（管理员）：数据管理查看 + 创建/执行/审核合同（contract:execute 为比赛级执行，不受公司范围限制）+ 查看公司字段 + 股票低级管理+查看 + 区域总览 + 消息；
+ *   四个范围（审核/字段查看/合同查看/股票）均 = 所选公司；因持有 contract:execute，合同执行与列表可见性不受 companyScopes 限制。
  * - PLAYER（选手）：数据管理查看 + 消息 + 区域总览；可查看所选公司的合同与全量字段；行情中交易（自身账户）。
  *   四个范围均 = 所选公司（股票范围在仅持 stock:view 时为惰性，不影响权限）。
  */
@@ -236,7 +236,7 @@ function derivePermissions(
   ];
   if (role === "COMPETITION_ADMIN") {
     return {
-      permissions: [...baseView, "contract:manage", "contract:audit", "stock:edit"],
+      permissions: [...baseView, "contract:manage", "contract:audit", "contract:execute", "stock:edit"],
       companyScopes: companies,
       viewCompanyScopes: companies,
       contractViewCompanyScopes: companies,

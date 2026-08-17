@@ -22,16 +22,37 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
+    <el-alert
+      v-if="canOperateContracts && filteredContracts.length > 0 && !hasDraft"
+      type="info"
+      show-icon
+      :closable="false"
+      title="暂无草稿合同可执行"
+      description="新建合同默认保存为「草稿」，填写完整参与方合同编号后，即可点击「执行」落账。"
+      style="margin-bottom: 12px"
+    />
+
     <el-table v-loading="loading" :data="filteredContracts" border stripe style="width: 100%">
+      <template #empty>
+        <el-empty
+          :description="authStore.can('contract:manage') ? '暂无合同，点击右上角「+ 新建」创建草稿' : '暂无合同'"
+        >
+          <el-button v-if="authStore.can('contract:manage')" type="primary" @click="openCreate"
+            >+ 新建合同</el-button
+          >
+        </el-empty>
+      </template>
       <el-table-column label="合同编号" min-width="220">
         <template #default="{ row }">{{ contractNumbersText(row) }}</template>
       </el-table-column>
       <el-table-column label="类型" min-width="200">
         <template #default="{ row }">{{ row.contractType?.name || "—" }}</template>
       </el-table-column>
-      <el-table-column label="状态" width="110" align="center">
+      <el-table-column label="状态" width="150" align="center">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          <el-tooltip :content="statusHint(row)" placement="top">
+            <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column label="参与方" min-width="200">
@@ -58,8 +79,8 @@
           <el-button
             size="small"
             type="success"
-            :disabled="!authStore.canAny(['contract:execute', 'contract:audit']) || row.status !== 'DRAFT'"
-            :title="row.status === 'DRAFT' ? '所有参与方编号齐全后执行落账' : '仅草稿可执行'"
+            :disabled="executeBtnState(row).disabled"
+            :title="executeBtnState(row).title"
             @click="executeContract(row)"
             >执行</el-button
           >
@@ -900,6 +921,20 @@ function statusLabel(s: string) {
 function statusType(s: string) {
   return ({ DRAFT: "info", EXECUTED: "success", TERMINATED: "danger" } as any)[s] || "info";
 }
+// 与全局 $formatTime 等价：ISO 截断到秒（脚本内不便直接访问 globalProperties）
+function fmtTime(val: string | Date | null | undefined): string {
+  if (!val) return "-";
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return "-";
+  return d.toISOString().replace("T", " ").substring(0, 19);
+}
+// 状态列悬停提示：草稿说明下一步，已执行/已终止展示执行时间
+function statusHint(row: any): string {
+  if (row.status === "DRAFT") return "草稿：填写完整参与方合同编号后可执行";
+  if (row.status === "EXECUTED") return `执行时间：${fmtTime(row.executedAt)}`;
+  if (row.status === "TERMINATED") return `执行时间：${fmtTime(row.executedAt)}；已终止`;
+  return "";
+}
 // 检查类型原始枚举 → 中文显示名（避免界面直接出现 VALUE_COMPARE 等原始 kind）
 const COND_KIND_LABEL: Record<string, string> = {
   VALUE_COMPARE: "数值比较",
@@ -940,6 +975,43 @@ const filteredContracts = computed(() => {
       c.contractType?.name?.toLowerCase().includes(q),
   );
 });
+
+// 当前用户是否可操作合同（新建/执行/审核任一），用于空态引导展示
+const canOperateContracts = computed(
+  () => authStore.can("contract:manage") || authStore.canAny(["contract:execute", "contract:audit"]),
+);
+// 列表中是否存在草稿（决定「暂无草稿可执行」引导是否出现）
+const hasDraft = computed(() => filteredContracts.value.some((c: any) => c.status === "DRAFT"));
+
+// 执行按钮三态（与后端 execute() 的 assertAuditScope 保持一致）：
+// - 无 execute/audit 权限 → 禁用（权限不足）
+// - 非草稿 → 禁用（状态原因）
+// - 仅持 audit（无 execute/manage）且合同参与方均不在 companyScopes 内 → 禁用（范围外，避免点击后被后端 403）
+function executeBtnState(row: any): { disabled: boolean; title: string } {
+  if (!authStore.canAny(["contract:execute", "contract:audit"])) {
+    return { disabled: true, title: "无合同执行权限" };
+  }
+  if (row.status !== "DRAFT") {
+    return {
+      disabled: true,
+      title:
+        row.status === "EXECUTED"
+          ? `合同已执行${row.executedAt ? `（${fmtTime(row.executedAt)}）` : ""}，不可重复执行`
+          : "仅草稿可执行",
+    };
+  }
+  const globalExec = authStore.can("contract:execute") || authStore.can("contract:manage");
+  if (!globalExec) {
+    const parties = parseJson(row.parties, []);
+    const inScope = parties
+      .filter((p: any) => !p.isHost)
+      .some((p: any) => authStore.canAuditCompany(p.companyId));
+    if (!inScope) {
+      return { disabled: true, title: "该合同不涉及你负责的公司，无法执行" };
+    }
+  }
+  return { disabled: false, title: "所有参与方编号齐全后执行落账" };
+}
 
 const detailParties = computed(() => parseJson(detailRow.value?.parties, []));
 const detailChecks = computed(() => {
