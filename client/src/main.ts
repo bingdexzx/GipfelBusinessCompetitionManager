@@ -13,8 +13,11 @@ import "./components/dashboard/registerCustomWidgets";
 // 账号隔离：在挂载前完成本地存储迁移（旧顶层 token → 账号命名空间；清理遗留共享 DB），
 // 确保各 store 初始化读取 token / 比赛选择时已进入正确的账号命名空间。
 import { ensureStorageMigration } from "./utils/accountStorage";
+import { deleteOldAccountDbs } from "./api/cache";
 
 ensureStorageMigration();
+// 清理升级前「仅按账号、无 realm」的旧 IndexedDB 缓存库（新方案库名带 realm 段）。
+deleteOldAccountDbs();
 
 const app = createApp(App);
 

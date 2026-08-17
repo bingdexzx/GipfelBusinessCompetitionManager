@@ -177,6 +177,12 @@ function _resetMemo(): void {
   _lastEventAt.clear();
 }
 
+// 切换服务器后清空内存 memo：缓存库已按 realm（服务器身份）隔离，但内存 memo 键与服务器无关，
+// 若不清空，旧服务器的响应可能被新服务器命中，造成串档。由 config/index.ts 的 setServerUrl 派发。
+if (typeof window !== "undefined") {
+  window.addEventListener("server:changed", _resetMemo);
+}
+
 function _reqKey(method: string, url: string, config?: any): string {
   const params = config?.params ? JSON.stringify(config.params) : "";
   return `${method.toUpperCase()} ${url} ${params}`;

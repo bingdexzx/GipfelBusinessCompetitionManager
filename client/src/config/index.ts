@@ -21,3 +21,35 @@ export function getApiBaseUrl(): string {
   const raw = localStorage.getItem("serverUrl") || DEFAULT_SERVER_URL;
   return normalizeServerUrl(raw);
 }
+
+import { setActiveUser } from "@/utils/accountStorage";
+import { resetServerRealm, realmForUrl, clearRealmData } from "@/utils/realm";
+
+/**
+ * 设置服务器地址并清理「旧服务器身份」的本地数据，从根上避免不同服务器本地数据串档 / token 跨服冒用。
+ * 返回归一化后的地址（便于调用方持久化到 Electron 配置等）。
+ *
+ * serverUrl 是全局唯一写入点（stores/config.ts 与登录页均走本函数），集中在此保证清理逻辑不被绕开：
+ *  1. 按「旧 realm」删除其全部 localStorage 账号键 + IndexedDB 全量副本库；
+ *  2. setActiveUser(null) 重置激活账号指针（旧 token 已删 → 强制对新服务器重新登录）；
+ *  3. 重置 realm 缓存并派发 server:changed 事件，清空缓存层内存 memo，避免旧服务器响应被新服务器命中。
+ */
+export function setServerUrl(url: string): string {
+  const oldRaw = localStorage.getItem("serverUrl");
+  const norm = normalizeServerUrl(url);
+  if (oldRaw === norm) return norm; // 未变化：不动本地数据，避免误清登录态
+  const oldRealm = realmForUrl(oldRaw);
+  const newRealm = realmForUrl(norm);
+  // 仅当「服务器身份」真正变化时才清理旧本地数据；等价归一化（同一 origin）视为同一服务器，保留数据。
+  // 先按「旧服务器身份」清理其全部本地数据（token + IndexedDB 全量副本），
+  // 确保切换到新服务器后旧 token 不会被复用（即便两台 JWT_SECRET 相同）。
+  if (oldRealm !== newRealm) clearRealmData(oldRealm);
+  // 重置激活账号指针：旧 token 已删，强制对新服务器重新登录。
+  setActiveUser(null);
+  resetServerRealm();
+  localStorage.setItem("serverUrl", norm);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("server:changed"));
+  }
+  return norm;
+}

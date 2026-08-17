@@ -4,11 +4,14 @@
 // 以及 IndexedDB 全量副本）互不串档，根治「玩家账号之间缓存键如 competitionId=3 残留导致 403 串味」。
 //
 // 约定：
-//  - 账号级 localStorage 键统一加前缀 `acct_u<id>__`，由 activeUserId 决定命名空间；
+//  - 账号级 localStorage 键统一加前缀 `acct_<realm>_u<id>__`，由「服务器身份 realm + activeUserId」决定命名空间；
+//    realm 见 utils/realm.ts（按当前 serverUrl 计算），使不同服务器的本地数据 / 会话互不串档；
 //  - 机器级配置（serverUrl 等）保持全局、不加前缀（在 config.ts 中直接读写，本模块不接管）；
-//  - IndexedDB 缓存库按账号分库（见 api/cache.ts：库名 `gipfel-client-cache-u<id>`）。
+//  - IndexedDB 缓存库按「服务器 + 账号」分库（见 api/cache.ts：库名 `gipfel-client-cache-<realm>-u<id>`）。
 //
 // activeUserId 为内存级指针，同时持久化于全局键 `activeUserId`；登录 / 启动迁移时建立。
+
+import { getServerRealm } from "./realm";
 
 const ACTIVE_USER_KEY = "activeUserId";
 
@@ -43,7 +46,8 @@ export function setActiveUser(id: number | null): void {
 }
 
 function acctPrefix(id: number | null): string {
-  return id == null ? "" : `acct_u${id}__`;
+  const realm = getServerRealm();
+  return id == null ? `acct_${realm}_` : `acct_${realm}_u${id}__`;
 }
 
 // ---------- 账号级 localStorage ----------
@@ -112,27 +116,48 @@ function migrateOldTopLevelKeys(): number | null {
   for (const k of OLD_TOP_LEVEL_KEYS) {
     const v = localStorage.getItem(k);
     if (v != null) {
-      localStorage.setItem(`acct_u${sub}__${k}`, v);
+      localStorage.setItem(acctPrefix(sub) + k, v);
       localStorage.removeItem(k);
     }
   }
   return sub;
 }
 
-/** 扫描已存在的账号 token 键，返回带 token 的账号 id（无则返回 null）。 */
+/** 扫描已存在的账号 token 键（新 realm 格式），返回带 token 的账号 id（无则返回 null）。 */
 function findAccountWithToken(): number | null {
+  const re = /^acct_[0-9a-f]+_u(\d+)__token$/;
   for (let i = 0; i < localStorage.length; i++) {
     const full = localStorage.key(i);
-    if (full && full.startsWith("acct_u") && full.endsWith("__token")) {
+    if (full && re.test(full)) {
       const token = localStorage.getItem(full);
       if (token) {
-        const idStr = full.slice("acct_u".length, full.length - "__token".length);
-        const n = Number(idStr);
+        const m = full.match(re)!;
+        const n = Number(m[1]);
         if (Number.isFinite(n)) return n;
       }
     }
   }
   return null;
+}
+
+/**
+ * 升级兼容：把「仅按账号、无 realm」的旧账号键（`acct_u<id>__*`）整体 re-key 到当前 realm 命名空间
+ * （`acct_<realm>_u<id>__*`），使升级前已登录用户的 token / 比赛选择等无缝保留。
+ * 仅匹配旧格式（realm 段为纯数字 id，且其后紧跟 `__`），不影响已是新格式的键。
+ */
+function migrateOldAccountKeys(realm: string): void {
+  const re = /^acct_u(\d+)__(.+)$/;
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k && re.test(k)) {
+      const m = k.match(re)!;
+      const id = m[1];
+      const rest = m[2];
+      const v = localStorage.getItem(k);
+      if (v != null) localStorage.setItem(`acct_${realm}_u${id}__${rest}`, v);
+      localStorage.removeItem(k);
+    }
+  }
 }
 
 /** 删除升级前遗留的共享 IndexedDB 库（gipfel-client-cache）。新方案按账号分库，旧库不再使用。 */
@@ -156,6 +181,10 @@ function deleteOldSharedDb(): void {
  */
 export function ensureStorageMigration(): void {
   const migratedSub = migrateOldTopLevelKeys();
+
+  // 升级兼容：把升级前「仅按账号、无 realm」的旧账号键 re-key 到当前 realm 命名空间，
+  // 使此前已登录用户的 token / 比赛选择等无缝保留（新格式键不受影响）。
+  migrateOldAccountKeys(getServerRealm());
 
   if (migratedSub != null) {
     setActiveUser(migratedSub);

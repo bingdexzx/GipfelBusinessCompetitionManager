@@ -2,6 +2,7 @@
 // ===================================================================
 // 增量同步设计（v2）：真正降低服务器压力的关键在网络层——
 import { getActiveUserId } from "@/utils/accountStorage";
+import { getServerRealm } from "@/utils/realm";
 //   - 前端为每个「资源集合」（按 资源名 + 非分页查询参数 唯一标识）在本地维护一份「全量副本」；
 //   - 列表刷新时：若本地已有全量副本且基线未过期，则携带 `updatedAfter=<基线>` 向服务器请求
 //     「仅变更的数据」(服务端按 updatedAt 过滤)，前端按 id 增量 patch 本地全量副本；
@@ -13,12 +14,36 @@ import { getActiveUserId } from "@/utils/accountStorage";
 const DB_VERSION = 1;
 const STORE_NAME = "responses";
 
-// IndexedDB 库按账号分库：库名含当前激活账号 id，使不同账号的全量副本 / 增量基线互不串档。
-// 未登录（activeUserId 为 null）时用匿名库名，避免与任何账号混淆。详见 utils/accountStorage.ts。
+// IndexedDB 库按「服务器身份 realm + 账号」分库：库名含 realm 与当前激活账号 id，
+// 使不同账号、不同服务器的全量副本 / 增量基线互不串档（参见 utils/realm.ts、utils/accountStorage.ts）。
 const BASE_DB_NAME = "gipfel-client-cache";
 function currentDbName(): string {
+  const realm = getServerRealm();
   const id = getActiveUserId();
-  return id == null ? `${BASE_DB_NAME}-anon` : `${BASE_DB_NAME}-u${id}`;
+  return id == null ? `${BASE_DB_NAME}-${realm}-anon` : `${BASE_DB_NAME}-${realm}-u${id}`;
+}
+
+/**
+ * 清理升级前「仅按账号、无 realm」的旧 IndexedDB 缓存库（gipfel-client-cache-u<id> / -anon）。
+ * 新方案库名带 realm 段，旧库不再使用；启动时调用，fire-and-forget（不阻塞）。
+ */
+export function deleteOldAccountDbs(): void {
+  try {
+    if (typeof indexedDB === "undefined" || !(indexedDB as any).databases) return;
+    (indexedDB as any)
+      .databases()
+      .then((dbs: any[]) => {
+        for (const d of dbs) {
+          const n = d.name || "";
+          if (/^gipfel-client-cache-(u\d+|anon)$/.test(n)) {
+            indexedDB.deleteDatabase(n);
+          }
+        }
+      })
+      .catch(() => {});
+  } catch {
+    /* 忽略 */
+  }
 }
 
 // 本地全量副本的存储键格式：FULL|<资源名>|<非分页参数>
