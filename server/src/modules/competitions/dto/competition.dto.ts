@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsIn } from "class-validator";
+import { IsString, IsOptional, IsIn, IsObject } from "class-validator";
 
 export class CreateCompetitionDto {
   @IsString()
@@ -13,4 +13,9 @@ export class UpdateCompetitionDto {
   @IsOptional()
   @IsIn(["ACTIVE", "CLOSED"])
   status?: string;
+
+  // 股票系统全局配置（JSON，S8）：比赛级 stockConfig，缺失字段回退默认值
+  @IsOptional()
+  @IsObject()
+  stockConfig?: any;
 }

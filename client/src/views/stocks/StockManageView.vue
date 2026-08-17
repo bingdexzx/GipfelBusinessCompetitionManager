@@ -261,10 +261,80 @@
             :title="`预览：以当前价 ¥100 为例，做市商将挂 ${mmConfig.levels * 2} 笔订单（买卖各 ${mmConfig.levels} 档），点差 ${mmConfig.spreadPct}%`"
           />
         </template>
+        <el-divider content-position="left">股票引擎参数（高级 · 覆盖比赛默认配置 S8）</el-divider>
+        <el-form-item label="涨跌停限幅">
+          <el-input-number v-model="stockConfigForm.limitPct" :min="0.02" :max="0.5" :step="0.01" :precision="2" style="width: 100%" />
+          <div class="form-hint">单日硬限幅（比例，如 0.10 = ±10%）</div>
+        </el-form-item>
+        <el-form-item label="单轮最大波动">
+          <el-input-number v-model="stockConfigForm.maxMovePct" :min="0.001" :max="0.2" :step="0.005" :precision="3" style="width: 100%" />
+          <div class="form-hint">相对买卖净压力的最大移动（默认 0.05 = 5%，避免一字封板）</div>
+        </el-form-item>
+        <el-form-item label="连续封板干预">
+          <el-select v-model="stockConfigForm.interventionMode" style="width: 100%">
+            <el-option label="回归锚（温和拉回）" value="regression" />
+            <el-option label="扩板（放宽限幅）" value="expand-limit" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回归锚偏移" v-if="stockConfigForm.interventionMode === 'regression'">
+          <el-input-number v-model="stockConfigForm.regressionPct" :min="0" :max="0.1" :step="0.005" :precision="3" style="width: 100%" />
+          <div class="form-hint">干预挂单价相对上轮收盘的偏移（默认 0.02 = 2%）</div>
+        </el-form-item>
+        <el-form-item label="成交价权重">
+          <el-input-number v-model="stockConfigForm.tradePriceWeight" :min="0" :max="1" :step="0.05" :precision="2" style="width: 100%" />
+          <div class="form-hint">最终价中成交价的占比（默认 0.7），其余为理论价（S5）</div>
+        </el-form-item>
+        <el-form-item label="幸福度偏置">
+          <el-input-number v-model="stockConfigForm.happinessImpact" :min="0" :max="1" :step="0.05" :precision="2" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="碳排偏置">
+          <el-input-number v-model="stockConfigForm.carbonImpact" :min="0" :max="1" :step="0.05" :precision="2" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="做市商深度占比">
+          <el-input-number v-model="stockConfigForm.mmDepthPct" :min="0" :max="0.05" :step="0.0005" :precision="4" style="width: 100%" />
+          <div class="form-hint">单档深度占总股本比例（默认 0.001，深度随股本动态化 S3）</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="mmDialogVisible = false">取消</el-button>
         <el-button type="warning" :icon="VideoPlay" @click="confirmAdvance">确认推进</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- S9：本轮定价诊断面板，运营可直接看到「为什么本轮涨/跌/封板」 -->
+    <el-dialog append-to-body v-model="diagVisible" title="本轮定价诊断（S9）" width="760px">
+      <el-table :data="advanceResults" size="small" max-height="440" stripe>
+        <el-table-column prop="code" label="代码" width="92" />
+        <el-table-column label="状态" width="78">
+          <template #default="{ row }">
+            <el-tag v-if="row.skipped" type="info" size="small">跳过</el-tag>
+            <el-tag v-else type="success" size="small">已推进</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="成交" width="64">
+          <template #default="{ row }">{{ row.matched ? "是" : "否" }}</template>
+        </el-table-column>
+        <el-table-column label="净买压力" width="96">
+          <template #default="{ row }">{{ fmtNum(row.pressure) }}</template>
+        </el-table-column>
+        <el-table-column label="趋势偏置" width="96">
+          <template #default="{ row }">{{ fmtNum(row.drift) }}</template>
+        </el-table-column>
+        <el-table-column label="理论价" width="88">
+          <template #default="{ row }">{{ fmtNum(row.theoretical, 2) }}</template>
+        </el-table-column>
+        <el-table-column label="最终价" width="88">
+          <template #default="{ row }">{{ fmtNum(row.finalPrice, 2) }}</template>
+        </el-table-column>
+        <el-table-column label="干预" width="64">
+          <template #default="{ row }">
+            <el-tag v-if="row.mmIntervened" type="warning" size="small">是</el-tag>
+            <span v-else>否</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button type="primary" @click="diagVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -696,6 +766,26 @@ const mmConfig = ref({
   baseQuantity: 1000,
 });
 
+// S8：股票引擎参数（比赛级 stockConfig 的默认值，推进时可临时覆盖）
+const stockConfigForm = ref({
+  limitPct: 0.1,
+  maxMovePct: 0.05,
+  happinessImpact: 0.2,
+  carbonImpact: 0.2,
+  mmDepthPct: 0.001,
+  mmSpreadPct: 0.02,
+  interventionMode: "regression" as "regression" | "expand-limit",
+  regressionPct: 0.02,
+  tradePriceWeight: 0.7,
+});
+
+// S9：本轮定价诊断
+const advanceResults = ref<any[]>([]);
+const diagVisible = ref(false);
+function fmtNum(v: number | undefined, digits = 3): string {
+  return v == null || Number.isNaN(v) ? "-" : String(Number(v).toFixed(digits));
+}
+
 function openAdvanceDialog() {
   mmDialogVisible.value = true;
 }
@@ -705,9 +795,12 @@ async function confirmAdvance() {
   try {
     const res = await stockApi.advanceRound(compStore.competitionId!, {
       marketMaker: mmConfig.value,
+      stockConfig: stockConfigForm.value,
     });
     const mmInfo = res.marketMakerOrders > 0 ? `，做市商挂单 ${res.marketMakerOrders} 笔` : "";
     ElMessage.success(`已推进，处理 ${res.advanced} 只股票${mmInfo}`);
+    advanceResults.value = Array.isArray(res.results) ? res.results : [];
+    if (advanceResults.value.length) diagVisible.value = true;
     await reloadStocks();
     await reloadAccounts(); // 字段联动账户余额随交易更新，需刷新现金显示
   } catch (e: any) {

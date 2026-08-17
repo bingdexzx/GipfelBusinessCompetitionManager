@@ -316,4 +316,85 @@ export class AdvanceRoundDto {
   @IsOptional()
   @Type(() => MarketMakerConfigDto)
   marketMaker?: MarketMakerConfigDto; // 做市商配置
+
+  @IsOptional()
+  @Type(() => StockConfigDto)
+  stockConfig?: StockConfigDto; // 本次推进的 stockConfig 覆盖（不传则用比赛级配置）
+}
+
+/** 股票引擎全局配置（比赛级 stockConfig，S8）。全部字段可选，缺失回退默认值。 */
+export class StockConfigDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  @Max(0.5)
+  limitPct?: number; // 涨跌停硬限幅（±比例）
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  @Max(0.2)
+  maxMovePct?: number; // 单轮价格最大移动
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  happinessImpact?: number; // 幸福度趋势偏置强度
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  carbonImpact?: number; // 碳排趋势偏置强度
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(0.1)
+  mmDepthPct?: number; // 做市商单档深度占总股本比例
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  mmMinQty?: number; // 单档深度下限（股）
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10_000_000)
+  mmMaxQty?: number; // 单档深度上限（股）
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(0.2)
+  mmSpreadPct?: number; // 做市商基准点差（比例）
+
+  @IsOptional()
+  @IsIn(["regression", "expand-limit"])
+  interventionMode?: "regression" | "expand-limit"; // 连续封板干预模式
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(0.2)
+  regressionPct?: number; // 回归锚干预价格偏移
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  tradePriceWeight?: number; // 最终价中成交价权重
 }

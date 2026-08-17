@@ -7,8 +7,9 @@ import {
   UpdateFundsAccountDto,
   CreateOrderDto,
   AdvanceRoundDto,
+  MarketMakerConfigDto,
 } from "./dto/stock.dto";
-import { computeMatch, computePrice, buildCandle, computeInitPrice } from "./engine";
+import { computeMatch, computePrice, buildCandle, computeInitPrice, resolveStockConfig, StockConfig } from "./engine";
 import { hasPermission } from "../../permissions/catalog";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
@@ -424,6 +425,13 @@ export class StockService {
     }
     const pb = await this.computePbData(null, dto);
     const initPrice = computeInitPrice(dto.initNetProfit, dto.totalShares, pb.industryPE);
+    // S7：创建校验与初始价边界（避免 initPrice=0 导致股价永远为 0，或量纲异常放大涨跌）
+    if (!(dto.totalShares > 0)) throw new BadRequestException("总股本必须大于 0");
+    if (!(dto.initNetProfit > 0)) throw new BadRequestException("初始净利润必须大于 0");
+    if (!(pb.industryPE > 0)) throw new BadRequestException("有效行业 PE 必须大于 0（联动模式字段值或随机源须为正）");
+    if (!(initPrice > 0 && initPrice <= 10000)) {
+      throw new BadRequestException(`初始价 ${initPrice} 异常，请检查净利润/股本/PE 量纲（应 ∈ (0, 10000]）`);
+    }
     const stock = await this.prisma.stock.create({
       data: {
         code: dto.code,
@@ -775,38 +783,27 @@ export class StockService {
   private async generateMarketMakerOrders(
     stock: any,
     competitionId: number,
-    config: { enabled?: boolean; spreadPct?: number; levels?: number; baseQuantity?: number },
-  ): Promise<number> {
-    if (!config.enabled) return 0;
+    stockConfig: StockConfig,
+    mmOverride?: MarketMakerConfigDto,
+    consecutiveUp = 0,
+    consecutiveDown = 0,
+  ): Promise<{ count: number; intervened: boolean }> {
+    const enabled = mmOverride?.enabled ?? true;
+    if (!enabled) return { count: 0, intervened: false };
 
-    const spreadPct = (config.spreadPct ?? 2) / 100; // 默认 2% 点差
-    const levels = config.levels ?? 3; // 默认 3 档
-    const baseQuantity = config.baseQuantity ?? 1000; // 默认每档 1000 股
+    const spreadPct = (mmOverride?.spreadPct ?? stockConfig.mmSpreadPct * 100) / 100; // 点差（比例）
+    const levels = mmOverride?.levels ?? 3; // 默认 3 档
+    // S3：做市商单档深度与总股本挂钩（totalShares 单位万股 → ×10000 转股），再夹在 [mmMinQty, mmMaxQty]
+    const overrideBase = mmOverride?.baseQuantity;
+    const baseQuantity =
+      overrideBase ??
+      Math.max(
+        stockConfig.mmMinQty,
+        Math.min(stockConfig.mmMaxQty, Math.round((stock.totalShares ?? 0) * 10000 * stockConfig.mmDepthPct)),
+      );
 
     const basePrice = stock.currentPrice;
-    if (basePrice <= 0) return 0;
-
-    // 查询最近3轮K线，判断是否连续涨停/跌停
-    const recentCandles = await this.prisma.stockCandle.findMany({
-      where: { stockId: stock.id, competitionId },
-      orderBy: { round: "desc" },
-      take: 3,
-    });
-
-    // 判断连续涨停/跌停（涨跌幅接近±10%）
-    let consecutiveLimitUp = 0;
-    let consecutiveLimitDown = 0;
-    for (const candle of recentCandles) {
-      if (candle.changePct >= 9.9) {
-        consecutiveLimitUp++;
-        consecutiveLimitDown = 0;
-      } else if (candle.changePct <= -9.9) {
-        consecutiveLimitDown++;
-        consecutiveLimitUp = 0;
-      } else {
-        break;
-      }
-    }
+    if (basePrice <= 0) return { count: 0, intervened: false };
 
     // 查找或创建做市商资金账户
     let mmAccount = await this.prisma.stockFundsAccount.findFirst({
@@ -831,11 +828,17 @@ export class StockService {
       data: { status: "CANCELLED" },
     });
 
-    // 计算做市商需要的总卖量，确保持仓足够
+    // S4：是否需要回归锚干预（连续封板 ≥ 2 轮）；干预卖单也需库存，故计入总需求卖量。
+    const needIntervene =
+      stockConfig.interventionMode === "regression" && (consecutiveUp >= 2 || consecutiveDown >= 2);
+    const interventionQty = needIntervene ? baseQuantity * 3 : 0; // 温和（不再 10×）
+
+    // 计算做市商需要的总卖量，确保持仓足够（含干预卖单）
     let totalSellQty = 0;
     for (let i = 1; i <= levels; i++) {
       totalSellQty += baseQuantity * i;
     }
+    totalSellQty += interventionQty;
 
     // 检查做市商当前持仓，不足则先买入建仓（以当前价买入）
     const mmHolding = await this.prisma.stockHolding.findUnique({
@@ -880,59 +883,19 @@ export class StockService {
       });
     }
 
-    // 防止连续涨停/跌停的干预机制
-    const interventionQty = baseQuantity * 10; // 干预数量更大
-
-    if (consecutiveLimitUp >= 2) {
-      // 连续涨停2轮及以上，在当前价+5%挂大量卖单阻止继续涨停
-      const interventionPrice = Math.round(basePrice * 1.05 * 100) / 100;
+    // S4：回归锚干预——锚在「上轮收盘 ×(1±regressionPct)」（回归价，非涨停高价），
+    // 温和吸收多余净压，避免「干预→反向封板」的锯齿振荡。expand-limit 模式不做市商干预（交由 advanceOneStock 放宽限幅）。
+    if (needIntervene) {
+      const isUp = consecutiveUp >= 2;
+      const interventionPrice =
+        Math.round(basePrice * (1 + (isUp ? stockConfig.regressionPct : -stockConfig.regressionPct)) * 100) / 100;
       orders.push({
         stockId: stock.id,
         fundsAccountId: mmAccount.id,
-        side: "SELL",
+        side: isUp ? "SELL" : "BUY",
         price: interventionPrice,
         quantity: interventionQty,
         amount: Math.round(interventionPrice * interventionQty * 100) / 100,
-        status: "PENDING",
-        round: currentRound,
-        competitionId,
-      });
-      // 同时在涨停价也挂卖单
-      const limitUpPrice = Math.round(basePrice * 1.1 * 100) / 100;
-      orders.push({
-        stockId: stock.id,
-        fundsAccountId: mmAccount.id,
-        side: "SELL",
-        price: limitUpPrice,
-        quantity: interventionQty,
-        amount: Math.round(limitUpPrice * interventionQty * 100) / 100,
-        status: "PENDING",
-        round: currentRound,
-        competitionId,
-      });
-    } else if (consecutiveLimitDown >= 2) {
-      // 连续跌停2轮及以上，在当前价-5%挂大量买单阻止继续跌停
-      const interventionPrice = Math.round(basePrice * 0.95 * 100) / 100;
-      orders.push({
-        stockId: stock.id,
-        fundsAccountId: mmAccount.id,
-        side: "BUY",
-        price: interventionPrice,
-        quantity: interventionQty,
-        amount: Math.round(interventionPrice * interventionQty * 100) / 100,
-        status: "PENDING",
-        round: currentRound,
-        competitionId,
-      });
-      // 同时在跌停价也挂买单
-      const limitDownPrice = Math.round(basePrice * 0.9 * 100) / 100;
-      orders.push({
-        stockId: stock.id,
-        fundsAccountId: mmAccount.id,
-        side: "BUY",
-        price: limitDownPrice,
-        quantity: interventionQty,
-        amount: Math.round(limitDownPrice * interventionQty * 100) / 100,
         status: "PENDING",
         round: currentRound,
         competitionId,
@@ -979,7 +942,18 @@ export class StockService {
     if (orders.length > 0) {
       await this.prisma.stockOrder.createMany({ data: orders });
     }
-    return orders.length;
+    return { count: orders.length, intervened: needIntervene };
+  }
+
+  /** S8：解析比赛级 stockConfig（Competition.stockConfig JSON），缺失字段回退 DEFAULT_STOCK_CONFIG。 */
+  private async loadStockConfig(competitionId: number): Promise<StockConfig> {
+    const comp = await this.prisma.competition.findUnique({
+      where: { id: competitionId },
+      select: { stockConfig: true },
+    });
+    const raw = comp?.stockConfig;
+    const partial = raw && typeof raw === "object" ? (raw as Partial<StockConfig>) : null;
+    return resolveStockConfig(partial);
   }
 
   async advanceRound(user: ReqUser, competitionId: number, dto: AdvanceRoundDto = {}) {
@@ -990,55 +964,113 @@ export class StockService {
     const fieldMap = await this.resolveFieldValueMap(competitionId);
     const results: any[] = [];
 
-    // 做市商配置：从 dto 中读取，未传则使用默认值
-    const mmConfig = {
-      enabled: dto.marketMaker?.enabled ?? true, // 默认启用
-      spreadPct: dto.marketMaker?.spreadPct ?? 2,
-      levels: dto.marketMaker?.levels ?? 3,
-      baseQuantity: dto.marketMaker?.baseQuantity ?? 1000,
-    };
+    // S8：比赛级 stockConfig（缺失字段回退默认值），dto.stockConfig 可临时覆盖本轮
+    const baseConfig = await this.loadStockConfig(competitionId);
+    const stockConfig: StockConfig = dto.stockConfig ? { ...baseConfig, ...dto.stockConfig } : baseConfig;
+    const mmConfig = dto.marketMaker;
 
     let totalMmOrders = 0;
     for (const stock of stocks) {
       await this.applyPbRound(stock);
+      // 连续封板判定（最近 3 根 K 线）
+      const recent = await this.prisma.stockCandle.findMany({
+        where: { stockId: stock.id, competitionId },
+        orderBy: { round: "desc" },
+        take: 3,
+      });
+      let up = 0;
+      let down = 0;
+      for (const c of recent) {
+        if (c.changePct >= 9.9) {
+          up++;
+          down = 0;
+        } else if (c.changePct <= -9.9) {
+          down++;
+          up = 0;
+        } else {
+          break;
+        }
+      }
       // AI 做市商：在撮合前自动生成买卖挂单，提供流动性
-      const mmCount = await this.generateMarketMakerOrders(stock, competitionId, mmConfig);
-      totalMmOrders += mmCount;
-      const r = await this.advanceOneStock(stock, competitionId, fieldMap);
+      const mm = await this.generateMarketMakerOrders(stock, competitionId, stockConfig, mmConfig, up, down);
+      totalMmOrders += mm.count;
+      const r = await this.advanceOneStock(stock, competitionId, fieldMap, stockConfig, up, down, mm.intervened);
       if (r) results.push(r);
     }
+    const advanced = results.filter((x) => !x.skipped).length;
+    // S9：实时事件携带每轮定价诊断，前端可展开「定价诊断」面板
     this.realtime.broadcastToCompetition(competitionId, "stock:round-advanced", {
       competitionId,
-      count: results.length,
+      count: advanced,
       marketMakerOrders: totalMmOrders,
+      results,
     });
-    return { advanced: results.length, results, marketMakerOrders: totalMmOrders };
+    return { advanced, skipped: results.length - advanced, results, marketMakerOrders: totalMmOrders };
   }
 
-  private async advanceOneStock(stock: any, competitionId: number, fieldMap: Map<string, number | null>) {
+  private async advanceOneStock(
+    stock: any,
+    competitionId: number,
+    fieldMap: Map<string, number | null>,
+    stockConfig: StockConfig,
+    consecutiveUp = 0,
+    consecutiveDown = 0,
+    mmIntervened = false,
+  ) {
     // 获取所有 PENDING 订单（不限轮次），未成交的订单会保留到下一轮继续撮合
     const orders = await this.prisma.stockOrder.findMany({
       where: { stockId: stock.id, competitionId, status: "PENDING" },
       orderBy: { createdAt: "asc" },
       include: { fundsAccount: true },
     });
-    if (orders.length === 0) return null;
+    // S6：无任何订单 → 不推进、价格不动、不生成 K 线
+    if (orders.length === 0) {
+      return { stockId: stock.id, code: stock.code, round: stock.round, skipped: true };
+    }
 
-    // 撮合 + 买卖压力统一用全部订单（含 AI 做市商）。做市商订单已按「金额对称」挂单
-    // （买单金额 = 卖单金额），对买卖压力中性——既不引导价格方向，又提供价格缓冲：
-    // 若只统计玩家订单，玩家单边下单时买卖比 = ∞/0 会直接涨停/跌停，且连续多轮，
-    // 做市商的「连续涨跌停反向干预」也因被排除在买卖压力之外而失效。
+    // 撮合：用全部订单（含 AI 做市商）。做市商订单按「金额对称」挂单（买单金额 = 卖单金额），
+    // 对买卖压力中性——既不引导价格方向，又提供价格缓冲。净买压力由成交量（股）计算，不再用金额比。
     const match = computeMatch(
       orders.map((o) => ({ side: o.side as "BUY" | "SELL", price: o.price, quantity: o.quantity })),
     );
+
+    // S4（expand-limit 模式）：连续封板 ≥ 2 轮时临时放宽涨跌停限幅，让市场自行消化压力
+    let limitPct = stockConfig.limitPct;
+    if (stockConfig.interventionMode === "expand-limit") {
+      const consec = Math.max(consecutiveUp, consecutiveDown);
+      if (consec >= 2) limitPct = Math.min(0.2, stockConfig.limitPct * (1 + 0.5 * (consec - 1)));
+    }
+    const cfg: StockConfig = { ...stockConfig, limitPct };
+
     const price = computePrice({
       lastClose: stock.currentPrice,
-      buyAmount: match.totalBuyAmount,
-      sellAmount: match.totalSellAmount,
+      buyQty: match.totalBuyQty,
+      sellQty: match.totalSellQty,
+      matched: match.matched,
+      tradePrice: match.tradePrice,
       happiness: this.effectiveHappiness(stock, fieldMap),
       currentCarbon: this.effectiveCarbon(stock, fieldMap),
       industryAvgCarbon: this.effectiveIndustryAvgCarbon(stock, fieldMap),
+      config: cfg,
     });
+
+    // S6：撮合不成交（单边无对手盘）→ 平盘，价格不动、不生成 K 线
+    if (!match.matched) {
+      return {
+        stockId: stock.id,
+        code: stock.code,
+        round: stock.round,
+        skipped: true,
+        matched: false,
+        pressure: price.pressure,
+        drift: price.drift,
+        theoretical: price.theoretical,
+        buyQty: match.totalBuyQty,
+        sellQty: match.totalSellQty,
+        buyAmount: match.totalBuyAmount,
+        sellAmount: match.totalSellAmount,
+      };
+    }
 
     // 账户现金 / 持仓运行时快照（撮合过程中实时扣减）
     const cashMap = new Map<number, number>();
@@ -1184,6 +1216,24 @@ export class StockService {
     this.realtime.emitResourceChanged("stocks", stock.id, competitionId, "bulk");
     this.realtime.emitResourceChanged("stocks", stock.id, competitionId, "bulk");
 
-    return { stockId: stock.id, code: stock.code, tradePrice, finalPrice: price.final, candle, matched: match.matched };
+    return {
+      stockId: stock.id,
+      code: stock.code,
+      round: newRound,
+      skipped: false,
+      matched: match.matched,
+      tradePrice,
+      finalPrice: price.final,
+      theoretical: price.theoretical,
+      pressure: price.pressure,
+      drift: price.drift,
+      usedTradePrice: price.usedTradePrice,
+      buyQty: match.totalBuyQty,
+      sellQty: match.totalSellQty,
+      buyAmount: match.totalBuyAmount,
+      sellAmount: match.totalSellAmount,
+      mmIntervened,
+      candle,
+    };
   }
 }

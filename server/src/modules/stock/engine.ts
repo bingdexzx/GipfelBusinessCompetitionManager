@@ -3,10 +3,11 @@
  * 逻辑严格对齐用户提供的 Excel「模拟股票系统.xlsx」：
  *  - 撮合结果：最高买价=MAX(买入价)，最低卖价=MIN(卖出价)，成交价=(最高买+最低卖)/2，
  *    是否成交=最高买>=最低卖。
- *  - 实时价格：买盘总额=Σ买入金额，卖盘总额=Σ卖出金额；
- *    幸福因子=1+0.2*(幸福度-50)/50；碳因子=1-0.5*(当前碳排-行业碳排均值)/行业碳排均值；
- *    理论价=上轮价×买盘总额/卖盘总额×幸福因子×碳因子；
- *    最终价=限幅(理论价, 上轮价×0.9, 上轮价×1.1)。
+ *  - 定价（新公式，消除一字板）：净买压力 pressure=(买量-卖量)/(买量+卖量+1)∈(-1,1)；
+ *    趋势偏置 drift=happinessImpact*(幸福度-50)/50 + carbonImpact*clamp((均值-碳排)/均值,-1,1)；
+ *    理论价=上轮收盘×(1+pressure*maxMovePct+drift*maxMovePct)；
+ *    成交价参与定价 final=限幅(tradePriceWeight*tradePrice+(1-weight)*理论价, 上轮×(1±limitPct))；
+ *    未成交(单边无对手盘)→平盘，价格不动（S5/S6）。
  *  - K线：开盘=上轮收盘；收盘=最终价；盘高/盘低在实体(开盘/收盘)与理论价之外
  *    叠加确定性盘中波动（上下影线，限幅在 ±10% 内）；涨跌幅=(收盘-开盘)/开盘×100。
  */
@@ -46,46 +47,134 @@ export function computeMatch(orders: RawOrder[]): MatchResult {
   return { highestBuy, lowestSell, totalBuyQty, totalSellQty, totalBuyAmount, totalSellAmount, matched, tradePrice };
 }
 
+/**
+ * 股票引擎全局配置（比赛级 stockConfig 的默认值，S8）。
+ * 全部魔法数字可配置；字段缺失时回退到 DEFAULT_STOCK_CONFIG。
+ */
+export interface StockConfig {
+  limitPct: number; // 涨跌停硬限幅（±比例），默认 0.10
+  maxMovePct: number; // 单轮价格相对买卖压力的最大移动，默认 0.05
+  happinessImpact: number; // 幸福度趋势偏置强度，默认 0.2
+  carbonImpact: number; // 碳排趋势偏置强度，默认 0.2
+  mmDepthPct: number; // 做市商单档深度占总股本比例，默认 0.001
+  mmMinQty: number; // 单档深度下限（股），默认 1000
+  mmMaxQty: number; // 单档深度上限（股），默认 100000
+  mmSpreadPct: number; // 做市商基准点差（比例），默认 0.02
+  interventionMode: "regression" | "expand-limit"; // 连续封板干预模式，默认 regression
+  regressionPct: number; // 回归锚干预价格偏移，默认 0.02
+  tradePriceWeight: number; // 最终价中成交价的权重，默认 0.7
+}
+
+export const DEFAULT_STOCK_CONFIG: StockConfig = {
+  limitPct: 0.1,
+  maxMovePct: 0.05,
+  happinessImpact: 0.2,
+  carbonImpact: 0.2,
+  mmDepthPct: 0.001,
+  mmMinQty: 1000,
+  mmMaxQty: 100000,
+  mmSpreadPct: 0.02,
+  interventionMode: "regression",
+  regressionPct: 0.02,
+  tradePriceWeight: 0.7,
+};
+
+/** 将 STOCK_CONFIG 未知/缺失字段合并回默认值，保证运行期类型完整。 */
+export function resolveStockConfig(input: Partial<StockConfig> | null | undefined): StockConfig {
+  return { ...DEFAULT_STOCK_CONFIG, ...(input ?? {}) };
+}
+
+/** 限幅辅助：把 v 截断到 [lo, hi]。 */
+export function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * 净买压力（S1）：买量-卖量 相对总量占比，∈ (-1, 1)，分母 +1 防除零。
+ * 单边行情不再等于 ∞/0，而是趋近于 ±1，配合 maxMovePct 实现「温和波动」而非「直接封板」。
+ */
+export function computePressure(buyQty: number, sellQty: number): number {
+  const denom = buyQty + sellQty + 1;
+  return (buyQty - sellQty) / denom;
+}
+
+/**
+ * 趋势偏置（S2）：幸福度/碳排不再直接放大理论价，而是压缩为长期趋势偏置。
+ * 均衡盘 drift≈0 → 价格基本持平；单轮影响上限收敛到 (happinessImpact+carbonImpact)*maxMovePct。
+ */
+export function computeDrift(
+  happiness: number,
+  currentCarbon: number,
+  industryAvgCarbon: number,
+  happinessImpact: number,
+  carbonImpact: number,
+): number {
+  const h = (happiness - 50) / 50;
+  const c =
+    industryAvgCarbon !== 0
+      ? clamp((industryAvgCarbon - currentCarbon) / industryAvgCarbon, -1, 1)
+      : 0;
+  return happinessImpact * h + carbonImpact * c;
+}
+
+/** 理论价（S1）：上轮收盘 × (1 + 压力×maxMovePct + 偏置×maxMovePct)。 */
+export function computeTheoretical(
+  lastClose: number,
+  pressure: number,
+  drift: number,
+  maxMovePct: number,
+): number {
+  return lastClose * (1 + pressure * maxMovePct + drift * maxMovePct);
+}
+
 export interface PriceFactors {
   lastClose: number; // 上轮收盘价
-  buyAmount: number; // 买盘总额
-  sellAmount: number; // 卖盘总额
+  buyQty: number; // 买单总量（股）
+  sellQty: number; // 卖单总量（股）
+  matched: boolean; // 是否存在真实成交（最高买 >= 最低卖）
+  tradePrice: number | null; // 成交价（matched=false 时为 null）
   happiness: number; // 当前幸福度
   currentCarbon: number; // 当前碳排
   industryAvgCarbon: number; // 行业碳排均值
+  config: StockConfig; // 比赛级配置
 }
 
 export interface PriceResult {
-  happinessFactor: number; // 幸福因子
-  carbonFactor: number; // 碳因子
+  pressure: number; // 净买压力
+  drift: number; // 趋势偏置
   theoretical: number; // 理论价（限幅前）
-  final: number; // 最终价（限幅后）
+  final: number; // 最终价（限幅后，2 位小数）
+  usedTradePrice: boolean; // 是否采用成交价加权（false=平盘）
 }
 
 export function computePrice(f: PriceFactors): PriceResult {
-  const happinessFactor = 1 + (0.2 * (f.happiness - 50)) / 50;
-  const carbonFactor =
-    f.industryAvgCarbon !== 0
-      ? 1 - (0.5 * (f.currentCarbon - f.industryAvgCarbon)) / f.industryAvgCarbon
-      : 1;
+  const pressure = computePressure(f.buyQty, f.sellQty);
+  const drift = computeDrift(
+    f.happiness,
+    f.currentCarbon,
+    f.industryAvgCarbon,
+    f.config.happinessImpact,
+    f.config.carbonImpact,
+  );
+  const theoretical = computeTheoretical(f.lastClose, pressure, drift, f.config.maxMovePct);
 
-  // 买卖压力比：无卖单且存在买单 -> 封顶；无买单且存在卖单 -> 封底；无单 -> 持平。
-  let ratio: number;
-  if (f.sellAmount > 0) ratio = f.buyAmount / f.sellAmount;
-  else if (f.buyAmount > 0) ratio = Infinity;
-  else ratio = 1;
+  const upper = f.lastClose * (1 + f.config.limitPct);
+  const lower = f.lastClose * (1 - f.config.limitPct);
 
-  const theoretical = f.lastClose * ratio * happinessFactor * carbonFactor;
-  const upper = f.lastClose * 1.1;
-  const lower = f.lastClose * 0.9;
-  let final = theoretical;
-  if (!Number.isFinite(final)) final = upper;
-  if (final > upper) final = upper;
-  if (final < lower) final = lower;
-  // 保留 2 位小数（股价精度）
-  final = Math.round(final * 100) / 100;
+  // S5/S6：未成交（单边无对手盘）→ 平盘，价格不动；成交价参与定价（权重可配）。
+  let final: number;
+  let usedTradePrice = false;
+  if (f.matched && f.tradePrice != null && Number.isFinite(f.tradePrice)) {
+    const w = f.config.tradePriceWeight;
+    const blended = w * f.tradePrice + (1 - w) * theoretical;
+    final = clamp(blended, lower, upper);
+    usedTradePrice = true;
+  } else {
+    final = clamp(f.lastClose, lower, upper); // = lastClose（限幅内）
+  }
+  final = round2(final);
 
-  return { happinessFactor, carbonFactor, theoretical, final };
+  return { pressure, drift, theoretical, final, usedTradePrice };
 }
 
 export interface CandleInput {

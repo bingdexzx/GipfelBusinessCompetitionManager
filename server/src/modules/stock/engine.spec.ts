@@ -8,7 +8,7 @@
  * 4. computeInitPrice - 初始价计算
  */
 
-import { computeMatch, computePrice, buildCandle, computeInitPrice, RawOrder } from './engine';
+import { computeMatch, computePrice, buildCandle, computeInitPrice, computePressure, computeDrift, DEFAULT_STOCK_CONFIG, RawOrder } from './engine';
 
 describe('stock/engine', () => {
   // ========== computeMatch ==========
@@ -97,101 +97,146 @@ describe('stock/engine', () => {
     });
   });
 
-  // ========== computePrice ==========
+  // ========== computePrice（新版：净买压力 + 趋势偏置 + 成交价权重）==========
   describe('computePrice', () => {
-    const baseFactors = {
+    const baseFactors = () => ({
       lastClose: 100,
-      buyAmount: 100000,
-      sellAmount: 100000,
+      buyQty: 1000,
+      sellQty: 1000,
+      matched: true,
+      tradePrice: 100,
       happiness: 50,
       currentCarbon: 100,
       industryAvgCarbon: 100,
-    };
-
-    it('均衡盘：买卖相等，价格持平', () => {
-      const result = computePrice(baseFactors);
-      expect(result.happinessFactor).toBeCloseTo(1, 5);
-      expect(result.carbonFactor).toBeCloseTo(1, 5);
-      expect(result.theoretical).toBeCloseTo(100, 1);
-      expect(result.final).toBeCloseTo(100, 1);
+      config: DEFAULT_STOCK_CONFIG,
     });
 
-    it('买盘大于卖盘：价格上涨', () => {
-      const result = computePrice({ ...baseFactors, buyAmount: 200000 });
-      expect(result.theoretical).toBeGreaterThan(100);
-      expect(result.final).toBeGreaterThan(100);
+    it('均衡盘：买卖相等 → 价格基本持平', () => {
+      const r = computePrice(baseFactors());
+      expect(r.pressure).toBeCloseTo(0, 5);
+      expect(r.drift).toBeCloseTo(0, 5);
+      expect(r.theoretical).toBeCloseTo(100, 1);
+      expect(r.final).toBeCloseTo(100, 1);
+      expect(r.usedTradePrice).toBe(true);
     });
 
-    it('卖盘大于买盘：价格下跌', () => {
-      const result = computePrice({ ...baseFactors, sellAmount: 200000 });
-      expect(result.theoretical).toBeLessThan(100);
-      expect(result.final).toBeLessThan(100);
+    it('单边买盘：pressure>0 → 价格上涨（温和，不瞬间封板）', () => {
+      const r = computePrice({ ...baseFactors(), buyQty: 9000, sellQty: 1000 });
+      expect(r.pressure).toBeGreaterThan(0);
+      expect(r.final).toBeGreaterThan(100);
+      // S1：单轮最大移动 = maxMovePct(5%)，不会直接顶到 +10% 涨停
+      expect(r.final).toBeLessThanOrEqual(110);
+      expect(r.final).toBeLessThanOrEqual(105.01);
     });
 
-    it('无卖单有买单：封涨停', () => {
-      const result = computePrice({ ...baseFactors, sellAmount: 0 });
-      expect(result.theoretical).toBe(Infinity);
-      expect(result.final).toBe(110); // 涨停价 = 100 * 1.1
+    it('单边卖盘：pressure<0 → 价格下跌', () => {
+      const r = computePrice({ ...baseFactors(), buyQty: 1000, sellQty: 9000 });
+      expect(r.pressure).toBeLessThan(0);
+      expect(r.final).toBeLessThan(100);
+      expect(r.final).toBeGreaterThanOrEqual(90);
+      expect(r.final).toBeGreaterThanOrEqual(94.99);
     });
 
-    it('无买单有卖单：封跌停', () => {
-      const result = computePrice({ ...baseFactors, buyAmount: 0 });
-      expect(result.theoretical).toBe(0);
-      expect(result.final).toBe(90); // 跌停价 = 100 * 0.9
+    it('幸福度偏置 > 50：drift 为正，理论价略升', () => {
+      const r = computePrice({ ...baseFactors(), happiness: 75 });
+      expect(r.drift).toBeCloseTo(0.1, 5); // 0.2*(75-50)/50
+      expect(r.theoretical).toBeGreaterThan(100);
     });
 
-    it('无订单：价格持平', () => {
-      const result = computePrice({ ...baseFactors, buyAmount: 0, sellAmount: 0 });
-      expect(result.theoretical).toBeCloseTo(100, 1);
-      expect(result.final).toBeCloseTo(100, 1);
+    it('碳排低于均值：carbonDrift 为正，drift 略升', () => {
+      const r = computePrice({ ...baseFactors(), currentCarbon: 50 });
+      expect(r.drift).toBeCloseTo(0.1, 5); // 0.2*clamp((100-50)/100)
     });
 
-    it('限幅 +10%', () => {
-      const result = computePrice({
-        ...baseFactors,
-        buyAmount: 500000,
-        sellAmount: 100000,
-      });
-      expect(result.final).toBeLessThanOrEqual(110);
+    it('未成交（matched=false）：平盘，价格不动（S5/S6）', () => {
+      const r = computePrice({ ...baseFactors(), matched: false, tradePrice: null });
+      expect(r.final).toBeCloseTo(100, 1);
+      expect(r.usedTradePrice).toBe(false);
     });
 
-    it('限幅 -10%', () => {
-      const result = computePrice({
-        ...baseFactors,
-        buyAmount: 10000,
-        sellAmount: 500000,
-      });
-      expect(result.final).toBeGreaterThanOrEqual(90);
+    it('限幅 +10%（极端压力也不超涨停）', () => {
+      const r = computePrice({ ...baseFactors(), buyQty: 1_000_000, sellQty: 0, tradePrice: 109 });
+      expect(r.final).toBeLessThanOrEqual(110);
     });
 
-    it('幸福度 > 50：正向因子', () => {
-      const result = computePrice({ ...baseFactors, happiness: 75 });
-      expect(result.happinessFactor).toBeCloseTo(1.1, 5);
-    });
-
-    it('幸福度 < 50：负向因子', () => {
-      const result = computePrice({ ...baseFactors, happiness: 25 });
-      expect(result.happinessFactor).toBeCloseTo(0.9, 5);
-    });
-
-    it('碳排低于均值：正向因子', () => {
-      const result = computePrice({ ...baseFactors, currentCarbon: 50 });
-      expect(result.carbonFactor).toBeGreaterThan(1);
-    });
-
-    it('碳排高于均值：负向因子', () => {
-      const result = computePrice({ ...baseFactors, currentCarbon: 150 });
-      expect(result.carbonFactor).toBeLessThan(1);
-    });
-
-    it('行业碳排均值为 0：碳因子为 1', () => {
-      const result = computePrice({ ...baseFactors, industryAvgCarbon: 0 });
-      expect(result.carbonFactor).toBe(1);
+    it('限幅 -10%（极端压力也不跌破跌停）', () => {
+      const r = computePrice({ ...baseFactors(), buyQty: 0, sellQty: 1_000_000, tradePrice: 91 });
+      expect(r.final).toBeGreaterThanOrEqual(90);
     });
 
     it('价格保留 2 位小数', () => {
-      const result = computePrice(baseFactors);
-      expect(result.final).toBe(Math.round(result.final * 100) / 100);
+      const r = computePrice(baseFactors());
+      expect(r.final).toBe(Math.round(r.final * 100) / 100);
+    });
+  });
+
+  // ========== computePressure / computeDrift ==========
+  describe('computePressure & computeDrift', () => {
+    it('均衡 → 0', () => {
+      expect(computePressure(1000, 1000)).toBeCloseTo(0, 6);
+    });
+    it('单边买 → 接近 1（非 Infinity）', () => {
+      const p = computePressure(9000, 1000);
+      expect(p).toBeGreaterThan(0.7);
+      expect(p).toBeLessThan(1);
+    });
+    it('单边卖 → 接近 -1（非 0/-Infinity）', () => {
+      const p = computePressure(1000, 9000);
+      expect(p).toBeLessThan(-0.7);
+      expect(p).toBeGreaterThan(-1);
+    });
+    it('drift 仅作微弱偏置（均衡 ≈ 0，极端 ≤ ±0.4）', () => {
+      expect(computeDrift(50, 100, 100, 0.2, 0.2)).toBeCloseTo(0, 6);
+      expect(computeDrift(100, 100, 100, 0.2, 0.2)).toBeCloseTo(0.2, 6);
+      expect(computeDrift(0, 100, 100, 0.2, 0.2)).toBeCloseTo(-0.2, 6);
+    });
+  });
+
+  // ========== 连续推进轨迹（T11）：不应出现一字封板/锯齿 ==========
+  describe('连续推进轨迹（T11）', () => {
+    it('玩家持续单边买入 5 轮：每轮温和上涨，不瞬间封板、无锯齿', () => {
+      let price = 100;
+      const closes: number[] = [];
+      for (let round = 1; round <= 5; round++) {
+        const factors = {
+          lastClose: price,
+          buyQty: 9000,
+          sellQty: 1000,
+          matched: true,
+          tradePrice: Math.round(price * 1.02 * 100) / 100,
+          happiness: 50,
+          currentCarbon: 100,
+          industryAvgCarbon: 100,
+          config: DEFAULT_STOCK_CONFIG,
+        };
+        const r = computePrice(factors);
+        // 单轮最大移动 ≤ 约 6%（maxMovePct 5% + drift ≤1%），绝不瞬间封板
+        const move = Math.abs(r.final - price) / price;
+        expect(move).toBeLessThanOrEqual(0.06 + 1e-9);
+        expect(r.final).toBeLessThanOrEqual(price * 1.1);
+        expect(r.final).toBeGreaterThanOrEqual(price * 0.9);
+        closes.push(r.final);
+        price = r.final;
+      }
+      // 无锯齿：相邻轮次单调（持续买压 → 单调上行，不出现涨↔跌交替）
+      for (let i = 1; i < closes.length; i++) {
+        expect(closes[i]).toBeGreaterThanOrEqual(closes[i - 1] - 1e-6);
+      }
+    });
+
+    it('零成交轮次：价格不动（跳过推进，S6）', () => {
+      const r = computePrice({
+        lastClose: 100,
+        buyQty: 5000,
+        sellQty: 5000,
+        matched: false,
+        tradePrice: null,
+        happiness: 50,
+        currentCarbon: 100,
+        industryAvgCarbon: 100,
+        config: DEFAULT_STOCK_CONFIG,
+      });
+      expect(r.final).toBeCloseTo(100, 2);
     });
   });
 
