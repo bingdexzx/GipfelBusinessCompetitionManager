@@ -1,10 +1,12 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { Prisma } from "@prisma/client";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { serverNowIso } from "../../common/sync";
 import { SetCompanyFieldValuesDto } from "./company-fields.dto";
 import { IndustryCalcEngineService } from "../industry-types/industry-calc-engine.service";
 import { parseFieldConfig } from "../../common/json.util";
+import { FieldWriteConflictException } from "../../common/exceptions/field-write-conflict.exception";
 
 // 基础标量类型按字段类型把任意输入转换为存储用的字符串
 function castScalar(type: "NUMBER" | "STRING" | "BOOLEAN", v: any): string {
@@ -98,6 +100,10 @@ export class CompanyFieldsService {
   // key = competitionId, value = { data, expiresAt }
   private publishedCache = new Map<number, { data: Set<string>; expiresAt: number }>();
   private static readonly PUBLISHED_CACHE_TTL_MS = 30_000; // 30 秒
+
+  // 进程内按公司串行队列：保证同一 companyId 的字段写入与级联重算不交错（消除进程内读-改-写竞态）。
+  // 仅公共入口加锁；内部一律调用私有 recomputeCalculatedFields（不加锁），避免同公司重入死锁。
+  private companyLocks = new Map<number, Promise<unknown>>();
 
   constructor(
     private prisma: PrismaService,
@@ -259,6 +265,72 @@ export class CompanyFieldsService {
     this.publishedCache.delete(competitionId);
   }
 
+  /**
+   * 进程内按公司串行化：同一 companyId 的后续调用排队在前一个完成后执行，
+   * 保证字段写入与级联重算不会交错产生中间态。不同 companyId 之间并行。
+   * 队列头 settle 后自动清理 Map 条目，避免内存泄漏。
+   */
+  private serializeCompany<T>(companyId: number, fn: () => Promise<T>): Promise<T> {
+    const prev = this.companyLocks.get(companyId) ?? Promise.resolve();
+    const run = () => fn();
+    const next = prev.then(run, run);
+    // head 与比较引用必须一致：prev 失败也继续排队（run 吞掉前驱错误），头 settle 后清理 Map 条目
+    const head = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.companyLocks.set(companyId, head);
+    void head.finally(() => {
+      if (this.companyLocks.get(companyId) === head) this.companyLocks.delete(companyId);
+    });
+    return next;
+  }
+
+  /**
+   * 字段值单写入口（写路径收敛 + 乐观锁）。所有 CompanyFieldValue 写必须经此方法，
+   * 包括本服务内部三处与外部合同引擎/股票引擎的写入。
+   *
+   * - 行不存在 → create(version=0)；
+   * - 行存在 → updateMany({ where:{id, version}, data:{ value, version:{increment:1} } })，
+   *   以 version 条件实现乐观锁；count!==1（被其他写入抢占）重试；并发 create 触发 P2002 也重试；
+   *   重试耗尽抛 FieldWriteConflictException(409)。
+   *
+   * @param tx 调用方事务客户端（也可传 PrismaService 本身做非事务写）
+   */
+  async writeFieldValueInTx(
+    tx: Prisma.TransactionClient,
+    companyId: number,
+    industryFieldId: number,
+    value: string,
+    maxRetries = 3,
+  ): Promise<void> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const row = await tx.companyFieldValue.findUnique({
+        where: { companyId_industryFieldId: { companyId, industryFieldId } } as any,
+        select: { id: true, version: true },
+      });
+      if (!row) {
+        try {
+          await tx.companyFieldValue.create({
+            data: { companyId, industryFieldId, value, version: 0 },
+          });
+          return;
+        } catch (e: any) {
+          // 并发创建竞争：另一写入已建行，下一轮重试命中已存在分支
+          if (e?.code === "P2002") continue;
+          throw e;
+        }
+      }
+      const updated = await tx.companyFieldValue.updateMany({
+        where: { id: row.id, version: row.version },
+        data: { value, version: { increment: 1 } },
+      });
+      if (updated.count === 1) return;
+      // version 不匹配：被其他写入抢占，重试
+    }
+    throw new FieldWriteConflictException(companyId, industryFieldId);
+  }
+
   // 批量写入某公司（产业实例）的产业字段值，按字段定义校验与序列化
   async setValues(companyId: number, dto: SetCompanyFieldValuesDto) {
     const company = await this.prisma.company.findUnique({
@@ -281,31 +353,27 @@ export class CompanyFieldsService {
       toUpsert.push({ industryFieldId: field.id, value });
     }
 
-    await this.prisma.$transaction(
-      toUpsert.map((u) =>
-        this.prisma.companyFieldValue.upsert({
-          where: {
-            companyId_industryFieldId: {
-              companyId,
-              industryFieldId: u.industryFieldId,
-            },
-          } as any,
-          create: { companyId, industryFieldId: u.industryFieldId, value: u.value },
-          update: { value: u.value },
-        }),
-      ),
-    );
-
-    // 写入时级联重算：本公司所属产业类型的全部 isCalculated 字段，按依赖拓扑排序后
-    // 用产业计算图重新求值并写回各自的 CompanyFieldValue（仅写本字段）。
+    // 在异步闭包外捕获字段定义（属性收窄不跨闭包），闭包内统一用此本地引用
+    const industryFields = company.industryType.fields;
     let recomputeFailed = false;
-    try {
-      await this.recomputeCalculatedFields(companyId, company.industryType.fields);
-    } catch (err: any) {
-      // 重算出错（如计算图存在循环依赖）不应使本次普通字段写入失败；记录日志，交由用户修正计算图。
-      recomputeFailed = true;
-      this.logger.warn(`公司 #${companyId} 计算字段级联重算失败：${err?.message || err}`);
-    }
+    // 同一公司串行化：基础字段写入与级联重算整体作为原子序列，避免与合同执行/定时器/其他编辑交错。
+    await this.serializeCompany(companyId, async () => {
+      await this.prisma.$transaction(async (tx) => {
+        for (const u of toUpsert) {
+          await this.writeFieldValueInTx(tx, companyId, u.industryFieldId, u.value);
+        }
+      });
+
+      // 写入时级联重算：本公司所属产业类型的全部 isCalculated 字段，按依赖拓扑排序后
+      // 用产业计算图重新求值并写回各自的 CompanyFieldValue（仅写本字段）。
+      try {
+        await this.recomputeCalculatedFields(companyId, company.industryType!.fields);
+      } catch (err: any) {
+        // 重算出错（如计算图存在循环依赖）不应使本次普通字段写入失败；记录日志，交由用户修正计算图。
+        recomputeFailed = true;
+        this.logger.warn(`公司 #${companyId} 计算字段级联重算失败：${err?.message || err}`);
+      }
+    });
 
     // 强时效：公司产业字段写入后实时广播，同比赛前端（含公司详情页）即刻刷新
     if (company.competitionId != null) {
@@ -326,17 +394,19 @@ export class CompanyFieldsService {
    * （广播由调用方按比赛统一发起，避免重复事件）。
    */
   async recomputeCalculatedFieldsForCompany(companyId: number) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      include: { industryType: { include: { fields: true } } },
+    await this.serializeCompany(companyId, async () => {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { industryType: { include: { fields: true } } },
+      });
+      if (!company || !company.industryTypeId || !company.industryType) return;
+      try {
+        await this.recomputeCalculatedFields(companyId, company.industryType!.fields);
+      } catch (err: any) {
+        // 重算出错（如计算图存在循环依赖）不应使合同执行 / 复原失败；记录日志，交由用户修正计算图。
+        this.logger.warn(`公司 #${companyId} 计算字段级联重算失败：${err?.message || err}`);
+      }
     });
-    if (!company || !company.industryTypeId || !company.industryType) return;
-    try {
-      await this.recomputeCalculatedFields(companyId, company.industryType.fields);
-    } catch (err: any) {
-      // 重算出错（如计算图存在循环依赖）不应使合同执行 / 复原失败；记录日志，交由用户修正计算图。
-      this.logger.warn(`公司 #${companyId} 计算字段级联重算失败：${err?.message || err}`);
-    }
   }
 
   /**
@@ -463,52 +533,50 @@ export class CompanyFieldsService {
     for (const [industryTypeId, fields] of byType) {
       const companies = await this.prisma.company.findMany({
         where: { competitionId, industryTypeId },
-        select: { id: true },
+        include: { industryType: { include: { fields: true } } },
       });
       for (const c of companies) {
-        // 取出该公司全部字段当前值（含定义），构建 fieldKey→{field,value} 映射。
-        // 所有定时器字段的目标值都基于这份「触发前」快照计算，避免相互引用导致顺序依赖。
-        const allVals = await this.prisma.companyFieldValue.findMany({
-          where: { companyId: c.id },
-          include: { industryField: true },
-        });
-        const byKey = new Map<string, { field: any; value: string }>();
-        for (const v of allVals) {
-          if (v.industryField)
-            byKey.set(v.industryField.fieldKey, { field: v.industryField, value: v.value });
-        }
-
-        const upserts: any[] = [];
-        for (const f of fields) {
-          try {
-            const resolved = this.resolveTimerWriteValue(f, byKey);
-            if (resolved == null) {
-              this.logger.warn(
-                `财年定时器：公司 #${c.id} 字段 #${f.id}(${f.fieldKey}) 引用了不存在的字段，跳过`,
-              );
-              continue;
-            }
-            const value = serializeFieldValue(f, resolved.raw);
-            upserts.push(
-              this.prisma.companyFieldValue.upsert({
-                where: {
-                  companyId_industryFieldId: { companyId: c.id, industryFieldId: f.id },
-                } as any,
-                create: { companyId: c.id, industryFieldId: f.id, value },
-                update: { value },
-              }),
-            );
-          } catch (err: any) {
-            this.logger.warn(
-              `财年定时器：公司 #${c.id} 字段 #${f.id}(${f.fieldKey}) 写入失败：${err?.message || err}`,
-            );
+        // 同一公司串行化：定时器写基础字段 + 级联重算整体原子序列，避免与手动编辑/合同执行交错。
+        await this.serializeCompany(c.id, async () => {
+          // 取出该公司全部字段当前值（含定义），构建 fieldKey→{field,value} 映射。
+          // 所有定时器字段的目标值都基于这份「触发前」快照计算，避免相互引用导致顺序依赖。
+          const allVals = await this.prisma.companyFieldValue.findMany({
+            where: { companyId: c.id },
+            include: { industryField: true },
+          });
+          const byKey = new Map<string, { field: any; value: string }>();
+          for (const v of allVals) {
+            if (v.industryField)
+              byKey.set(v.industryField.fieldKey, { field: v.industryField, value: v.value });
           }
-        }
-        if (upserts.length > 0) {
-          await this.prisma.$transaction(upserts);
-        }
-        // 基础字段写完后级联重算下游计算字段（仅重算，不广播）
-        await this.recomputeCalculatedFieldsForCompany(c.id);
+
+          const pending: { industryFieldId: number; value: string }[] = [];
+          for (const f of fields) {
+            try {
+              const resolved = this.resolveTimerWriteValue(f, byKey);
+              if (resolved == null) {
+                this.logger.warn(
+                  `财年定时器：公司 #${c.id} 字段 #${f.id}(${f.fieldKey}) 引用了不存在的字段，跳过`,
+                );
+                continue;
+              }
+              pending.push({ industryFieldId: f.id, value: serializeFieldValue(f, resolved.raw) });
+            } catch (err: any) {
+              this.logger.warn(
+                `财年定时器：公司 #${c.id} 字段 #${f.id}(${f.fieldKey}) 写入失败：${err?.message || err}`,
+              );
+            }
+          }
+          if (pending.length > 0) {
+            await this.prisma.$transaction(async (tx) => {
+              for (const p of pending) {
+                await this.writeFieldValueInTx(tx, c.id, p.industryFieldId, p.value);
+              }
+            });
+          }
+          // 基础字段写完后级联重算下游计算字段（私有，避免同公司重入加锁）
+          await this.recomputeCalculatedFields(c.id, c.industryType?.fields || []);
+        });
         // 统一广播本次公司字段变更，同比赛前端（公司详情/区域总览）即刻刷新
         this.realtime.broadcastToCompetition(competitionId, "company-field:changed", {
           companyId: c.id,
@@ -637,24 +705,20 @@ export class CompanyFieldsService {
     const ordered = this.topoSortCalcFields(calcFields, deps);
 
     // 按序求值并写回（每算完一个即刷新作用域，保证传递依赖正确）。
-    const toUpsert: { industryFieldId: number; value: string }[] = [];
+    const toWrite: { industryFieldId: number; value: string }[] = [];
     for (const f of ordered) {
       const graph = this.parseGraph(f.calcGraph);
       const result = await this.calcEngine.evaluate(graph, scope, calcCtx);
       const store = serializeFieldValue(f, result);
-      toUpsert.push({ industryFieldId: f.id, value: store });
+      toWrite.push({ industryFieldId: f.id, value: store });
       scope[f.fieldKey] = this.typedFromStore(f, store);
     }
-    if (toUpsert.length === 0) return;
-    await this.prisma.$transaction(
-      toUpsert.map((u) =>
-        this.prisma.companyFieldValue.upsert({
-          where: { companyId_industryFieldId: { companyId, industryFieldId: u.industryFieldId } } as any,
-          create: { companyId, industryFieldId: u.industryFieldId, value: u.value },
-          update: { value: u.value },
-        }),
-      ),
-    );
+    if (toWrite.length === 0) return;
+    await this.prisma.$transaction(async (tx) => {
+      for (const u of toWrite) {
+        await this.writeFieldValueInTx(tx, companyId, u.industryFieldId, u.value);
+      }
+    });
   }
 
   // 解析 calcGraph（容错：非法 JSON 视为空图）。

@@ -471,11 +471,13 @@ model CompanyFieldValue {
   companyId       Int
   industryFieldId Int
   value           String
+  version         Int            @default(0) // 乐观锁：写时 where:{id,version} 条件更新并自增
   company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   industryField   IndustryField  @relation(fields: [industryFieldId], references: [id])
   updatedAt       DateTime       @updatedAt
 
   @@unique([companyId, industryFieldId])
+  @@index([version])
 }
 
 // ============ 合同系统（新引擎：配置驱动，仅操作产业字段） ============

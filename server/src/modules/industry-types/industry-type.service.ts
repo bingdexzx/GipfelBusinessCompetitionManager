@@ -9,6 +9,7 @@ import {
 } from "./dto/industry-type.dto";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
 import { parseFieldConfig } from "../../common/json.util";
+import { cleanupFieldReferences } from "../../common/field-ref-cleanup";
 
 const FIELD_TYPES = INDUSTRY_FIELD_TYPES;
 
@@ -426,6 +427,8 @@ export class IndustryTypeService {
       );
     }
     await this.prisma.industryField.delete({ where: { id: fieldId } });
+    // 清理兄弟字段对该字段的悬空引用（财年定时器 field: 引用、计算图 value 节点）
+    await cleanupFieldReferences(this.prisma, field.industryTypeId, field.fieldKey);
     return { success: true };
   }
 }

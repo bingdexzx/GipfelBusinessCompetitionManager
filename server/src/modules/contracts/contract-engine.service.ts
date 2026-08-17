@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from "@nestjs/common";
 import { safeEvaluate } from "../../common/safe-expression";
 import { PrismaService } from "../../prisma/prisma.service";
+import { CompanyFieldsService } from "../company-fields/company-fields.service";
 
 // 导入拆分后的引擎子模块
 import {
@@ -1515,7 +1516,10 @@ export function compareField(
 
 @Injectable()
 export class ContractEngineService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fields: CompanyFieldsService,
+  ) {}
 
   /**
    * 执行合同：解析 effects，在事务内按类型改写
@@ -1657,15 +1661,8 @@ export class ContractEngineService {
             eff.op,
             newValue,
           );
-          await tx.companyFieldValue.upsert({
-            where,
-            create: {
-              companyId: party.companyId!,
-              industryFieldId: field.id,
-              value: applied.store,
-            },
-            update: { value: applied.store },
-          });
+          // 经 CompanyFieldsService 单写入口（乐观锁 + 审计语义一致），不再直写 prisma.companyFieldValue
+          await this.fields.writeFieldValueInTx(tx, party.companyId!, field.id, applied.store);
           log.push({
             kind: "FIELD",
             companyId: party.companyId,
@@ -1790,14 +1787,8 @@ export class ContractEngineService {
         value = applyFieldEffect(JSON.stringify(value), fieldType, config, r.op, delta).after;
       }
 
-      const where = {
-        companyId_industryFieldId: { companyId, industryFieldId },
-      } as any;
-      await prisma.companyFieldValue.upsert({
-        where,
-        create: { companyId, industryFieldId, value: JSON.stringify(value) },
-        update: { value: JSON.stringify(value) },
-      });
+      // 经 CompanyFieldsService 单写入口（乐观锁 + 审计语义一致），不再直写 prisma.companyFieldValue
+      await this.fields.writeFieldValueInTx(prisma, companyId, industryFieldId, JSON.stringify(value));
     }
   }
 

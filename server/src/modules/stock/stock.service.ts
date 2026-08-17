@@ -15,6 +15,7 @@ import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { RegionService } from "../regions/region.service";
+import { CompanyFieldsService } from "../company-fields/company-fields.service";
 
 export interface ReqUser {
   id: number;
@@ -30,6 +31,7 @@ export class StockService {
     private prisma: PrismaService,
     private realtime: RealtimeService,
     private regionService: RegionService,
+    private fields: CompanyFieldsService,
   ) {}
 
   private isSuper(user: ReqUser) {
@@ -1162,12 +1164,9 @@ export class StockService {
       for (const [accId, cash] of cashMap) {
         const acc = orders.find((o) => o.fundsAccountId === accId)?.fundsAccount;
         if (acc?.bindFieldId && acc?.companyId) {
-          // 绑定了字段：更新字段值
+          // 绑定了字段：经 CompanyFieldsService 单写入口（乐观锁 + 审计语义一致）更新字段值
           const roundedCash = Math.round(cash * 100) / 100;
-          await tx.companyFieldValue.updateMany({
-            where: { companyId: acc.companyId, industryFieldId: acc.bindFieldId },
-            data: { value: String(roundedCash) },
-          });
+          await this.fields.writeFieldValueInTx(tx, acc.companyId, acc.bindFieldId, String(roundedCash));
         } else {
           // 未绑定字段：更新账户余额
           await tx.stockFundsAccount.update({ where: { id: accId }, data: { cashBalance: Math.round(cash * 100) / 100 } });
