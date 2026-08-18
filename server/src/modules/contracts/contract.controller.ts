@@ -62,14 +62,13 @@ export class ContractController {
   }
 
   @Post()
-  @UseGuards(PermissionsGuard)
-  @RequirePermissions("contract:manage")
+  @UseGuards(ContractReviewGuard)
   create(@Body() dto: CreateContractDto, @Req() req?: any) {
     return this.service.create(dto, req?.user);
   }
 
   @Post(":id/execute")
-  @UseGuards(ContractReviewGuard)
+  @UseGuards(ContractEditGuard)
   execute(
     @Param("id", ParseIntPipe) id: number,
     @Body() dto?: ExecuteContractDto,
@@ -89,7 +88,7 @@ export class ContractController {
   }
 
   @Post(":id/precheck")
-  @UseGuards(ContractReviewGuard)
+  @UseGuards(ContractEditGuard)
   precheck(@Param("id", ParseIntPipe) id: number, @Req() req?: any) {
     return this.service.precheck(id, req?.user);
   }

@@ -10,7 +10,7 @@ datasource db {
 // ========== 枚举值定义（注释形式） ==========
 // 由于 SQLite 不支持原生 enum，使用 String + 注释定义合法值
 // UserRole: SUPER_ADMIN | COMPETITION_ADMIN | PLAYER
-// ContractStatus: DRAFT | EXECUTED | TERMINATED
+// ContractStatus: DRAFT | PENDING_EXEC | EXECUTED | TERMINATED
 // OrderSide: BUY | SELL
 // OrderStatus: PENDING | FILLED | CANCELLED
 // FiscalYearStatus: ACTIVE | CLOSED
@@ -506,7 +506,7 @@ model Contract {
   competitionId   Int
   contractTypeId  Int
   name            String
-  status          String       @default("DRAFT") // DRAFT, EXECUTED, TERMINATED
+  status          String       @default("DRAFT") // DRAFT, PENDING_EXEC, EXECUTED, TERMINATED
   parties         String       // JSON: [{role:"A",companyId:5,isHost:false}, ...]
   inputs          String       @default("{}") // JSON: 已填写的输入参数
   executionLog    String?      // JSON: 执行审计日志

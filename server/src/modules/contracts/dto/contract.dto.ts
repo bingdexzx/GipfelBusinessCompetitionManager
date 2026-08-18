@@ -35,8 +35,10 @@ export class UpdatePartyNumbersDto {
   partyNumbers: Record<string, string>;
 }
 
+// 会签模型下 setStatus 仅用于「标记终止」：状态转换由 execute / remove / updatePartyNumbers 驱动，
+// 禁止直接置 EXECUTED（绕过执行落账）或回退 DRAFT/PENDING_EXEC（绕过复原/编号流程）。
 export class UpdateContractStatusDto {
   @IsString()
-  @IsIn(["DRAFT", "EXECUTED", "TERMINATED"])
+  @IsIn(["TERMINATED"])
   status: string;
 }

@@ -182,8 +182,8 @@ export class ContractService {
       throw new BadRequestException("合同已执行，不可重复执行");
     }
 
-    // 公司范围校验：仅 contract:audit（无 contract:execute）的账号受 companyScopes 限制
-    this.assertAuditScope(user, contract);
+    // 执行方范围校验：比赛级/超管兜底可执任意合同；仅 contract:audit 限最后一方公司
+    this.assertExecuteScope(user, contract);
 
     // 编号分步补全：执行前校验所有非主办方参与方均已填写编号
     const parties = this.parseJson(contract.parties, "parties");
@@ -273,9 +273,23 @@ export class ContractService {
       p.contractNumber = v == null ? null : String(v).trim() || null;
     }
 
+    // 自动升降 PENDING_EXEC：仅当合同仍处于会签态（DRAFT/PENDING_EXEC）时，
+    // 依据「所有非主办方编号是否齐备」在 DRAFT 与 PENDING_EXEC 间自动切换；
+    // 已执行/已终止合同不在此处理（编号本就不可改）。
+    let newStatus = contract.status;
+    if (contract.status === "DRAFT" || contract.status === "PENDING_EXEC") {
+      const selectable = parties.filter((p: any) => !p.isHost);
+      const allFilled =
+        selectable.length > 0 &&
+        selectable.every(
+          (p: any) => p.contractNumber != null && String(p.contractNumber).trim() !== "",
+        );
+      newStatus = allFilled ? "PENDING_EXEC" : "DRAFT";
+    }
+
     const updated = await this.prisma.contract.update({
       where: { id },
-      data: { parties: this.toStored(parties) },
+      data: { parties: this.toStored(parties), status: newStatus },
       include: { contractType: true },
     });
     // 强时效：编号变更实时广播
@@ -293,13 +307,28 @@ export class ContractService {
       include: { contractType: true },
     });
     if (!contract) throw new NotFoundException(`合同 ${id} 不存在`);
-    this.assertAuditScope(user, contract);
+    this.assertExecuteScope(user, contract);
     return this.engine.precheck(contract);
   }
 
+  /**
+   * 标记合同状态：会签模型下状态转换由 execute / remove / updatePartyNumbers 驱动，
+   * 本接口仅保留「标记终止（TERMINATED）」这一无害动作，用于把已执行/草稿合同标记为终止。
+   * 禁止直接置 EXECUTED（绕过执行落账）或回退 DRAFT/PENDING_EXEC（绕过复原/编号流程），
+   * 以修复此前「状态与字段效果不一致」的账实隐患。
+   */
   async setStatus(id: number, status: string) {
     const item = await this.prisma.contract.findUnique({ where: { id } });
     if (!item) throw new NotFoundException(`合同 ${id} 不存在`);
+    if (status === "EXECUTED") {
+      throw new BadRequestException("禁止直接置为已执行，请走执行流程");
+    }
+    if (status === "DRAFT" || status === "PENDING_EXEC") {
+      throw new BadRequestException("禁止直接回退合同状态，请走编号补全/执行流程");
+    }
+    if (status !== "TERMINATED") {
+      throw new BadRequestException("不允许的状态值");
+    }
     const updated = await this.prisma.contract.update({
       where: { id },
       data: { status },
@@ -318,29 +347,29 @@ export class ContractService {
     const item = await this.prisma.contract.findUnique({ where: { id } });
     if (!item) throw new NotFoundException(`合同 ${id} 不存在`);
     assertSameCompetition(item.competitionId, competitionId);
-    // 仅已执行的合同需要复原字段修改；DRAFT 状态的合同无字段效果，直接删除。
-    if (item.status !== "EXECUTED") {
-      return this.prisma.contract.delete({ where: { id } });
-    }
-    // 复原该合同对产业字段的修改（不影响后续合同）；删合同后级联清空其字段改写记录。
+    // 复原判定基于「是否曾落账」（contractFieldEffect 记录存在），而非当前 status：
+    // 这样即使合同被置为 TERMINATED 后再删，也能正确复原字段，避免账实不一致。
     const effectCount = await (this.prisma as any).contractFieldEffect.count({
       where: { contractId: id },
     });
-    if (effectCount > 0) {
-      await this.engine.revertContract(item);
-      // 复原基础字段后须级联重算计算字段（避免计算值停留在被删合同改写后的陈旧态），
-      // 并广播 company-field:changed 让前端刷新。
-      const parties = this.parseJson(item.parties, "parties");
-      const affected = (parties || []).filter(
-        (p: any) => !p.isHost && typeof p.companyId === "number",
-      );
-      for (const p of affected) {
-        await this.companyFields.recomputeCalculatedFieldsForCompany(p.companyId);
-        this.realtime.broadcastToCompetition(item.competitionId, "company-field:changed", {
-          companyId: p.companyId,
-          competitionId: item.competitionId,
-        });
-      }
+    if (effectCount === 0) {
+      // 从未落账（DRAFT / PENDING_EXEC 或执行失败残留），无字段效果，直接删除。
+      return this.prisma.contract.delete({ where: { id } });
+    }
+    // 复原该合同对产业字段的修改（不影响后续合同）；删合同后级联清空其字段改写记录。
+    await this.engine.revertContract(item);
+    // 复原基础字段后须级联重算计算字段（避免计算值停留在被删合同改写后的陈旧态），
+    // 并广播 company-field:changed 让前端刷新。
+    const parties = this.parseJson(item.parties, "parties");
+    const affected = (parties || []).filter(
+      (p: any) => !p.isHost && typeof p.companyId === "number",
+    );
+    for (const p of affected) {
+      await this.companyFields.recomputeCalculatedFieldsForCompany(p.companyId);
+      this.realtime.broadcastToCompetition(item.competitionId, "company-field:changed", {
+        companyId: p.companyId,
+        competitionId: item.competitionId,
+      });
     }
     return this.prisma.contract.delete({ where: { id } });
   }
@@ -427,6 +456,36 @@ export class ContractService {
     if (!this.contractInScopes(contract, scopes)) {
       throw new ForbiddenException("无权审核其他公司的合同");
     }
+  }
+
+  /**
+   * 执行方范围校验（会签模型核心）：
+   * - `contract:execute`/`contract:manage`/超管 直接放行（兜底：可执任意合同的最后一步，便于运维/演示）；
+   * - 仅 `contract:audit` 公司级管理员：必须是「最后一个参与方公司」在其 companyScopes 内，
+   *   否则 403「仅最后一方参与公司管理员可执行」（中间方即使编号齐全也只能填自己编号）。
+   */
+  private assertExecuteScope(user: any, contract: { parties: string }): void {
+    if (!user) return;
+    const canExecute = hasPermission(user.role, user.permissions, "contract:execute");
+    if (canExecute) return; // 兜底：比赛级/超管可执任意合同
+    const canAudit = hasPermission(user.role, user.permissions, "contract:audit");
+    if (!canAudit) {
+      throw new ForbiddenException("无权执行合同");
+    }
+    const lastCompanyId = this.getLastSignatoryCompanyId(contract);
+    const scopes: number[] = user.companyScopes || [];
+    if (lastCompanyId == null || !scopes.includes(lastCompanyId)) {
+      throw new ForbiddenException("仅合同最后一方参与公司的管理员可执行");
+    }
+  }
+
+  /** 取最后一个「非主办方」参与方的公司 id（即会签执行方）；无则返回 null */
+  private getLastSignatoryCompanyId(contract: { parties: string }): number | null {
+    const parties = this.parseJson(contract.parties, "parties");
+    const real = (parties || []).filter(
+      (p: any) => !p.isHost && typeof p.companyId === "number",
+    );
+    return real.length ? real[real.length - 1].companyId : null;
   }
 
   /**

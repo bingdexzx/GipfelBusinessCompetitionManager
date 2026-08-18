@@ -916,10 +916,10 @@ function parseJson(raw: any, fallback: any = []) {
   return raw;
 }
 function statusLabel(s: string) {
-  return ({ DRAFT: "草稿", EXECUTED: "已执行", TERMINATED: "已终止" } as any)[s] || s;
+  return ({ DRAFT: "草稿", PENDING_EXEC: "待执行", EXECUTED: "已执行", TERMINATED: "已终止" } as any)[s] || s;
 }
 function statusType(s: string) {
-  return ({ DRAFT: "info", EXECUTED: "success", TERMINATED: "danger" } as any)[s] || "info";
+  return ({ DRAFT: "info", PENDING_EXEC: "warning", EXECUTED: "success", TERMINATED: "danger" } as any)[s] || "info";
 }
 // 与全局 $formatTime 等价：ISO 截断到秒（脚本内不便直接访问 globalProperties）
 function fmtTime(val: string | Date | null | undefined): string {
@@ -931,6 +931,7 @@ function fmtTime(val: string | Date | null | undefined): string {
 // 状态列悬停提示：草稿说明下一步，已执行/已终止展示执行时间
 function statusHint(row: any): string {
   if (row.status === "DRAFT") return "草稿：填写完整参与方合同编号后可执行";
+  if (row.status === "PENDING_EXEC") return "待执行：所有参与方编号已齐备，等待最后一方参与公司管理员执行";
   if (row.status === "EXECUTED") return `执行时间：${fmtTime(row.executedAt)}`;
   if (row.status === "TERMINATED") return `执行时间：${fmtTime(row.executedAt)}；已终止`;
   return "";
@@ -987,30 +988,40 @@ const hasDraft = computed(() => filteredContracts.value.some((c: any) => c.statu
 // - 无 execute/audit 权限 → 禁用（权限不足）
 // - 非草稿 → 禁用（状态原因）
 // - 仅持 audit（无 execute/manage）且合同参与方均不在 companyScopes 内 → 禁用（范围外，避免点击后被后端 403）
+// 执行按钮状态（与后端 assertExecuteScope 对齐）：
+// - 无 execute/audit 权限 → 禁用
+// - 已执行/已终止 → 禁用（状态原因）
+// - 草稿/待执行：落账前会签态，编号齐备由后端执行时统一校验；此处仅校验「执行方权限」
+//   · 比赛级/超管（全局执行/管理）→ 直接可执行（兜底）
+//   · 仅 audit 公司级管理员 → 必须是「最后一方参与公司」才可执行，否则禁用
 function executeBtnState(row: any): { disabled: boolean; title: string } {
   if (!authStore.canAny(["contract:execute", "contract:audit"])) {
     return { disabled: true, title: "无合同执行权限" };
   }
-  if (row.status !== "DRAFT") {
+  if (row.status === "EXECUTED" || row.status === "TERMINATED") {
     return {
       disabled: true,
       title:
         row.status === "EXECUTED"
           ? `合同已执行${row.executedAt ? `（${fmtTime(row.executedAt)}）` : ""}，不可重复执行`
-          : "仅草稿可执行",
+          : "合同已终止",
     };
   }
   const globalExec = authStore.can("contract:execute") || authStore.can("contract:manage");
   if (!globalExec) {
+    // 仅 contract:audit 公司级管理员：必须是最后一个非主办方参与公司
     const parties = parseJson(row.parties, []);
-    const inScope = parties
-      .filter((p: any) => !p.isHost)
-      .some((p: any) => authStore.canAuditCompany(p.companyId));
-    if (!inScope) {
-      return { disabled: true, title: "该合同不涉及你负责的公司，无法执行" };
+    const real = parties.filter((p: any) => !p.isHost && typeof p.companyId === "number");
+    const lastCo = real.length ? real[real.length - 1].companyId : null;
+    if (lastCo == null || !authStore.canAuditCompany(lastCo)) {
+      return { disabled: true, title: "仅合同最后一方参与公司的管理员可执行" };
     }
   }
-  return { disabled: false, title: "所有参与方编号齐全后执行落账" };
+  const tip =
+    row.status === "PENDING_EXEC"
+      ? "所有参与方编号已齐全，等待最后一方(乙方/丙方)执行落账"
+      : "参与方编号齐备后可执行落账";
+  return { disabled: false, title: tip };
 }
 
 const detailParties = computed(() => parseJson(detailRow.value?.parties, []));
