@@ -8,7 +8,7 @@
  * 4. computeInitPrice - 初始价计算
  */
 
-import { computeMatch, computePrice, buildCandle, computeInitPrice, computePressure, computeDrift, DEFAULT_STOCK_CONFIG, RawOrder } from './engine';
+import { computeMatch, computePrice, buildCandle, computeInitPrice, computePressure, computeDrift, computeCarbonDrift, DEFAULT_STOCK_CONFIG, RawOrder } from './engine';
 
 describe('stock/engine', () => {
   // ========== computeMatch ==========
@@ -143,9 +143,9 @@ describe('stock/engine', () => {
       expect(r.theoretical).toBeGreaterThan(100);
     });
 
-    it('碳排低于均值：carbonDrift 为正，drift 略升', () => {
+    it('碳排低于均值：对数压缩下碳排越低碳排偏置越强（r=0.5 → c=+1 → drift=0.2）', () => {
       const r = computePrice({ ...baseFactors(), currentCarbon: 50 });
-      expect(r.drift).toBeCloseTo(0.1, 5); // 0.2*clamp((100-50)/100)
+      expect(r.drift).toBeCloseTo(0.2, 5); // 0.2 * min(1, -ln(0.5)/ln(2))
     });
 
     it('未成交（matched=false）：平盘，价格不动（S5/S6）', () => {
@@ -189,6 +189,16 @@ describe('stock/engine', () => {
       expect(computeDrift(50, 100, 100, 0.2, 0.2)).toBeCloseTo(0, 6);
       expect(computeDrift(100, 100, 100, 0.2, 0.2)).toBeCloseTo(0.2, 6);
       expect(computeDrift(0, 100, 100, 0.2, 0.2)).toBeCloseTo(-0.2, 6);
+    });
+    it('对数压缩：碳排远超均值仍持续响应（不再 2× 封顶）', () => {
+      // c(R=2 倍均值)=-1 → drift=-0.2；c(4×)=-2 → -0.4；c(8×)=-3 → -0.6
+      expect(computeDrift(50, 200, 100, 0.2, 0.2)).toBeCloseTo(-0.2, 6);
+      expect(computeDrift(50, 400, 100, 0.2, 0.2)).toBeCloseTo(-0.4, 6);
+      expect(computeDrift(50, 800, 100, 0.2, 0.2)).toBeCloseTo(-0.6, 6);
+    });
+    it('零碳排视为最优（c=+1），行业均值≤0 无法归一返回 0', () => {
+      expect(computeCarbonDrift(0, 100, 2)).toBe(1);
+      expect(computeCarbonDrift(50, 0, 2)).toBe(0);
     });
   });
 

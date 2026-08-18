@@ -63,6 +63,7 @@ export interface StockConfig {
   interventionMode: "regression" | "expand-limit"; // 连续封板干预模式，默认 regression
   regressionPct: number; // 回归锚干预价格偏移，默认 0.02
   tradePriceWeight: number; // 最终价中成交价的权重，默认 0.7
+  carbonSaturateRatio: number; // 碳排对数压缩锚点 R：c(R 倍均值)=-1，默认 2
 }
 
 export const DEFAULT_STOCK_CONFIG: StockConfig = {
@@ -77,6 +78,7 @@ export const DEFAULT_STOCK_CONFIG: StockConfig = {
   interventionMode: "regression",
   regressionPct: 0.02,
   tradePriceWeight: 0.7,
+  carbonSaturateRatio: 2,
 };
 
 /** 将 STOCK_CONFIG 未知/缺失字段合并回默认值，保证运行期类型完整。 */
@@ -99,6 +101,27 @@ export function computePressure(buyQty: number, sellQty: number): number {
 }
 
 /**
+ * 碳排趋势偏置分量（对数压缩，S2 改造）：
+ * 以行业均值为基准，c = min(1, -ln(currentCarbon/industryAvgCarbon)/ln(R))。
+ *  - 碳排=均值 → c=0；碳排=R 倍均值 → c=-1；之后随碳排继续增长而持续（但递减）更负，不再早饱和；
+ *  - 碳排≤0（零碳排）→ c=+1（最优）；行业均值≤0 无法归一 → c=0；
+ *  - 不钳制下界：逐轮跌幅由 computePrice 的 ±limitPct 硬限幅兜底。
+ * R = carbonSaturateRatio（默认 2，与旧线性式在 ≤2× 段锚点一致）。
+ * 对数把"指数级碳排增长"压缩为"线性变负"，消除原线性式在 2× 处 c 锁死 -1 的早饱和。
+ */
+export function computeCarbonDrift(
+  currentCarbon: number,
+  industryAvgCarbon: number,
+  carbonSaturateRatio: number = 2,
+): number {
+  if (industryAvgCarbon <= 0) return 0;
+  if (currentCarbon <= 0) return 1;
+  const r = currentCarbon / industryAvgCarbon;
+  const k = Math.log(carbonSaturateRatio > 1 ? carbonSaturateRatio : 2);
+  return Math.min(1, -Math.log(r) / k);
+}
+
+/**
  * 趋势偏置（S2）：幸福度/碳排不再直接放大理论价，而是压缩为长期趋势偏置。
  * 均衡盘 drift≈0 → 价格基本持平；单轮影响上限收敛到 (happinessImpact+carbonImpact)*maxMovePct。
  */
@@ -108,12 +131,10 @@ export function computeDrift(
   industryAvgCarbon: number,
   happinessImpact: number,
   carbonImpact: number,
+  carbonSaturateRatio: number = 2,
 ): number {
   const h = (happiness - 50) / 50;
-  const c =
-    industryAvgCarbon !== 0
-      ? clamp((industryAvgCarbon - currentCarbon) / industryAvgCarbon, -1, 1)
-      : 0;
+  const c = computeCarbonDrift(currentCarbon, industryAvgCarbon, carbonSaturateRatio);
   return happinessImpact * h + carbonImpact * c;
 }
 
@@ -155,6 +176,7 @@ export function computePrice(f: PriceFactors): PriceResult {
     f.industryAvgCarbon,
     f.config.happinessImpact,
     f.config.carbonImpact,
+    f.config.carbonSaturateRatio,
   );
   const theoretical = computeTheoretical(f.lastClose, pressure, drift, f.config.maxMovePct);
 

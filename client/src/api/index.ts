@@ -401,6 +401,7 @@ export const stockApi = {
         interventionMode?: "regression" | "expand-limit";
         regressionPct?: number;
         tradePriceWeight?: number;
+        carbonSaturateRatio?: number;
       };
     } = {},
   ) => api.post(`/stocks/advance-round?competitionId=${competitionId}`, dto),

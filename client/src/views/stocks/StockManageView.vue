@@ -290,6 +290,10 @@
         <el-form-item label="碳排偏置">
           <el-input-number v-model="stockConfigForm.carbonImpact" :min="0" :max="1" :step="0.05" :precision="2" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="碳排对数锚点 R">
+          <el-input-number v-model="stockConfigForm.carbonSaturateRatio" :min="1.1" :max="20" :step="0.5" :precision="2" style="width: 100%" />
+          <div class="form-hint">碳排=R 倍行业均值时偏置达 -1；之后随碳排对数持续更负（不再早饱和，默认 2）</div>
+        </el-form-item>
         <el-form-item label="做市商深度占比">
           <el-input-number v-model="stockConfigForm.mmDepthPct" :min="0" :max="0.05" :step="0.0005" :precision="4" style="width: 100%" />
           <div class="form-hint">单档深度占总股本比例（默认 0.001，深度随股本动态化 S3）</div>
@@ -772,6 +776,7 @@ const stockConfigForm = ref({
   maxMovePct: 0.05,
   happinessImpact: 0.2,
   carbonImpact: 0.2,
+  carbonSaturateRatio: 2,
   mmDepthPct: 0.001,
   mmSpreadPct: 0.02,
   interventionMode: "regression" as "regression" | "expand-limit",
