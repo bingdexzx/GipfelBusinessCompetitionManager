@@ -1,3 +1,4 @@
+import 'tsconfig-paths/register';
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { Request, Response, NextFunction } from "express";

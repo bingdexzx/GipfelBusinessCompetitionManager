@@ -7,63 +7,19 @@
 
 import { ValueSpec } from "./values";
 
-// ========== 类型定义 ==========
-
-/** 检查类型 */
-export type ConditionKind =
-  | "FIELD_COMPARE"
-  | "VALUE_COMPARE"
-  | "INDUSTRY_IS"
-  | "DICT_COMPARE"
-  | "LIST_COMPARE";
-
-/** 检查规格 */
-export interface ConditionSpec {
-  id?: string;
-  label?: string;
-  errorMessage?: string;
-  kind: ConditionKind;
-  party?: string;
-  fieldKey?: string;
-  industryTypeId?: number;
-  op?: string;
-  value?: ValueSpec;
-  value1?: ValueSpec;
-  value2?: ValueSpec;
-  // 控制流：若本检查挂在某个 IF 分支之下，仅当该分支条件成立时才执行
-  branch?: { when: "then" | "else"; cond: ValueSpec };
-}
-
-/** 检查结果 */
-export interface CheckResult {
-  kind: string;
-  party: string;
-  label?: string;
-  passed: boolean;
-  actual?: any;
-  expected?: any;
-  detail: string;
-  customError?: boolean;
-  skipped?: boolean;
-}
-
-/** 检查类型中文标签 */
-export const COND_KIND_LABEL: Record<string, string> = {
-  VALUE_COMPARE: "数值比较",
-  FIELD_COMPARE: "字段比较",
-  INDUSTRY_IS: "产业类型核对",
-  DICT_COMPARE: "字典比较",
-  LIST_COMPARE: "列表比较",
-  ACCOUNT_COMPARE: "账户比较",
-  INVENTORY_GTE: "库存下限",
-  ASSET_OWNED: "资产持有",
-  VEHICLE_COUNT: "载具数量",
-  VEHICLE_LOCATION: "载具位置",
-  TECH_COMPLETED: "科技完成",
-  INFRA_ACTIVE: "基建启用",
-  INFRA_LIST_FILTER: "基建范围校验",
-  VEHICLE_LIST_FILTER: "载具范围校验",
-};
+// ========== 类型/常量：统一从共享包导入并 re-export（单一真源） ==========
+import {
+  ConditionKind,
+  ConditionSpec,
+  CheckResult,
+  COND_KIND_LABEL,
+} from "@gipfel/engine-dsl";
+export {
+  ConditionKind,
+  ConditionSpec,
+  CheckResult,
+  COND_KIND_LABEL,
+} from "@gipfel/engine-dsl";
 
 /** 获取检查类型的中文标签 */
 export function condKindLabel(kind: string): string {

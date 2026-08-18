@@ -8,9 +8,8 @@
 import { toNumber, deepEqual, castScalar } from "./values";
 
 // ========== 类型定义 ==========
-
-/** 字段效果操作类型 */
-export type FieldEffectOp = "ADD" | "SUB" | "SET";
+import { FieldEffectOp, CompareOp } from "@gipfel/engine-dsl";
+export { FieldEffectOp } from "@gipfel/engine-dsl";
 
 /** 字段效果执行结果 */
 export interface FieldEffectResult {
@@ -126,19 +125,7 @@ export function applyFieldEffect(
 
 // ========== 字段比较 ==========
 
-/** 比较操作符类型 */
-export type CompareOp =
-  | "GTE"
-  | "LTE"
-  | "GT"
-  | "LT"
-  | "EQ"
-  | "CONTAINS"
-  | "HAS_KEY"
-  | "LEN_GTE"
-  | "LEN_LTE"
-  | "LEN_EQ"
-  | "ELEMENT_EQ";
+// CompareOp 已统一从 @gipfel/engine-dsl 导入（单一真源），供本文件 compareOp/compareField 使用。
 
 /** 字段比较结果 */
 export interface FieldCompareResult {
@@ -165,20 +152,7 @@ export function compareOp(actual: number, op: CompareOp, expected: number): bool
   }
 }
 
-/** 比较算子中文标签（用于检查详情展示）。 */
-export const COMPARE_OP_LABEL: Record<string, string> = {
-  GTE: "≥",
-  LTE: "≤",
-  GT: ">",
-  LT: "<",
-  EQ: "=",
-  CONTAINS: "包含",
-  HAS_KEY: "含键",
-  LEN_GTE: "长度≥",
-  LEN_LTE: "长度≤",
-  LEN_EQ: "长度=",
-  ELEMENT_EQ: "元素相等",
-};
+// COMPARE_OP_LABEL 已统一由 values.ts 从 @gipfel/engine-dsl re-export（单一真源），本文件不再重复定义。
 
 /**
  * 对公司产业字段（列表/字典/数字）做前置比较，返回是否通过及前后值。

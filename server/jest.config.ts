@@ -7,6 +7,7 @@ const config: Config = {
   testMatch: ['**/*.spec.ts'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
+    '^@gipfel/engine-dsl$': '<rootDir>/../shared/engine-dsl/dist',
   },
   transform: {
     '^.+\\.ts$': 'ts-jest',

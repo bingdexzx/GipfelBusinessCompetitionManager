@@ -39,6 +39,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      // shared 共享包：方案 B 仅铺路，前端直接吃 TS 源码（无需先 build shared）。
+      // 注意：前端 OP 端口表（OP_ARG_SPECS 等）仍保留本地，已知残留漂移点，见 docs/shared接入设计.md。
+      '@gipfel/engine-dsl': resolve(__dirname, '../shared/engine-dsl/src'),
     },
   },
   css: {

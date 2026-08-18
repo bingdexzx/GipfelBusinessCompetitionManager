@@ -5,107 +5,29 @@
  * 不依赖 Prisma，可独立单测。
  */
 
-// ========== 类型定义 ==========
-
-/** 数值来源类型 */
-export type ValueType =
-  | "ENTITY"
-  | "INPUT"
-  | "CONST"
-  | "FORMULA"
-  | "OP"
-  | "VAR"
-  | "ROUTE"
-  | "FIELD"
-  | "INDUSTRY_IS";
-
-/** 值规格 */
-export interface ValueSpec {
-  type: ValueType;
-  // ENTITY
-  entityType?: EntityType;
-  entityRef?: string;
-  attribute?: string;
-  multiplyByInput?: string;
-  // INPUT
-  key?: string;
-  // CONST
-  value?: any;
-  // FORMULA
-  expr?: string;
-  // OP
-  op?: string;
-  args?: ValueSpec[];
-  // VAR
-  name?: string;
-  // ROUTE
-  routeRef?: string;
-  nodeIds?: number[];
-  // FIELD
-  party?: string;
-  fieldKey?: string;
-  // INDUSTRY_IS
-  industryTypeId?: number;
-  // 聚合端点
-  aggregate?: string;
-  // 路径类型过滤
-  pathTypeIds?: number[];
-}
-
-/** 实体类型 */
-export type EntityType =
-  | "MATERIAL"
-  | "PART"
-  | "PRODUCT"
-  | "TECH_NODE"
-  | "WAREHOUSE"
-  | "PRODUCTION_LINE"
-  | "FUEL"
-  | "VEHICLE"
-  | "INFRASTRUCTURE"
-  | "MAP_NODE";
-
-/** 实体类型到 Prisma 模型名的映射 */
-export const ENTITY_MODEL: Record<EntityType, string> = {
-  MATERIAL: "material",
-  PART: "part",
-  PRODUCT: "product",
-  TECH_NODE: "techNode",
-  WAREHOUSE: "warehouse",
-  PRODUCTION_LINE: "productionLine",
-  FUEL: "fuel",
-  VEHICLE: "vehicle",
-  INFRASTRUCTURE: "infrastructure",
-  MAP_NODE: "mapNode",
-};
-
-/** 参与方定义 */
-export interface PartyDef {
-  role: string;
-  companyId: number | null;
-  isHost?: boolean;
-}
-
-/** 求值上下文 */
-export interface EvalCtx {
-  competitionId?: number;
-  cache?: Map<number, Map<number, { to: number; d: number }[]>>;
-  parties?: Map<string, PartyDef>;
-}
-
-/** 比较操作符 */
-export type CompareOp =
-  | "GTE"
-  | "LTE"
-  | "GT"
-  | "LT"
-  | "EQ"
-  | "CONTAINS"
-  | "HAS_KEY"
-  | "LEN_GTE"
-  | "LEN_LTE"
-  | "LEN_EQ"
-  | "ELEMENT_EQ";
+// ========== 类型/常量：统一从共享包导入并 re-export（单一真源） ==========
+import {
+  ValueType,
+  ValueSpec,
+  EntityType,
+  PartyDef,
+  EvalCtx,
+  CompareOp,
+  ENTITY_MODEL,
+  COMPARE_OP_LABEL,
+  COND_KIND_LABEL,
+} from "@gipfel/engine-dsl";
+export {
+  ValueType,
+  ValueSpec,
+  EntityType,
+  PartyDef,
+  EvalCtx,
+  CompareOp,
+  ENTITY_MODEL,
+  COMPARE_OP_LABEL,
+  COND_KIND_LABEL,
+} from "@gipfel/engine-dsl";
 
 // ========== 纯函数工具 ==========
 
@@ -195,37 +117,7 @@ export function compareOp(actual: number, op: string, expected: number): boolean
 }
 
 /** 比较算子中文标签（用于检查详情展示）。 */
-export const COMPARE_OP_LABEL: Record<string, string> = {
-  GTE: "≥",
-  LTE: "≤",
-  GT: ">",
-  LT: "<",
-  EQ: "=",
-  CONTAINS: "包含",
-  HAS_KEY: "含键",
-  LEN_GTE: "长度≥",
-  LEN_LTE: "长度≤",
-  LEN_EQ: "长度=",
-  ELEMENT_EQ: "元素相等",
-};
-
-/** 检查类型原始枚举 → 中文显示名 */
-export const COND_KIND_LABEL: Record<string, string> = {
-  VALUE_COMPARE: "数值比较",
-  FIELD_COMPARE: "字段比较",
-  INDUSTRY_IS: "产业类型核对",
-  DICT_COMPARE: "字典比较",
-  LIST_COMPARE: "列表比较",
-  ACCOUNT_COMPARE: "账户比较",
-  INVENTORY_GTE: "库存下限",
-  ASSET_OWNED: "资产持有",
-  VEHICLE_COUNT: "载具数量",
-  VEHICLE_LOCATION: "载具位置",
-  TECH_COMPLETED: "科技完成",
-  INFRA_ACTIVE: "基建启用",
-  INFRA_LIST_FILTER: "基建范围校验",
-  VEHICLE_LIST_FILTER: "载具范围校验",
-};
+// COMPARE_OP_LABEL / COND_KIND_LABEL 已统一从 @gipfel/engine-dsl 导入并 re-export（见文件顶部）
 
 export function condKindLabel(kind: string): string {
   return COND_KIND_LABEL[kind] || kind;

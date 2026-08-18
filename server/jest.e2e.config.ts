@@ -8,6 +8,9 @@ const config: Config = {
   rootDir: ".",
   roots: ["<rootDir>/test"],
   testMatch: ["**/*.e2e-spec.ts"],
+  moduleNameMapper: {
+    '^@gipfel/engine-dsl$': '<rootDir>/../shared/engine-dsl/dist',
+  },
   // e2e 冒烟以「跑通主链路」为目标，放宽类型检查（isolatedModules）避免与业务类型纠缠。
   transform: {
     "^.+\\.ts$": ["ts-jest", { isolatedModules: true }],

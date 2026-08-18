@@ -18,7 +18,8 @@
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@gipfel/engine-dsl": ["../shared/engine-dsl/dist"]
     }
   },
   "include": ["src/**/*"],
