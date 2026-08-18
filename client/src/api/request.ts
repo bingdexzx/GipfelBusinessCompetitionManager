@@ -177,6 +177,11 @@ function _resetMemo(): void {
   _lastEventAt.clear();
 }
 
+/** 对外暴露：清空内存 memo（设置页「清空本地缓存」等场景调用，配合清空 IndexedDB 后重载页面）。 */
+export function resetRequestMemo(): void {
+  _resetMemo();
+}
+
 // 切换服务器后清空内存 memo：缓存库已按 realm（服务器身份）隔离，但内存 memo 键与服务器无关，
 // 若不清空，旧服务器的响应可能被新服务器命中，造成串档。由 config/index.ts 的 setServerUrl 派发。
 if (typeof window !== "undefined") {
