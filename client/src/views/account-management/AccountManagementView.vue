@@ -137,6 +137,11 @@ import { useCompetitionStore } from "@/stores/competition";
 import type { FormInstance } from "element-plus";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 
+// 范围字段在 API 中以作用域对象形式返回（与后端正交）：{ mode, companyIds }
+interface ScopeLike {
+  mode?: "none" | "company" | "all";
+  companyIds?: number[];
+}
 interface UserItem {
   id: number;
   username: string;
@@ -144,9 +149,9 @@ interface UserItem {
   displayName?: string;
   competitionId?: number | null;
   permissions?: string[];
-  companyScopes?: number[];
-  viewCompanyScopes?: number[];
-  contractViewCompanyScopes?: number[];
+  companyScopes?: ScopeLike;
+  viewCompanyScopes?: ScopeLike;
+  contractViewCompanyScopes?: ScopeLike;
   createdAt?: string;
 }
 
@@ -298,7 +303,7 @@ function roleLabel(role: string) {
 
 function permSummary(row: UserItem) {
   if (row.role === "SUPER_ADMIN") return { text: "全部权限", type: "danger" };
-  const n = row.viewCompanyScopes?.length || 0;
+  const n = row.viewCompanyScopes?.companyIds?.length || 0;
   if (row.role === "COMPETITION_ADMIN") return { text: `管理员·${n} 公司`, type: "warning" };
   return { text: `选手·${n} 公司`, type: "info" };
 }
@@ -352,8 +357,9 @@ function handleEdit(row: UserItem, scope: AccountScope) {
   form.displayName = row.displayName || "";
   form.role = row.role;
   form.password = "";
-  // 编辑时以「可查看字段范围」还原公司多选（四个范围在派生时一致）
-  managedCompanies.value = [...(row.viewCompanyScopes || [])];
+  // 编辑时以「可查看字段范围」还原公司多选（四个范围在派生时一致）。
+  // 注意 viewCompanyScopes 是作用域对象 { mode, companyIds }，需取 companyIds。
+  managedCompanies.value = [...(row.viewCompanyScopes?.companyIds || [])];
   loadCompanies();
   dialogVisible.value = true;
 }
