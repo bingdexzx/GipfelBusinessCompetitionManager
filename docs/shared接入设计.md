@@ -43,11 +43,12 @@
    ```
    （指向已编译的 `dist`，Node 运行时不能直接 require `.ts`；`tsconfig.build.json` 继承该 paths，无需重复。）
 2. **运行时解析别名**：`server/src/main.ts` 顶部加 `import 'tsconfig-paths/register';`（dev `nest start` 与 prod `node dist/main` 共用，兜底别名解析）。
-3. **前置编译 shared**：`server/package.json` 的 `build`/`start`/`start:prod` 脚本前置
+3. **前置编译 shared**：`server/package.json` 的 `build`/`start`/`start:dev`/`start:prod` 脚本前置，用 server 自带的 `tsc` 直接编译 shared（shared 自身无 node_modules，`npm --prefix` 会因找不到 tsc 而失败）：
    ```jsonc
-   "build": "npm --prefix ../shared/engine-dsl run build && nest build",
-   "start": "npm --prefix ../shared/engine-dsl run build && nest start",
-   "start:prod": "npm --prefix ../shared/engine-dsl run build && node dist/main"
+   "build": "tsc -p ../shared/engine-dsl/tsconfig.json && nest build",
+   "start": "tsc -p ../shared/engine-dsl/tsconfig.json && nest start",
+   "start:dev": "tsc -p ../shared/engine-dsl/tsconfig.json && nest start --watch",
+   "start:prod": "tsc -p ../shared/engine-dsl/tsconfig.json && nest build && node dist/main"
    ```
 4. **加依赖**：`tsconfig-paths` 加入 `server/package.json` devDependencies。
 5. **engine 三文件改造**（删本地类型/常量，改 import）：
@@ -85,7 +86,7 @@
 
 ## 5. 验证
 
-- 后端：`npm --prefix ../shared/engine-dsl run build` → `cd server && tsc --noEmit` 0 错误；`jest` 全过（确保引擎逻辑函数未受影响）。
+- 后端：`cd server && npx tsc -p ../shared/engine-dsl/tsconfig.json` → `cd server && tsc --noEmit` 0 错误；`jest` 全过（确保引擎逻辑函数未受影响）。
 - 前端：`cd client && vue-tsc --noEmit -p tsconfig.json` 0 错误；`vite build` 通过。
 - 手动：启动后端 `npm run start:dev`，确认 contract/产业字段相关接口正常（落账、precheck）。
 

@@ -10,7 +10,7 @@ REM    1. check prerequisites (git / pm2)
 REM    2. stop PM2  (gipfel-server)
 REM    3. git pull
 REM    4. backup SQLite db
-REM    5. npm install (server + shared)
+REM    5. npm install (server)
 REM    6. npm run build (shared + nest)
 REM    7. prisma db push (migrate schema)
 REM    8. pm2 restart / start
@@ -70,7 +70,7 @@ if exist "server\prisma\dev.db" (
 
 echo.
 echo ============================================================
-echo [5/8] Installing dependencies (server + shared) ...
+echo [5/8] Installing dependencies (server) ...
 echo ============================================================
 cd /d "%~dp0..\server"
 call npm install
@@ -78,12 +78,6 @@ if errorlevel 1 (
     echo.
     echo [FAIL] server npm install failed.
     goto :fail
-)
-cd /d "%~dp0..\shared\engine-dsl"
-call npm install --no-package-lock
-if errorlevel 1 (
-    echo.
-    echo [WARN] shared npm install failed (its typescript devDep is required to build shared).
 )
 
 echo.
