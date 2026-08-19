@@ -36,6 +36,7 @@
 | 服务端 | NestJS 11 + Prisma 6 + SQLite + JWT + Passport + Socket.IO 4 + Winston（日志）+ bcryptjs（密码哈希） |
 | 数据库 | SQLite（Prisma ORM，单文件 `server/prisma/dev.db`，25 个数据模型） |
 | 发版工具 | `tools/updater/`（本地发布页 + 版本改写脚本） |
+| 部署工具 | `tools/update_server.bat`（服务器一键更新：拉代码/装依赖/编译/迁移/重启） |
 
 服务端默认监听 `http://localhost:3000`，并为 Socket.IO 复用同一端口；REST 与 WebSocket 共享该端点。
 
@@ -119,6 +120,7 @@ HTTP Request
 │   ├── start_server.bat            # 启动服务端（dev）
 │   ├── start_client.bat            # 启动客户端（dev）
 │   ├── install_deps.bat            # 安装依赖
+│   ├── update_server.bat           # 服务器一键更新（拉代码/装依赖/编译/迁移/重启）
 │   ├── logsreader/                 # 服务端日志可视化读取工具（本地 HTTP）
 │   └── updater/                    # 本地发布页与版本改写脚本
 └── LICENSE
