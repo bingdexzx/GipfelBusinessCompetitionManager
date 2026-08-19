@@ -616,13 +616,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from "vue";
+import { ref, computed, onMounted, reactive, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
 import { industryTypesApi } from "@/api";
 import { ElMessage, ElMessageBox } from "element-plus";
 import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
 import FormulaPanel from "@/components/formula-panel/FormulaPanel.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import { pinyin } from "pinyin-pro";
 
 const authStore = useAuthStore();
 
@@ -895,18 +896,42 @@ function formulaDisplay(f: any): string {
   }
 }
 
-// 自动生成唯一字段键（f1、f2、f3…，跳过已占用，保证产业类型内唯一）
-function generateFieldKey(): string {
-  const used = new Set((fields.value || []).map((f: any) => f.fieldKey));
-  let i = 1;
-  while (used.has(`f${i}`)) i++;
-  return `f${i}`;
+// 字段名 → 拼音字段键（小写全拼、去声调、剔除非字母数字下划线）
+function toPinyinKey(name: string): string {
+  const arr = pinyin(name, { toneType: "none", type: "array" });
+  return arr
+    .join("")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "");
 }
+
+// 自动生成唯一字段键：字段名拼音 + 冲突时追加序号，保证产业类型内唯一
+function generateFieldKey(): string {
+  const base = toPinyinKey((fieldForm.name || "").trim()) || "field";
+  const used = new Set((fields.value || []).map((f: any) => f.fieldKey));
+  let key = base;
+  let i = 1;
+  while (used.has(key)) {
+    key = `${base}_${i}`;
+    i++;
+  }
+  return key;
+}
+
+// 新建字段：输入字段名时实时用拼音自动生成字段键（编辑态字段键只读，不覆盖）
+watch(
+  () => fieldForm.name,
+  () => {
+    if (!fieldForm.id) {
+      fieldForm.fieldKey = (fieldForm.name || "").trim() ? generateFieldKey() : "";
+    }
+  },
+);
 
 function resetFieldForm() {
   fieldForm.id = null;
   fieldForm.name = "";
-  fieldForm.fieldKey = generateFieldKey();
+  fieldForm.fieldKey = "";
   fieldForm.fieldType = "NUMBER";
   fieldForm.config = {};
   fieldForm.defaultValue = "";
@@ -928,8 +953,6 @@ async function openFields(row: any) {
   resetFieldForm();
   showFields.value = true;
   await loadFields();
-  // 字段列表加载完成后，基于最新字段重新生成唯一字段键
-  fieldForm.fieldKey = generateFieldKey();
 }
 
 async function loadFields() {
@@ -1019,9 +1042,13 @@ function openFieldDetail(row: any) {
 }
 
 async function submitField() {
-  if (!fieldForm.name.trim() || !fieldForm.fieldKey.trim()) {
-    ElMessage.warning("请填写字段名称与字段键");
+  if (!fieldForm.name.trim()) {
+    ElMessage.warning("请填写字段名称");
     return;
+  }
+  // 字段键兜底：新建时若尚未自动生成，按名称拼音生成
+  if (!fieldForm.fieldKey.trim()) {
+    fieldForm.fieldKey = generateFieldKey();
   }
   // 计算字段：公式模式下把 Excel 风格公式序列化为 calcGraph（单 FORMULA 节点）
   if (fieldForm.isCalculated && fieldForm.editorMode === "formula") {
@@ -1120,8 +1147,6 @@ async function submitField() {
     showGraphFullscreen.value = false;
     resetFieldForm();
     await loadFields();
-    // 重新生成字段键，避免与刚提交的字段冲突
-    fieldForm.fieldKey = generateFieldKey();
     await loadTypes();
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "保存字段失败");
