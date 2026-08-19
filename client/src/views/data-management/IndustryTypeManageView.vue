@@ -211,8 +211,12 @@
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="字段键" required>
-              <el-input v-model="fieldForm.fieldKey" placeholder="如：mineCount" />
+            <el-form-item label="字段键">
+              <el-input
+                v-model="fieldForm.fieldKey"
+                placeholder="自动生成"
+                disabled
+              />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -446,8 +450,12 @@
               <el-form-item label="字段名称" required>
                 <el-input v-model="fieldForm.name" placeholder="如：矿点数量" />
               </el-form-item>
-              <el-form-item label="字段键" required>
-                <el-input v-model="fieldForm.fieldKey" placeholder="如：mineCount" />
+              <el-form-item label="字段键">
+                <el-input
+                  v-model="fieldForm.fieldKey"
+                  placeholder="自动生成"
+                  disabled
+                />
               </el-form-item>
               <el-form-item label="类型">
                 <el-select
@@ -887,10 +895,18 @@ function formulaDisplay(f: any): string {
   }
 }
 
+// 自动生成唯一字段键（f1、f2、f3…，跳过已占用，保证产业类型内唯一）
+function generateFieldKey(): string {
+  const used = new Set((fields.value || []).map((f: any) => f.fieldKey));
+  let i = 1;
+  while (used.has(`f${i}`)) i++;
+  return `f${i}`;
+}
+
 function resetFieldForm() {
   fieldForm.id = null;
   fieldForm.name = "";
-  fieldForm.fieldKey = "";
+  fieldForm.fieldKey = generateFieldKey();
   fieldForm.fieldType = "NUMBER";
   fieldForm.config = {};
   fieldForm.defaultValue = "";
@@ -912,6 +928,8 @@ async function openFields(row: any) {
   resetFieldForm();
   showFields.value = true;
   await loadFields();
+  // 字段列表加载完成后，基于最新字段重新生成唯一字段键
+  fieldForm.fieldKey = generateFieldKey();
 }
 
 async function loadFields() {
@@ -1102,6 +1120,8 @@ async function submitField() {
     showGraphFullscreen.value = false;
     resetFieldForm();
     await loadFields();
+    // 重新生成字段键，避免与刚提交的字段冲突
+    fieldForm.fieldKey = generateFieldKey();
     await loadTypes();
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "保存字段失败");
