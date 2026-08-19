@@ -175,7 +175,7 @@
                 type="primary"
                 :disabled="!authStore.can('industryType:manage')"
                 @click="openGraphFullscreen(row)"
-                >编辑蓝图</el-button
+                >编辑公式</el-button
               >
             </template>
             <template v-else>
@@ -481,13 +481,35 @@
               </el-form-item>
             </el-form>
           </div>
-          <!-- 主区：蓝图编辑器 -->
+          <!-- 主区：公式 / 蓝图 二选一（计算字段） -->
           <div class="fs-editor">
-            <IndustryFieldGraphEditor
-              v-model="fieldForm.calcGraph"
-              :available-fields="formulaFields"
-              @close="showGraphFullscreen = false"
-            />
+            <template v-if="fieldForm.isCalculated">
+              <div class="fs-mode-bar">
+                <el-radio-group v-model="fieldForm.editorMode" size="small" @change="onEditorModeChange">
+                  <el-radio-button value="formula">公式（Excel 风格）</el-radio-button>
+                  <el-radio-button value="graph">蓝图（高级）</el-radio-button>
+                </el-radio-group>
+                <span class="fs-mode-tip">
+                  在公式里直接用其它字段键作变量，如
+                  <code>(mineCount + capacity) * 0.5</code>；条件用
+                  <code>IF(cond, a, b)</code>。
+                </span>
+              </div>
+              <div v-if="fieldForm.editorMode === 'formula'" class="fs-formula">
+                <FormulaPanel
+                  v-model="fieldForm.formula"
+                  :fields="formulaFields"
+                  :show-cross-refs="false"
+                />
+              </div>
+              <IndustryFieldGraphEditor
+                v-else
+                v-model="fieldForm.calcGraph"
+                :available-fields="formulaFields"
+                @close="showGraphFullscreen = false"
+              />
+            </template>
+            <el-empty v-else description="勾选左侧「计算字段」后即可用公式或蓝图定义该字段的取值" />
           </div>
         </div>
       </div>
@@ -592,6 +614,7 @@ import { useAuthStore } from "@/stores/auth";
 import { industryTypesApi } from "@/api";
 import { ElMessage, ElMessageBox } from "element-plus";
 import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
+import FormulaPanel from "@/components/formula-panel/FormulaPanel.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 
 const authStore = useAuthStore();
@@ -623,6 +646,8 @@ const fieldForm = reactive<any>({
   defaultValue: "",
   isCalculated: false,
   calcGraph: "",
+  formula: "",
+  editorMode: "formula" as "formula" | "graph",
   sortOrder: 0,
   visible: true,
   // 财年定时器
@@ -727,8 +752,52 @@ const formulaFields = computed(() => {
   const selfKey = (fieldForm.fieldKey || "").trim();
   return (fields.value || [])
     .filter((f: any) => f.fieldKey !== selfKey)
-    .map((f: any) => ({ fieldKey: f.fieldKey, name: f.name }));
+    .map((f: any) => ({
+      fieldKey: f.fieldKey,
+      name: f.name,
+      fieldType: f.fieldType,
+      isCalculated: !!f.isCalculated,
+      defaultValue: f.defaultValue,
+    }));
 });
+
+// ===== 公式（Excel 风格）↔ calcGraph（单 FORMULA 节点）互转 =====
+// 后端产业计算引擎原生支持 value(FORMULA) 节点，故把公式序列化为只含一个
+// value(FORMULA)→output 的计算图，零后端改动即可复用既有级联重算能力。
+function formulaToCalcGraph(expr: string): string {
+  const g = {
+    nodes: [
+      { id: "out_1", type: "output", x: 60, y: 40, data: {} },
+      { id: "val_1", type: "value", x: 320, y: 60, data: { kind: "FORMULA", expr } },
+    ],
+    edges: [
+      { id: "e_1", source: "val_1", sourceHandle: "out", target: "out_1", targetHandle: "value" },
+    ],
+  };
+  return JSON.stringify(g);
+}
+
+// 若 calcGraph 是「单 value(FORMULA)→output」的简单图，返回其公式表达式；否则返回 null（复杂图，需回退蓝图）。
+function calcGraphToFormula(graphStr?: string | null): string | null {
+  if (!graphStr) return null;
+  try {
+    const g = JSON.parse(graphStr);
+    const nodes: any[] = Array.isArray(g?.nodes) ? g.nodes : [];
+    const edges: any[] = Array.isArray(g?.edges) ? g.edges : [];
+    if (nodes.length !== 2) return null;
+    const out = nodes.find((n: any) => n.type === "output");
+    const val = nodes.find((n: any) => n.type === "value" && n?.data?.kind === "FORMULA");
+    if (!out || !val) return null;
+    const linked = edges.some(
+      (e: any) =>
+        e.source === val.id && e.sourceHandle === "out" &&
+        e.target === out.id && e.targetHandle === "value",
+    );
+    return linked ? (val?.data?.expr ?? "") : null;
+  } catch {
+    return null;
+  }
+}
 
 // 财年定时器设定值输入框占位提示：因占位文案含双引号，抽出为计算属性避免在模板属性中截断。
 const timerValuePlaceholder = computed(() =>
@@ -805,9 +874,11 @@ function configSummary(f: any): string {
   return "—";
 }
 
-// 规则列展示：计算字段显示可视化蓝图摘要，普通字段显示原始公式
+// 规则列展示：计算字段显示公式表达式（简单图）或蓝图摘要（复杂图），普通字段显示原始公式
 function formulaDisplay(f: any): string {
   if (!f.isCalculated) return f.formula || "—";
+  const expr = calcGraphToFormula(f.calcGraph);
+  if (expr !== null) return expr || "（空公式）";
   try {
     const g = JSON.parse(f.calcGraph || "{}");
     const n = Array.isArray(g.nodes) ? g.nodes.length : 0;
@@ -826,6 +897,8 @@ function resetFieldForm() {
   fieldForm.defaultValue = "";
   fieldForm.isCalculated = false;
   fieldForm.calcGraph = "";
+  fieldForm.formula = "";
+  fieldForm.editorMode = "formula";
   fieldForm.sortOrder = 0;
   fieldForm.visible = true;
   fieldForm.timerEnabled = false;
@@ -864,6 +937,8 @@ function editField(row: any) {
   fieldForm.defaultValue = row.defaultValue || "";
   fieldForm.isCalculated = !!row.isCalculated;
   fieldForm.calcGraph = row.calcGraph || "";
+  fieldForm.formula = "";
+  fieldForm.editorMode = "formula";
   fieldForm.sortOrder = row.sortOrder || 0;
   fieldForm.visible = row.visible !== false;
   fieldForm.timerEnabled = !!row.timerEnabled;
@@ -879,10 +954,39 @@ function editField(row: any) {
   }
 }
 
-// 计算字段：直接进入全屏蓝图编辑器（左上角设置字段细节，右侧画布组合计算）
+// 计算字段：进入全屏编辑器。默认「公式」模式；若已有计算图是「单 FORMULA 节点」简单图，
+// 则把公式回填到公式框；若是复杂图（含 OP / IF / CONSUMER_DEMAND 等），回退「蓝图(高级)」模式保留可编辑性；
+// 全新计算字段（无计算图）也默认「公式」模式。
 function openGraphFullscreen(row: any) {
   editField(row);
+  if (row.isCalculated) {
+    const hasGraph = !!(row.calcGraph && row.calcGraph.trim());
+    if (!hasGraph) {
+      fieldForm.formula = "";
+      fieldForm.editorMode = "formula";
+    } else {
+      const f = calcGraphToFormula(row.calcGraph);
+      if (f !== null) {
+        fieldForm.formula = f;
+        fieldForm.editorMode = "formula";
+      } else {
+        fieldForm.editorMode = "graph";
+      }
+    }
+  }
   showGraphFullscreen.value = true;
+}
+
+// 切换编辑模式时同步两种表示：公式↔calcGraph，避免来回切换丢失已编辑内容。
+function onEditorModeChange(mode: "formula" | "graph") {
+  if (mode === "formula") {
+    const f = calcGraphToFormula(fieldForm.calcGraph);
+    if (f !== null) fieldForm.formula = f;
+  } else if (mode === "graph") {
+    if (!fieldForm.calcGraph?.trim() && fieldForm.formula?.trim()) {
+      fieldForm.calcGraph = formulaToCalcGraph(fieldForm.formula.trim());
+    }
+  }
 }
 
 // 只读详情：产业类型（含其字段列表），无管理权限也可查看
@@ -901,6 +1005,14 @@ async function submitField() {
   if (!fieldForm.name.trim() || !fieldForm.fieldKey.trim()) {
     ElMessage.warning("请填写字段名称与字段键");
     return;
+  }
+  // 计算字段：公式模式下把 Excel 风格公式序列化为 calcGraph（单 FORMULA 节点）
+  if (fieldForm.isCalculated && fieldForm.editorMode === "formula") {
+    if (!fieldForm.formula?.trim()) {
+      ElMessage.warning("计算字段必须填写公式（Excel 风格，可用其它字段键作变量）");
+      return;
+    }
+    fieldForm.calcGraph = formulaToCalcGraph(fieldForm.formula.trim());
   }
   if (fieldForm.isCalculated && !fieldForm.calcGraph?.trim()) {
     ElMessage.warning("计算字段必须配置产业计算图（可视化蓝图）");
@@ -1209,5 +1321,31 @@ useResourceChanged("industry-types", () => {
   min-width: 0;
   min-height: 0;
   position: relative;
+}
+.fs-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
+  flex-wrap: wrap;
+}
+.fs-mode-tip {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+}
+.fs-mode-tip code {
+  background: #f4f4f5;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  color: #409eff;
+}
+.fs-formula {
+  padding: 14px;
+  height: calc(100% - 52px);
+  overflow: auto;
 }
 </style>

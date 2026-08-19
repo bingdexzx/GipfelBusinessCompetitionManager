@@ -114,7 +114,23 @@ export const OP_ARG_SPECS: Record<string, { count: number; labels: string[]; typ
  * 配合安全求值器（common/safe-expression）的受限数组能力（[1,2,3]、sum…），
  * 这里补齐不擅长的字典操作与便捷函数。
  */
+// 表达式布尔判定（与合同/产业引擎的 isTruthy 语义一致，供 EXPR_HELPERS 内 IF/AND/OR/NOT 复用）
+function exprTruthy(v: any): boolean {
+  if (v == null) return false;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") return v.length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v).length > 0;
+  return Boolean(v);
+}
+
 export const EXPR_HELPERS: Record<string, (...a: any[]) => any> = {
+  // 条件 / 逻辑（Excel 风格，便于在 FORMULA 节点里写 IF(cond, a, b) 等）
+  IF: (cond: any, a: any, b: any) => (exprTruthy(cond) ? a : b),
+  AND: (...args: any[]) => args.every(exprTruthy),
+  OR: (...args: any[]) => args.some(exprTruthy),
+  NOT: (x: any) => !exprTruthy(x),
   len: (x: any) =>
     Array.isArray(x)
       ? x.length

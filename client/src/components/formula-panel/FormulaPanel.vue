@@ -51,7 +51,7 @@
           </button>
         </div>
         <div class="fp-section-title" style="margin-top: 12px">跨方引用 (合同用)</div>
-        <div class="fp-refs">
+        <div v-if="showCrossRefs" class="fp-refs">
           <button
             v-for="ref in crossRefs"
             :key="ref"
@@ -113,6 +113,8 @@ const props = defineProps<{
   modelValue: string;
   fields: Field[];
   validationResult?: ValidationResult | null;
+  /** 是否显示「跨方引用(合同用)」区块；产业字段编辑器等非合同场景传 false 隐藏 */
+  showCrossRefs?: boolean;
 }>();
 
 const emit = defineEmits<{

@@ -333,14 +333,25 @@ export class IndustryCalcEngineService {
   }
 
   /**
-   * 提取图中通过 FIELD 节点读取的字段 key 列表（用于级联重算的依赖分析）。
+   * 提取图中读取的字段 key 列表（用于级联重算的依赖分析）。
+   * - FIELD 数值源节点：直接取 data.fieldKey。
+   * - FORMULA 数值源节点：扫描 expr 中作为变量的裸标识符（排除函数调用 `name(` 形式），
+   *   因为公式以字段键作变量引用其它字段。调用方的 fieldKeyById 会过滤掉非字段键（如
+   *   pi / e / 函数名误匹配），故多提取无害，漏提取才会破坏拓扑排序。
    */
   getFieldDependencies(graph: any): string[] {
     if (!graph || !Array.isArray(graph.nodes)) return [];
     const keys = new Set<string>();
+    const IDENT = /[A-Za-z_$][A-Za-z0-9_$]*(?!\s*\()/g;
     for (const n of graph.nodes) {
-      if (n.type === "value" && n.data?.kind === "FIELD" && n.data.fieldKey) {
-        keys.add(n.data.fieldKey);
+      if (n.type !== "value") continue;
+      const d = n.data || {};
+      if (d.kind === "FIELD" && d.fieldKey) {
+        keys.add(d.fieldKey);
+      } else if (d.kind === "FORMULA" && typeof d.expr === "string") {
+        let m: RegExpExecArray | null;
+        IDENT.lastIndex = 0;
+        while ((m = IDENT.exec(d.expr)) !== null) keys.add(m[0]);
       }
     }
     return [...keys];
