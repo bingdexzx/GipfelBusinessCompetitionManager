@@ -85,9 +85,9 @@
             >执行</el-button
           >
           <el-button
+            v-if="authStore.isSuperAdmin"
             size="small"
             type="danger"
-            :disabled="!authStore.can('contract:manage')"
             @click="handleDelete(row)"
             >删除</el-button
           >

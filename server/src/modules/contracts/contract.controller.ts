@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
   ParseIntPipe,
+  ForbiddenException,
 } from "@nestjs/common";
 import { ContractService } from "./contract.service";
 import {
@@ -108,7 +109,16 @@ export class ContractController {
   @Delete(":id")
   @UseGuards(PermissionsGuard)
   @RequirePermissions("contract:manage")
-  remove(@Param("id", ParseIntPipe) id: number, @Query("competitionId") competitionId?: string) {
+  remove(
+    @Param("id", ParseIntPipe) id: number,
+    @Query("competitionId") competitionId: string | undefined,
+    @CurrentUser() user: any,
+  ) {
+    // 删除为高危操作：仅超级管理员可执行。非超管（含合同管理员 COMPETITION_ADMIN）即使持有
+    // contract:manage 也不可删除合同，按钮已对其实行隐藏。
+    if (user?.role !== "SUPER_ADMIN") {
+      throw new ForbiddenException("仅超级管理员可删除合同");
+    }
     return this.service.remove(id, competitionId ? parseInt(competitionId) : undefined);
   }
 }
