@@ -7,7 +7,7 @@
     "build": "npm --prefix ../shared/engine-dsl run build && nest build",
     "start": "npm --prefix ../shared/engine-dsl run build && nest start",
     "start:dev": "nest start --watch",
-    "start:prod": "npm --prefix ../shared/engine-dsl run build && node dist/main",
+    "start:prod": "npm --prefix ../shared/engine-dsl run build && nest build && node dist/main",
     "lint": "eslint \"src/**/*.ts\" --fix",
     "lint:check": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
