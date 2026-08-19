@@ -50,17 +50,6 @@
             {{ fn.label }}
           </button>
         </div>
-        <div class="fp-section-title" style="margin-top: 12px">跨方引用 (合同用)</div>
-        <div v-if="showCrossRefs" class="fp-refs">
-          <button
-            v-for="ref in crossRefs"
-            :key="ref"
-            class="fp-ref-btn"
-            @click="insertAtCursor(ref)"
-          >
-            {{ ref }}
-          </button>
-        </div>
       </div>
     </div>
 
@@ -113,8 +102,6 @@ const props = defineProps<{
   modelValue: string;
   fields: Field[];
   validationResult?: ValidationResult | null;
-  /** 是否显示「跨方引用(合同用)」区块；产业字段编辑器等非合同场景传 false 隐藏 */
-  showCrossRefs?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -140,7 +127,6 @@ const functions = [
   { key: "sum", label: "SUM", desc: "求和" },
   { key: "avg", label: "AVG", desc: "平均值" },
 ];
-const crossRefs = ["{A.", "{B.", "{C."];
 
 const fieldKeysUsed = computed(() => props.validationResult?.dependencies || []);
 
@@ -280,8 +266,7 @@ function onTab(e: KeyboardEvent) {
   padding: 16px;
 }
 .fp-ops,
-.fp-funcs,
-.fp-refs {
+.fp-funcs {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -319,22 +304,6 @@ function onTab(e: KeyboardEvent) {
   background: #e6f1fb;
   border-color: #6366f1;
 }
-.fp-ref-btn {
-  padding: 4px 8px;
-  font-size: 12px;
-  font-family: monospace;
-  border: 1px solid #faeeda;
-  background: #faeeda;
-  border-radius: 4px;
-  cursor: pointer;
-  color: #633806;
-  transition: all 0.15s;
-}
-.fp-ref-btn:hover {
-  background: rgba(var(--color-warning-soft-rgb), 0.3);
-  border-color: #ef9f27;
-}
-
 .fp-input-area {
   padding: 12px;
 }

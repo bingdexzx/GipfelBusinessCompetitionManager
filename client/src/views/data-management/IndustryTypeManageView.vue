@@ -499,7 +499,6 @@
                 <FormulaPanel
                   v-model="fieldForm.formula"
                   :fields="formulaFields"
-                  :show-cross-refs="false"
                 />
               </div>
               <IndustryFieldGraphEditor
