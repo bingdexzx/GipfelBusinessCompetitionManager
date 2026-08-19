@@ -4,7 +4,7 @@
       <!-- 基本信息 -->
       <el-divider>基本信息</el-divider>
       <el-form-item label="标识(key)" required>
-        <el-input v-model="form.key" :disabled="!!contractType" placeholder="如 LOAN / FUEL_PURCHASE" />
+        <el-input v-model="form.key" disabled placeholder="自动生成（名称拼音）" />
       </el-form-item>
       <el-form-item label="名称" required>
         <el-input v-model="form.name" placeholder="合同类型名称" />
@@ -168,6 +168,7 @@
 import { ref, reactive, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import FormulaInput from './FormulaInput.vue';
+import { toPinyinKey } from '@/utils/pinyin';
 
 interface PartyRole {
   role: string;
@@ -263,6 +264,16 @@ watch(() => props.contractType, (ct) => {
   }
 }, { immediate: true });
 
+// 新建时：输入名称实时用拼音自动生成 key（编辑态 key 只读，不覆盖）
+watch(
+  () => form.name,
+  () => {
+    if (!props.contractType) {
+      form.key = (form.name || '').trim() ? toPinyinKey(form.name.trim()) : '';
+    }
+  },
+);
+
 function addParty() {
   form.partyRoles.push({ role: '', label: '', selectable: true, isHost: false });
 }
@@ -311,13 +322,13 @@ function removeCheck(index: number) {
 
 async function handleSave() {
   // 基本校验
-  if (!form.key.trim()) {
-    ElMessage.error('请输入合同类型标识');
-    return;
-  }
   if (!form.name.trim()) {
     ElMessage.error('请输入合同类型名称');
     return;
+  }
+  // 标识(key) 兜底：新建时若尚未自动生成，按名称拼音生成
+  if (!form.key.trim()) {
+    form.key = toPinyinKey(form.name.trim());
   }
   if (form.partyRoles.length === 0) {
     ElMessage.error('至少需要一个参与方角色');

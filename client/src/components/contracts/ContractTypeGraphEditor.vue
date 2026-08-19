@@ -4,7 +4,7 @@
     <div class="ge-toolbar">
       <el-button @click="$emit('close')">返回</el-button>
       <template v-if="!meta.id">
-        <el-input v-model="meta.key" placeholder="唯一编码(如 LOAN)" style="width: 150px" />
+        <el-input v-model="meta.key" disabled placeholder="自动生成（名称拼音）" style="width: 150px" />
         <el-input v-model="meta.name" placeholder="名称" style="width: 140px" />
       </template>
       <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
@@ -806,6 +806,7 @@ import {
   edgeTypeCheck,
 } from "@/contracts/graph-model";
 import { contractTypesApi, industryTypesApi, mapsApi, getErrorMessage } from "@/api";
+import { toPinyinKey } from "@/utils/pinyin";
 
 const props = defineProps<{ contractType?: any | null }>();
 const emit = defineEmits<{ (e: "close"): void; (e: "saved"): void }>();
@@ -1436,6 +1437,16 @@ function load(ct?: any | null) {
 load(props.contractType);
 watch(() => props.contractType, load);
 
+// 新建时：输入名称实时用拼音自动生成 key（编辑态 key 只读，不覆盖）
+watch(
+  () => meta.name,
+  () => {
+    if (!meta.id) {
+      meta.key = (meta.name || "").trim() ? toPinyinKey(meta.name.trim()) : "";
+    }
+  },
+);
+
 async function loadIndustryTypes() {
   try {
     const res: any = await industryTypesApi.list();
@@ -1480,10 +1491,14 @@ async function onSave() {
       await contractTypesApi.update(meta.id, payload);
       ElMessage.success("已保存");
     } else {
-      if (!meta.key || !meta.name) {
-        ElMessage.warning("请填写唯一编码与名称");
+      if (!meta.name) {
+        ElMessage.warning("请填写名称");
         saving.value = false;
         return;
+      }
+      // key 兜底：新建时若尚未自动生成，按名称拼音生成
+      if (!meta.key) {
+        meta.key = toPinyinKey(meta.name.trim());
       }
       await contractTypesApi.create({
         key: meta.key,

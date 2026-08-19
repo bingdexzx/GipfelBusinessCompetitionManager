@@ -623,7 +623,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
 import FormulaPanel from "@/components/formula-panel/FormulaPanel.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
-import { pinyin } from "pinyin-pro";
+import { toPinyinKey } from "@/utils/pinyin";
 
 const authStore = useAuthStore();
 
@@ -894,15 +894,6 @@ function formulaDisplay(f: any): string {
   } catch {
     return "可视化蓝图";
   }
-}
-
-// 字段名 → 拼音字段键（小写全拼、去声调、剔除非字母数字下划线）
-function toPinyinKey(name: string): string {
-  const arr = pinyin(name, { toneType: "none", type: "array" });
-  return arr
-    .join("")
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "");
 }
 
 // 自动生成唯一字段键：字段名拼音 + 冲突时追加序号，保证产业类型内唯一
