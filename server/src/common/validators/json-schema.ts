@@ -170,24 +170,63 @@ export function validateEffects(raw: string): ValidationResult<z.infer<typeof Ef
 }
 
 // ========== conditions 校验 ==========
+// 注意：引擎（contract-engine.service.ts runConditions）实际读取的是
+// { kind, party, op: 'GTE'|'LTE'|..., value } 形态（可视化编辑器 graphToFlat 也产出此形态）。
+// 这里同时兼容旧版 { type, companyId, op: '>='|... } 形态，避免存量数据保存时被校验拒绝，
+// 也与引擎执行形态保持一致。VALUE_COMPARE / DICT_COMPARE / LIST_COMPARE 仅可视化编辑器产出，
+// 只有 kind 形态。
 
-const FieldCompareConditionSchema = z.object({
-  type: z.literal('FIELD_COMPARE'),
-  companyId: z.string().min(1),
-  fieldKey: z.string().min(1),
-  op: z.enum(['>', '<', '>=', '<=', '==', '!=']),
-  value: z.union([z.number(), z.string()]),
+// 产业字段比较 —— 引擎形态（kind/party）
+const FieldCompareConditionSchema = z.union([
+  z.object({
+    kind: z.literal('FIELD_COMPARE'),
+    party: z.string().min(1),
+    fieldKey: z.string().min(1),
+    op: z.enum(['GT', 'LT', 'EQ', 'LTE', 'GTE']),
+    value: z.any(),
+    label: z.string().optional(),
+    errorMessage: z.string().optional(),
+  }),
+  // 旧版形态（type/companyId），保留以便存量数据重存不报错
+  z.object({
+    type: z.literal('FIELD_COMPARE'),
+    companyId: z.string().min(1),
+    fieldKey: z.string().min(1),
+    op: z.enum(['>', '<', '>=', '<=', '==', '!=']),
+    value: z.union([z.number(), z.string()]),
+  }),
+]);
+
+// 产业类型判定
+const IndustryIsConditionSchema = z.union([
+  z.object({
+    kind: z.literal('INDUSTRY_IS'),
+    party: z.string().min(1),
+    industryTypeKey: z.string().min(1),
+    label: z.string().optional(),
+    errorMessage: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('INDUSTRY_IS'),
+    companyId: z.string().min(1),
+    industryTypeKey: z.string().min(1),
+  }),
+]);
+
+// 两值/字典/列表比较（仅可视化编辑器，只有 kind 形态）
+const FreeCompareConditionSchema = z.object({
+  kind: z.enum(['VALUE_COMPARE', 'DICT_COMPARE', 'LIST_COMPARE']),
+  op: z.string(),
+  value1: z.any(),
+  value2: z.any(),
+  label: z.string().optional(),
+  errorMessage: z.string().optional(),
 });
 
-const IndustryIsConditionSchema = z.object({
-  type: z.literal('INDUSTRY_IS'),
-  companyId: z.string().min(1),
-  industryTypeKey: z.string().min(1),
-});
-
-const ConditionSchema = z.discriminatedUnion('type', [
+const ConditionSchema = z.union([
   FieldCompareConditionSchema,
   IndustryIsConditionSchema,
+  FreeCompareConditionSchema,
 ]);
 
 const ConditionsSchema = z.array(ConditionSchema);

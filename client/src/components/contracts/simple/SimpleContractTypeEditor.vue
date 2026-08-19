@@ -110,6 +110,51 @@
         </el-card>
       </div>
       <el-button style="margin-top: 8px" @click="addEffect">添加效果</el-button>
+
+      <!-- 检查定义 -->
+      <el-divider>检查定义</el-divider>
+      <div v-for="(chk, idx) in form.checks" :key="idx" class="effect-item">
+        <el-card shadow="never">
+          <template #header>
+            <div class="effect-header">
+              <span>检查 {{ idx + 1 }}</span>
+              <el-button size="small" type="danger" text @click="removeCheck(idx)">删除</el-button>
+            </div>
+          </template>
+          <el-form-item label="参与方">
+            <el-select v-model="chk.party" size="small">
+              <el-option v-for="p in form.partyRoles" :key="p.role" :label="p.label" :value="p.role" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="字段标识">
+            <el-input v-model="chk.fieldKey" size="small" placeholder="产业字段 fieldKey" />
+          </el-form-item>
+          <el-form-item label="运算符">
+            <el-select v-model="chk.op" size="small">
+              <el-option label="≥（大于等于）" value="GTE" />
+              <el-option label="≤（小于等于）" value="LTE" />
+              <el-option label="＞（大于）" value="GT" />
+              <el-option label="＜（小于）" value="LT" />
+              <el-option label="＝（等于）" value="EQ" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="值">
+            <FormulaInput v-model="chk.value" :inputs="form.inputSchema" />
+          </el-form-item>
+          <el-form-item label="不通过提示">
+            <el-input v-model="chk.errorMessage" size="small" placeholder="留空则用系统默认说明" />
+          </el-form-item>
+        </el-card>
+      </div>
+      <el-button style="margin-top: 8px" @click="addCheck">添加检查</el-button>
+      <el-alert
+        v-if="preservedConditions.length"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-top: 8px"
+        title="该合同类型含有专家模式创建的其它检查（非「产业字段比较」），已在保存时原样保留，不会在简单模式下编辑。"
+      />
     </el-form>
 
     <div class="editor-actions">
@@ -147,6 +192,16 @@ interface FieldEffect {
   value: any;
 }
 
+interface FieldCheck {
+  kind: 'FIELD_COMPARE';
+  party: string;
+  fieldKey: string;
+  op: 'GTE' | 'LTE' | 'GT' | 'LT' | 'EQ';
+  value: any;
+  label?: string;
+  errorMessage?: string;
+}
+
 const props = defineProps<{
   contractType?: any;
 }>();
@@ -166,8 +221,11 @@ const form = reactive({
   partyRoles: [] as PartyRole[],
   inputSchema: [] as InputField[],
   effects: [] as FieldEffect[],
-  conditions: [] as any[],
+  checks: [] as FieldCheck[],
 });
+
+// 专家模式创建的、简单模式无法编辑的检查（如 VALUE_COMPARE / INDUSTRY_IS 等）原样保留。
+const preservedConditions = ref<any[]>([]);
 
 // 初始化表单
 watch(() => props.contractType, (ct) => {
@@ -179,7 +237,19 @@ watch(() => props.contractType, (ct) => {
     form.partyRoles = Array.isArray(ct.partyRoles) ? ct.partyRoles.map((p: any) => ({ ...p })) : [];
     form.inputSchema = Array.isArray(ct.inputSchema) ? ct.inputSchema.map((f: any) => ({ ...f })) : [];
     form.effects = Array.isArray(ct.effects) ? ct.effects.filter((e: any) => e.type === 'FIELD').map((e: any) => ({ ...e })) : [];
-    form.conditions = Array.isArray(ct.conditions) ? [...ct.conditions] : [];
+    const conds = Array.isArray(ct.conditions) ? ct.conditions : [];
+    form.checks = conds
+      .filter((c: any) => c.kind === 'FIELD_COMPARE')
+      .map((c: any) => ({
+        kind: 'FIELD_COMPARE' as const,
+        party: c.party || '',
+        fieldKey: c.fieldKey || '',
+        op: (c.op || 'GTE') as FieldCheck['op'],
+        value: c.value ? { ...c.value } : { type: 'CONST', value: 0 },
+        label: c.label || '',
+        errorMessage: c.errorMessage || '',
+      }));
+    preservedConditions.value = conds.filter((c: any) => c.kind !== 'FIELD_COMPARE');
   } else {
     form.key = '';
     form.name = '';
@@ -188,7 +258,8 @@ watch(() => props.contractType, (ct) => {
     form.partyRoles = [];
     form.inputSchema = [];
     form.effects = [];
-    form.conditions = [];
+    form.checks = [];
+    preservedConditions.value = [];
   }
 }, { immediate: true });
 
@@ -222,6 +293,22 @@ function removeEffect(index: number) {
   form.effects.splice(index, 1);
 }
 
+function addCheck() {
+  form.checks.push({
+    kind: 'FIELD_COMPARE',
+    party: form.partyRoles[0]?.role || '',
+    fieldKey: '',
+    op: 'GTE',
+    value: { type: 'CONST', value: 0 },
+    label: '',
+    errorMessage: '',
+  });
+}
+
+function removeCheck(index: number) {
+  form.checks.splice(index, 1);
+}
+
 async function handleSave() {
   // 基本校验
   if (!form.key.trim()) {
@@ -242,6 +329,16 @@ async function handleSave() {
       return;
     }
   }
+  for (const chk of form.checks) {
+    if (!chk.party) {
+      ElMessage.error('检查需要选择参与方');
+      return;
+    }
+    if (!chk.fieldKey.trim()) {
+      ElMessage.error('检查的字段标识不能为空');
+      return;
+    }
+  }
 
   saving.value = true;
   try {
@@ -253,7 +350,7 @@ async function handleSave() {
       partyRoles: form.partyRoles,
       inputSchema: form.inputSchema,
       effects: form.effects,
-      conditions: form.conditions,
+      conditions: [...preservedConditions.value, ...form.checks],
       graph: props.contractType?.graph || null,
     };
     emit('saved', data);
