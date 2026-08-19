@@ -11,12 +11,12 @@
         <el-table :data="systemUsers" border stripe style="width: 100%; margin-top: 16px">
           <el-table-column prop="username" label="用户名" />
           <el-table-column prop="displayName" label="显示名称" />
-          <el-table-column prop="role" label="角色">
+          <el-table-column prop="role" label="角色" class-name="role-col">
             <template #default="{ row }">
               <el-tag :type="roleTag(row.role)">{{ roleLabel(row.role) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="权限" width="110">
+          <el-table-column label="权限" width="150" class-name="perm-col">
             <template #default="{ row }">
               <el-tag :type="permSummary(row).type" size="small">{{
                 permSummary(row).text
@@ -49,12 +49,12 @@
           <el-table :data="competitionUsers" border stripe style="width: 100%; margin-top: 16px">
             <el-table-column prop="username" label="用户名" />
             <el-table-column prop="displayName" label="显示名称" />
-            <el-table-column prop="role" label="角色">
+            <el-table-column prop="role" label="角色" class-name="role-col">
               <template #default="{ row }">
                 <el-tag :type="roleTag(row.role)">{{ roleLabel(row.role) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="权限" width="110">
+            <el-table-column label="权限" width="150" class-name="perm-col">
               <template #default="{ row }">
                 <el-tag :type="permSummary(row).type" size="small">{{
                   permSummary(row).text
@@ -488,5 +488,15 @@ useResourceChanged("users", () => {
   border-radius: 6px;
   color: #909399;
   font-size: 13px;
+}
+/* 角色栏：收紧单元格左右内边距（默认 12px → 4px），标签更贴边 */
+:deep(.role-col .cell) {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+/* 权限栏：加大单元格左右内边距（默认 12px → 22px），标签更舒展 */
+:deep(.perm-col .cell) {
+  padding-left: 22px;
+  padding-right: 22px;
 }
 </style>
