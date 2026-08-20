@@ -175,5 +175,9 @@ onBeforeUnmount(() => {
 .route-wrap {
   width: 100%;
   min-height: 100%;
+  /* 改为 flex 列容器：让直接子页面（如仪表盘）可用 flex:1 真正撑满，
+     不再依赖脆弱的百分比高度（父级无确定 height 时 height:100% 会解析失败、塌缩）。 */
+  display: flex;
+  flex-direction: column;
 }
 </style>

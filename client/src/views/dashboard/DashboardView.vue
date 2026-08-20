@@ -478,7 +478,11 @@ onMounted(() => {
 .dash {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 用 flex:1 撑满父级（route-wrap 已为 flex 列容器），替代原 height:100%。
+     height:100% 在父级无确定高度时会解析失败导致画布塌缩、背景圆点铺不满下方。
+     min-height:0 允许内部 .dash-canvas 正确收缩/滚动。 */
+  flex: 1;
+  min-height: 0;
 }
 .dash-bar {
   display: flex;
