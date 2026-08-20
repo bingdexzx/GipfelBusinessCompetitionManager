@@ -1348,33 +1348,40 @@ const FIELD_TYPE_SHORT: Record<string, string> = {
 };
 const fieldOptions = computed(() => {
   const seen = new Set<string>();
-  const out: { value: string; label: string; fieldType?: string }[] = [];
+  const out: { value: string; label: string; fieldType?: string; hidden?: boolean }[] = [];
   for (const it of industryTypes.value) {
     for (const f of it.fields || []) {
       const key = f.fieldKey as string;
       const name = (f.name || f.label || key) as string;
-      // 隐藏字段（visible=false）不在任何客户端（含合同编辑器）的目标下拉中出现；
-      // 按「字段显示名」汇总去重：不同产业若存在同名（name 相同）字段，仅保留一条。
-      if (!key || seen.has(name) || f.visible === false) continue;
-      seen.add(name);
+      if (!key) continue;
+      const hidden = f.visible === false;
+      // 去重键区分「显/隐」：产业类型管理处隐藏的字段，在合同编辑器的数据源（FIELD 值源 /
+      // FIELD_COMPARE）里仍应可查看并选择；同名但一显一隐的字段用·隐藏标注区分，均可选。
+      const dupKey = `${name}|${hidden}`;
+      if (seen.has(dupKey)) continue;
+      seen.add(dupKey);
       const tag =
         f.fieldType === "LIST" || f.fieldType === "DICTIONARY"
           ? ` [${FIELD_TYPE_SHORT[f.fieldType as string] || f.fieldType}]`
           : "";
-      out.push({ value: key, label: `${name}${tag}`, fieldType: f.fieldType });
+      const hideTag = hidden ? "·隐藏" : "";
+      out.push({ value: key, label: `${name}${tag}${hideTag}`, fieldType: f.fieldType, hidden });
     }
   }
+  // 展示字段在前、隐藏字段在后，便于阅读。
+  out.sort((a, b) => (a.hidden === b.hidden ? 0 : a.hidden ? 1 : -1));
   return out;
 });
 
-// 字段 key → 字段类型（用于检测列表/字典字段的「数值比较比的是长度」陷阱）。
-// 同样排除隐藏字段。
+// 字段 key → 字段类型（用于检测列表/字典字段的「数值比较比的是长度」陷阱、
+// 以及 FIELD 值源节点选字段后同步输出端口类型）。含隐藏字段：隐藏字段在数据源处仍可选，
+// 其类型同样需解析，否则端口类型与连线类型校验会失效。
 const fieldTypeByKey = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
   for (const it of industryTypes.value) {
     for (const f of it.fields || []) {
       const key = f.fieldKey as string;
-      if (key && f.visible !== false) map[key] = (f.fieldType as string) || "STRING";
+      if (key) map[key] = (f.fieldType as string) || "STRING";
     }
   }
   return map;
