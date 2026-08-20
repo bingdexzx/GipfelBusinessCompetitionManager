@@ -5,6 +5,14 @@
       <el-button @click="$emit('close')">返回</el-button>
       <el-button @click="toggleSource">{{ showSource ? "画布视图" : "源码 JSON" }}</el-button>
       <el-button type="danger" @click="onClear">清空</el-button>
+      <el-button-group class="ge-zoom">
+        <el-button size="small" title="缩小" @click="zoomOut">－</el-button>
+        <el-button size="small" title="重置视图(100%)" @click="resetView"
+          >{{ Math.round(zoom * 100) }}%</el-button
+        >
+        <el-button size="small" title="放大" @click="zoomIn">＋</el-button>
+        <el-button size="small" title="适应全部内容" @click="fitView(svgW, svgH)">适应</el-button>
+      </el-button-group>
       <span v-if="pending" class="ge-connecting"
         >已选输出端口，请点击目标输入端口连线（再次点输出端口取消）</span
       >
@@ -32,7 +40,15 @@
       </div>
 
       <!-- 中间画布 -->
-      <div ref="canvasRef" class="ge-canvas" @mousedown="onCanvasDown">
+      <div
+        ref="canvasRef"
+        class="ge-canvas"
+        @mousedown="onCanvasDown"
+        @wheel.prevent="onWheel"
+        :style="{ backgroundPosition: panX + 'px ' + panY + 'px' }"
+      >
+        <!-- 视口层：缩放/平移只作用于此 transform，世界坐标(node.x/svgW 等)保持不变 -->
+        <div class="ge-viewport" :style="viewportStyle">
         <svg class="ge-svg" :width="svgW" :height="svgH">
           <path
             v-for="e in graph.edges"
@@ -100,6 +116,7 @@
               @click.stop="onPortClick(n.id, h, 'out')"
             ></div>
           </template>
+        </div>
         </div>
       </div>
 
@@ -315,6 +332,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from "vue";
 import { ElMessage } from "element-plus";
+import { useGraphViewport } from "@/composables/useGraphViewport";
 import {
   GGraph,
   GNode,
@@ -390,7 +408,9 @@ const graph = reactive<GGraph>({ nodes: [], edges: [] });
 const selectedId = ref<string | null>(null);
 const pending = ref<{ nodeId: string; handle: string } | null>(null);
 const showSource = ref(false);
-const canvasRef = ref<HTMLElement | null>(null);
+// 画布缩放 / 平移（共享 composable）：空白处拖拽平移、滚轮以鼠标为中心缩放。
+const { zoom, panX, panY, canvasRef, viewportStyle, onWheel, startPan, zoomIn, zoomOut, fitView, resetView } =
+  useGraphViewport();
 
 let _seq = 0;
 function uid(p = "n"): string {
@@ -643,8 +663,9 @@ function onDragMove(e: MouseEvent) {
   if (!drag.value) return;
   const n = nodeById(drag.value.id);
   if (!n) return;
-  n.x = Math.max(0, drag.value.ox + (e.clientX - drag.value.sx));
-  n.y = Math.max(0, drag.value.oy + (e.clientY - drag.value.sy));
+  // 屏幕位移需除以 zoom 才能换算回世界坐标（画布可能被缩放）。
+  n.x = Math.max(0, drag.value.ox + (e.clientX - drag.value.sx) / zoom.value);
+  n.y = Math.max(0, drag.value.oy + (e.clientY - drag.value.sy) / zoom.value);
 }
 function onDragUp() {
   drag.value = null;
@@ -652,10 +673,12 @@ function onDragUp() {
   window.removeEventListener("mouseup", onDragUp);
 }
 function onCanvasDown(e: MouseEvent) {
-  if (e.target === e.currentTarget) {
-    selectedId.value = null;
-    pending.value = null;
-  }
+  // 点在节点内部时不平移（节点标题拖拽用 @mousedown.stop 已拦截，节点体点击保持选中查看属性）。
+  if ((e.target as HTMLElement).closest(".ge-node")) return;
+  // 空白处：取消选中 + 拖拽平移整个视图。
+  selectedId.value = null;
+  pending.value = null;
+  startPan(e);
 }
 
 // ===== 属性面板辅助 =====
@@ -809,11 +832,25 @@ onMounted(() => {
   min-width: 0;
   min-height: 0;
   position: relative;
-  overflow: auto;
+  overflow: hidden;
   background: #eef0f4;
   background-image: radial-gradient(#d5d8de 1px, transparent 1px);
   background-size: 22px 22px;
   user-select: none;
+  cursor: grab;
+}
+.ge-canvas:active {
+  cursor: grabbing;
+}
+/* 视口层：所有节点 / 连线都在其内部，缩放与平移只改它的 transform；
+   尺寸由内部绝对定位元素决定，本身无需显式宽高（变换原点由 composable 设为 0 0）。 */
+.ge-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.ge-zoom {
+  margin-left: 6px;
 }
 .ge-svg {
   position: absolute;
