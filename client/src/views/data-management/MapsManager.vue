@@ -1744,6 +1744,20 @@ function computeBBox(): { x: number; y: number; w: number; h: number } | null {
   };
 }
 
+// 首次加载背景图时若节点尚未就绪（bgBBox 仍为 null），等待节点到达后补算一次覆盖框，
+// 避免背景图回退到「原点 + 图片原始尺寸」而与节点脱钩（视觉上像节点整体偏移）。
+// 仅在 bgBBox 为空时补算一次（deep:false：节点拖拽只改元素属性、不替换数组，不会触发，
+// 故不影响拖拽稳定性）；一旦冻结即不再随节点变化重算，保证刷新时背景位置稳定。
+watch(
+  nodes,
+  () => {
+    if (!bgBBox.value && backgroundImage.value && nodes.value.length) {
+      bgBBox.value = computeBBox();
+    }
+  },
+  { deep: false },
+);
+
 /** 应用背景元信息：构建完整图片 URL 并预加载；meta 为空则清空。 */
 function applyBackgroundMeta(meta: any) {
   backgroundMeta.value = meta || null;
@@ -1761,7 +1775,9 @@ function applyBackgroundMeta(meta: any) {
   // 仅 stage.toDataURL 导出时会因 canvas 污染失败（非核心路径）。
   img.onload = () => {
     backgroundImage.value = img;
-    bgBBox.value = computeBBox(); // 冻结覆盖框，与后续节点拖拽解耦
+    // 仅首次（或此前未冻结到有效覆盖框）时计算节点包围盒作为自动适配锚点；
+    // 后续刷新复用该冻结框，避免节点范围变化导致背景图相对节点跳位（表现为“节点偏移”）。
+    if (!bgBBox.value) bgBBox.value = computeBBox();
   };
   img.onerror = () => {
     backgroundImage.value = null;
