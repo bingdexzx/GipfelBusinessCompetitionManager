@@ -1146,6 +1146,8 @@ async function loadData() {
       pathTypes.value = res.pathTypes || [];
       // 区域列表 = 地图节点「所属区域」去重 ∪ 区域实体中无节点的区域（用户新建、尚未归入节点）
       await loadRegionsFromServer();
+      // 节点已确定：auto 模式立即锚定背景覆盖框（与背景图加载时机解耦，避免重新进入界面时背景错位）
+      recomputeBBoxIfAuto();
     }
   } catch (e) {
     console.error("Failed to load maps:", e);
@@ -1744,16 +1746,30 @@ function computeBBox(): { x: number; y: number; w: number; h: number } | null {
   };
 }
 
-// 首次加载背景图时若节点尚未就绪（bgBBox 仍为 null），等待节点到达后补算一次覆盖框，
-// 避免背景图回退到「原点 + 图片原始尺寸」而与节点脱钩（视觉上像节点整体偏移）。
-// 仅在 bgBBox 为空时补算一次（deep:false：节点拖拽只改元素属性、不替换数组，不会触发，
-// 故不影响拖拽稳定性）；一旦冻结即不再随节点变化重算，保证刷新时背景位置稳定。
+/**
+ * 重新锚定背景覆盖框（仅 auto 模式）：
+ * - 手动模式（bgTransform 已设置）：保持用户调整后的背景变换，不跟随节点。
+ * - auto 模式：覆盖框始终等于「最新节点集合的包围盒 + 留白」，因此节点坐标变化
+ *   （loadData 重拉 / map-nodes 实时事件 / 拖拽保存后重拉）时背景自动跟随，永不错位。
+ * 覆盖框只依赖节点集合，不依赖背景图加载时机——这样「重新进入界面」（tab 切换导致组件
+ * 卸载重挂载）时，节点一就绪即正确锚定，无需等待图片加载，避免背景相对节点偏移。
+ * 节点拖拽只改元素属性、不替换数组（下方 watch deep:false 不触发），故拖拽过程不抖动。
+ */
+function recomputeBBoxIfAuto() {
+  if (bgTransform.value) return; // 手动调整模式：保持用户设置
+  if (!nodes.value.length) {
+    bgBBox.value = null;
+    return;
+  }
+  bgBBox.value = computeBBox();
+}
+
+// 节点集合被整体替换（loadData / map-nodes 实时事件）时重新锚定覆盖框。
+// deep:false：拖拽节点只改元素属性、不替换数组，不会触发，故拖拽不抖动。
 watch(
   nodes,
   () => {
-    if (!bgBBox.value && backgroundImage.value && nodes.value.length) {
-      bgBBox.value = computeBBox();
-    }
+    recomputeBBoxIfAuto();
   },
   { deep: false },
 );
@@ -1775,9 +1791,9 @@ function applyBackgroundMeta(meta: any) {
   // 仅 stage.toDataURL 导出时会因 canvas 污染失败（非核心路径）。
   img.onload = () => {
     backgroundImage.value = img;
-    // 仅首次（或此前未冻结到有效覆盖框）时计算节点包围盒作为自动适配锚点；
-    // 后续刷新复用该冻结框，避免节点范围变化导致背景图相对节点跳位（表现为“节点偏移”）。
-    if (!bgBBox.value) bgBBox.value = computeBBox();
+    // auto 模式：节点集合此刻已就绪（onMounted 先 await loadData 再加载背景），重新锚定覆盖框。
+    // 节点未就绪（极少见：图片快于首拉）也不影响——loadData 成功时已锚定过一次。
+    recomputeBBoxIfAuto();
   };
   img.onerror = () => {
     backgroundImage.value = null;
