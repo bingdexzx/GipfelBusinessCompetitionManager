@@ -53,8 +53,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ip = getIp() ?? null;
     const body = sanitize((request as any).body ?? null);
 
+    // 401/403 属预期鉴权失败，不算业务错误：降级为 warn 避免刷屏，且不写审计日志（减少数据库压力）。
+    const isAuthError = status === 401 || status === 403;
+    const logFn = isAuthError ? logger.warn : logger.error;
+    const logMsg = isAuthError ? "鉴权失败" : "未捕获异常";
+
     if (exception instanceof Error) {
-      logger.error("未捕获异常", {
+      logFn(logMsg, {
         method: request.method,
         url: request.url,
         status,
@@ -65,7 +70,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         stack: exception.stack,
       });
     } else {
-      logger.error("未捕获异常", {
+      logFn(logMsg, {
         method: request.method,
         url: request.url,
         status,
@@ -77,25 +82,28 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     // R10 错误上下文落库：把异常摘要（路径/方法/状态码/错误类）写入 AuditLog，
     // 与写操作审计共用一张表（kind="error"），脱敏后落库，日志文件保留全文。
-    const op = getOperator();
-    const rid = getRequestId();
-    const errorSummary =
-      exception instanceof Error
-        ? `${exception.constructor.name}: ${exception.message}`
-        : "非 Error 类型异常";
-    writeAuditLog({
-      kind: "error",
-      action: request.method,
-      operatorId: op?.id ?? null,
-      operatorName: op?.username ?? null,
-      model: null,
-      recordId: null,
-      competitionId: null,
-      statusCode: status,
-      errorSummary,
-      ip,
-      requestId: rid ?? null,
-    });
+    // 注意：401/403 鉴权失败跳过审计，避免每失效会话都插入审计行（既刷屏又打数据库）。
+    if (!isAuthError) {
+      const op = getOperator();
+      const rid = getRequestId();
+      const errorSummary =
+        exception instanceof Error
+          ? `${exception.constructor.name}: ${exception.message}`
+          : "非 Error 类型异常";
+      writeAuditLog({
+        kind: "error",
+        action: request.method,
+        operatorId: op?.id ?? null,
+        operatorName: op?.username ?? null,
+        model: null,
+        recordId: null,
+        competitionId: null,
+        statusCode: status,
+        errorSummary,
+        ip,
+        requestId: rid ?? null,
+      });
+    }
 
     response.status(status).json({
       code: status,
