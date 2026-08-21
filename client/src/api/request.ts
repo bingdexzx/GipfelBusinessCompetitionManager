@@ -152,6 +152,18 @@ const VIEW_PARAMS = new Set(["page", "pageSize", "updatedAfter"]);
 
 const _getInflight = new Map<string, Promise<unknown>>();
 
+// ---------- 写后强制直连：写操作后下次 GET 绕过缓存直连服务器 ----------
+// 写操作（POST/PUT/PATCH/DELETE）成功后，将涉及的资源标记为「强制刷新」，
+// 下次该资源的 GET 请求跳过 IndexedDB 缓存 + 增量同步，直接走全量网络请求。
+// 彻底避免写后读因 IndexedDB 并发事务 / 基线时序 / 缓存残留等原因返回空数据。
+const _forceRefresh = new Set<string>();
+
+function _deriveResourceKey(url: string): string {
+  const path = (url || "").split("?")[0];
+  const seg = path.split("/").filter(Boolean)[0] || "";
+  return SEG_TO_RESOURCE[seg] || seg;
+}
+
 // ---------- O3：跨挂载新鲜度窗口（stale-while-revalidate）----------
 // 内存 memo：按「请求键」缓存最近一次成功响应；窗口内（且无该资源实时事件）直接返回，
 // 避免同一资源在多个组件/多次挂载被重复发往服务端（仍是后台增量请求，但能省则省）。
@@ -545,6 +557,23 @@ async function cachedGetImpl(url: string, config: AxiosRequestConfig): Promise<u
 
   const ck = collectionKeyFor(url, config);
   const params = collectParams(url, config);
+
+  // 写后强制直连：跳过本地缓存，直接全量同步
+  const resourceKey = _deriveResourceKey(url);
+  const isForceRefresh = _forceRefresh.has(resourceKey);
+  if (isForceRefresh) {
+    _forceRefresh.delete(resourceKey);
+    try {
+      const v = await fetchFullSync(url, config, params);
+      return await storeAndReturn(ck, v, params, url, config);
+    } catch (e: unknown) {
+      // 直连也失败 → 降级到本地缓存（若有的话）
+      const fullNow = await getFull(ck);
+      if (fullNow) return reconstruct(fullNow.items, fullNow.shape, params);
+      throw e;
+    }
+  }
+
   const full = await getFull(ck);
   const baseline = await getBaseline(ck);
   const fullSyncAt = await getFullSyncAt(ck);
@@ -640,6 +669,8 @@ function _mutating(
     (data) => {
       invalidateResource(url, data);
       _resetMemo();
+      // 标记该资源下次 GET 强制直连服务器，彻底绕过 IndexedDB 缓存 / 增量同步
+      _forceRefresh.add(_deriveResourceKey(url));
     },
     () => {
       _resetMemo();
