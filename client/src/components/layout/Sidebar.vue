@@ -365,7 +365,7 @@ const activeMenu = computed(() => {
   position: relative;
   overflow: hidden;
 }
-// Hover: 渐变背景滑入 + 图标微移
+/* Hover: 渐变背景滑入 + 图标微移 */
 .sidebar-menu :deep(.el-sub-menu__title:hover),
 .sidebar-menu :deep(.el-menu-item:not(.is-active):hover) {
   background: var(--el-color-primary-light-9);
