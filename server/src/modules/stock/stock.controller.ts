@@ -154,6 +154,7 @@ export class StockController {
   }
 
   @Post("orders")
+  /** 下单（PLAYER 持 stock:view 即可买卖，stock:view 的语义包含行情+交易） */
   place(@CurrentUser() user: ReqUser, @Body() dto: CreateOrderDto) {
     return this.service.placeOrder(user, dto);
   }

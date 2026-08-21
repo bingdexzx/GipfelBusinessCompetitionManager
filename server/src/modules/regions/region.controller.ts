@@ -76,7 +76,7 @@ export class RegionController {
 
   @Post()
   @UseGuards(PermissionsGuard)
-  @RequirePermissions("data:map:edit")
+  @RequirePermissions("data:region:edit")
   create(@Body() dto: CreateRegionDto) {
     return this.service.create(dto);
   }
@@ -97,7 +97,7 @@ export class RegionController {
 
   @Delete(":id")
   @UseGuards(PermissionsGuard)
-  @RequirePermissions("data:map:edit")
+  @RequirePermissions("data:region:edit")
   remove(
     @Param("id", ParseIntPipe) id: number,
     @Query("competitionId") competitionId?: string,
