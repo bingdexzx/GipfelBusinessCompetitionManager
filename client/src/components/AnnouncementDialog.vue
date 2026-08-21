@@ -21,18 +21,22 @@
 import { storeToRefs } from "pinia";
 import { useAnnouncementStore } from "@/stores/announcement";
 
+import { ref } from "vue";
+
 const store = useAnnouncementStore();
 const { visible } = storeToRefs(store);
 const current = store.current;
+const confirming = ref(false);
 
 /** 用户点击「不再显示」：标记已读并关闭。 */
 function onConfirm() {
+  confirming.value = true;
   store.confirm();
 }
 
 /** 防止通过其它途径（遮罩/ESC）关闭弹窗导致未标记已读；唯一关闭入口为「确认」。 */
 function onVisibleChange(val: boolean) {
-  if (!val) visible.value = true;
+  if (!val && !confirming.value) visible.value = true;
 }
 </script>
 
