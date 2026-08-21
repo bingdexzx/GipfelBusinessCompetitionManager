@@ -504,10 +504,27 @@
                 </span>
               </div>
               <div v-if="fieldForm.editorMode === 'formula'" class="fs-formula">
-                <FormulaPanel
-                  v-model="fieldForm.formula"
-                  :fields="formulaFields"
-                />
+                <div class="fs-formula-wrapper">
+                  <div class="fs-formula-fields">
+                    <span class="fs-formula-fields-title">可用字段：</span>
+                    <code
+                      v-for="f in formulaFields.filter(f => !f.isCalculated)"
+                      :key="f.fieldKey"
+                      class="fs-formula-field-key"
+                      :title="`${f.name} (${f.fieldType})`"
+                      @click="insertFormulaField(f.fieldKey)"
+                    >{{ f.fieldKey }}</code>
+                    <span v-if="formulaFields.filter(f => !f.isCalculated).length === 0" style="color:#c0c4cc;font-size:12px">暂无可用字段</span>
+                  </div>
+                  <textarea
+                    ref="formulaTextareaRef"
+                    class="fs-formula-textarea"
+                    :value="fieldForm.formula"
+                    @input="fieldForm.formula = ($event.target as HTMLTextAreaElement).value"
+                    placeholder="输入公式，例如: (revenue - cost) * (1 - taxRate)&#10;可直接使用字段键作为变量名"
+                    spellcheck="false"
+                  ></textarea>
+                </div>
               </div>
               <IndustryFieldGraphEditor
                 v-else
@@ -616,12 +633,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, watch } from "vue";
+import { ref, computed, onMounted, reactive, watch, nextTick } from "vue";
 import { useAuthStore } from "@/stores/auth";
 import { industryTypesApi } from "@/api";
 import { ElMessage, ElMessageBox } from "element-plus";
 import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
-import FormulaPanel from "@/components/formula-panel/FormulaPanel.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import { toPinyinKey } from "@/utils/pinyin";
 
@@ -768,6 +784,22 @@ const formulaFields = computed(() => {
       defaultValue: f.defaultValue,
     }));
 });
+const formulaTextareaRef = ref<HTMLTextAreaElement>();
+function insertFormulaField(fieldKey: string) {
+  const ta = formulaTextareaRef.value;
+  if (!ta) {
+    fieldForm.formula = (fieldForm.formula || "") + fieldKey;
+    return;
+  }
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const val = fieldForm.formula || "";
+  fieldForm.formula = val.slice(0, start) + fieldKey + val.slice(end);
+  nextTick(() => {
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = start + fieldKey.length;
+  });
+}
 
 // ===== 公式（Excel 风格）↔ calcGraph（单 FORMULA 节点）互转 =====
 // 后端产业计算引擎原生支持 value(FORMULA) 节点，故把公式序列化为只含一个
@@ -1382,5 +1414,57 @@ useResourceChanged("industry-types", () => {
   padding: 14px;
   height: calc(100% - 52px);
   overflow: auto;
+}
+.fs-formula-wrapper {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.fs-formula-fields {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.fs-formula-fields-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #8c8c8c;
+}
+.fs-formula-field-key {
+  display: inline-block;
+  background: #ecf5ff;
+  color: #409eff;
+  border: 1px solid #d9ecff;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.fs-formula-field-key:hover {
+  background: #d9ecff;
+  border-color: #409eff;
+}
+.fs-formula-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px 12px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: #fafbfc;
+  color: #303133;
+  box-sizing: border-box;
+}
+.fs-formula-textarea:focus {
+  background: #fff;
 }
 </style>

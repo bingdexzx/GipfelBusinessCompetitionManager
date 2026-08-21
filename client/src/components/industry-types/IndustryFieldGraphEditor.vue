@@ -4,6 +4,7 @@
     <div class="ge-toolbar">
       <el-button @click="$emit('close')">返回</el-button>
       <el-button @click="toggleSource">{{ showSource ? "画布视图" : "源码 JSON" }}</el-button>
+      <el-button @click="applyAutoLayout" title="自动分层排列节点">自动布局</el-button>
       <el-button type="danger" @click="onClear">清空</el-button>
       <el-button-group class="ge-zoom">
         <el-button size="small" title="缩小" @click="zoomOut">－</el-button>
@@ -13,6 +14,20 @@
         <el-button size="small" title="放大" @click="zoomIn">＋</el-button>
         <el-button size="small" title="适应全部内容" @click="fitView(svgW, svgH)">适应</el-button>
       </el-button-group>
+      <el-button size="small" title="搜索节点 (Ctrl+F)" @click="toggleSearch">🔍</el-button>
+      <div v-if="searchVisible" class="ge-search-bar">
+        <el-input
+          v-model="searchQuery"
+          size="small"
+          placeholder="搜索节点..."
+          class="ge-search-input"
+          clearable
+          @keydown="onSearchKeydown"
+        />
+        <span class="ge-search-count" v-if="searchQuery.trim()">
+          {{ searchMatchIds.size }} 个匹配
+        </span>
+      </div>
       <span v-if="pending" class="ge-connecting"
         >已选输出端口，请点击目标输入端口连线（再次点输出端口取消）</span
       >
@@ -51,7 +66,7 @@
         <div class="ge-viewport" :style="viewportStyle">
         <svg class="ge-svg" :width="svgW" :height="svgH">
           <path
-            v-for="e in graph.edges"
+            v-for="e in visibleEdges"
             :key="e.id"
             :d="edgePath(e) || ''"
             class="ge-edge"
@@ -62,10 +77,14 @@
         </svg>
 
         <div
-          v-for="n in graph.nodes"
+          v-for="n in visibleNodes"
           :key="n.id"
           class="ge-node"
-          :class="{ 'ge-node-sel': n.id === selectedId }"
+          :class="{
+            'ge-node-sel': n.id === selectedId,
+            'ge-node-match': isNodeMatched(n.id),
+            'ge-node-dim': isNodeDimmed(n.id),
+          }"
           :style="nodeStyle(n)"
           @click.stop="select(n.id)"
         >
@@ -74,10 +93,20 @@
             :style="{ background: NODE_META[n.type].color }"
             @mousedown.stop.prevent="startDrag(n, $event)"
           >
-            <span>{{ NODE_META[n.type].title }}</span>
+            <span>
+              <span
+                v-if="n.type === 'if'"
+                class="ge-fold-btn"
+                @click.stop="toggleCollapse(n.id)"
+              >{{ isCollapsed(n.id) ? '▶' : '▼' }}</span>
+              {{ NODE_META[n.type].title }}
+            </span>
             <span v-if="n.type !== 'output'" class="ge-node-del" @click.stop="removeNode(n.id)"
               >✕</span
             >
+          </div>
+          <div v-if="isCollapsed(n.id)" class="ge-collapse-badge">
+            {{ hiddenChildCount(n.id) }} 个节点已隐藏
           </div>
           <div class="ge-node-cap">{{ nodeSummary(n) }}</div>
 
@@ -212,17 +241,48 @@
 
               <template v-else-if="selectedNode.data.kind === 'FORMULA'">
                 <el-form-item label="公式">
-                  <el-input
-                    v-model="selectedNode.data.expr"
-                    type="textarea"
-                    :rows="2"
-                    placeholder="mathjs 表达式，变量=字段键"
-                  />
+                  <div class="ge-formula-editor">
+                    <textarea
+                      class="ge-formula-textarea"
+                      :class="{ 'ge-formula-error': formulaValidationError }"
+                      :value="selectedNode.data.expr"
+                      @input="onFormulaInput($event, selectedNode.data)"
+                      @keydown="onFormulaKeydown($event, selectedNode.data)"
+                      placeholder="mathjs 表达式，变量=字段键&#10;Ctrl+Space 触发自动补全"
+                      spellcheck="false"
+                    ></textarea>
+                    <div v-if="formulaValidationError" class="ge-formula-error-msg">
+                      {{ formulaValidationError }}
+                    </div>
+                  </div>
                 </el-form-item>
-                <div class="ge-tip">
-                  可用变量（字段键）：<code>{{ formulaVars || "（暂无字段）" }}</code
-                  >。作用域还内置 EXPR_HELPERS 辅助函数。
+                <div class="ge-formula-hints">
+                  <div class="ge-formula-hint-title">可用变量（字段键）：
+                    <code v-for="k in getFormulaFieldKeys()" :key="k" class="ge-formula-key">{{ k }}</code>
+                    <span v-if="!getFormulaFieldKeys().length" class="ge-tip-inline">暂无字段</span>
+                  </div>
+                  <div class="ge-formula-hint-title">函数：
+                    <code v-for="f in formulaFunctions" :key="f.key" class="ge-formula-fn" :title="f.desc">{{ f.label }}</code>
+                  </div>
+                  <div class="ge-tip" style="margin-top:4px">作用域还内置 EXPR_HELPERS 辅助函数。</div>
                 </div>
+                <!-- 自动补全下拉 -->
+                <Teleport to="body">
+                  <div
+                    v-if="formulaAutocomplete.show"
+                    class="ge-formula-autocomplete"
+                    :style="{ left: formulaAutocomplete.x + 'px', top: formulaAutocomplete.y + 'px' }"
+                  >
+                    <div
+                      v-for="item in formulaAutocomplete.items"
+                      :key="item"
+                      class="ge-formula-ac-item"
+                      @mousedown.prevent="insertFormulaCompletion(item, selectedNode.data)"
+                    >
+                      {{ item }}
+                    </div>
+                  </div>
+                </Teleport>
               </template>
 
               <template v-else-if="selectedNode.data.kind === 'OP'">
@@ -330,7 +390,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from "vue";
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import { useGraphViewport } from "@/composables/useGraphViewport";
 import {
@@ -411,6 +471,262 @@ const showSource = ref(false);
 // 画布缩放 / 平移（共享 composable）：空白处拖拽平移、滚轮以鼠标为中心缩放。
 const { zoom, panX, panY, canvasRef, viewportStyle, onWheel, startPan, zoomIn, zoomOut, fitView, resetView } =
   useGraphViewport();
+
+// ===== 搜索/查找 =====
+const searchQuery = ref("");
+const searchVisible = ref(false);
+const searchMatchIds = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return new Set<string>();
+  return new Set(
+    graph.nodes
+      .filter((n) => {
+        const summary = nodeSummary(n).toLowerCase();
+        const label = (n.data?.label || "").toLowerCase();
+        const key = (n.data?.key || "").toLowerCase();
+        const name = (n.data?.name || "").toLowerCase();
+        return summary.includes(q) || label.includes(q) || key.includes(q) || name.includes(q);
+      })
+      .map((n) => n.id),
+  );
+});
+function onSearchKeydown(e: KeyboardEvent) {
+  if (e.key === "Enter" && searchMatchIds.value.size > 0) {
+    const firstId = [...searchMatchIds.value][0];
+    const node = graph.nodes.find((n) => n.id === firstId);
+    if (node) {
+      select(firstId);
+      centerOnNode(node);
+    }
+  }
+  if (e.key === "Escape") {
+    searchVisible.value = false;
+    searchQuery.value = "";
+  }
+}
+function centerOnNode(node: GNode) {
+  const rect = canvasRef.value?.getBoundingClientRect();
+  if (!rect) return;
+  const targetX = node.x + NODE_W / 2;
+  const targetY = node.y + 60;
+  panX.value = rect.width / 2 - targetX * zoom.value;
+  panY.value = rect.height / 2 - targetY * zoom.value;
+}
+function toggleSearch() {
+  searchVisible.value = !searchVisible.value;
+  if (searchVisible.value) {
+    nextTick(() => {
+      const el = document.querySelector(".ge-search-input input") as HTMLInputElement;
+      if (el) el.focus();
+    });
+  } else {
+    searchQuery.value = "";
+  }
+}
+function isNodeMatched(nodeId: string): boolean {
+  return searchQuery.value.trim() !== "" && searchMatchIds.value.has(nodeId);
+}
+function isNodeDimmed(nodeId: string): boolean {
+  return searchQuery.value.trim() !== "" && !searchMatchIds.value.has(nodeId);
+}
+
+// ===== 折叠/展开（IF 节点） =====
+const collapsedNodes = reactive(new Set<string>());
+function toggleCollapse(nodeId: string) {
+  if (collapsedNodes.has(nodeId)) collapsedNodes.delete(nodeId);
+  else collapsedNodes.add(nodeId);
+}
+function isCollapsed(nodeId: string): boolean {
+  return collapsedNodes.has(nodeId);
+}
+function hiddenChildCount(nodeId: string): number {
+  const visited = new Set<string>();
+  const queue: string[] = [nodeId];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const e of graph.edges) {
+      if (e.source === cur && (e.sourceHandle === "then" || e.sourceHandle === "else")) {
+        if (!visited.has(e.target)) {
+          visited.add(e.target);
+          queue.push(e.target);
+        }
+      }
+    }
+  }
+  return visited.size;
+}
+function isHiddenByFold(nodeId: string): boolean {
+  let cur = nodeId;
+  const visited = new Set<string>();
+  while (cur) {
+    if (visited.has(cur)) break;
+    visited.add(cur);
+    const parentEdge = graph.edges.find((e) => e.target === cur && e.targetHandle === "parent");
+    if (!parentEdge) break;
+    if (collapsedNodes.has(parentEdge.source)) return true;
+    cur = parentEdge.source;
+  }
+  return false;
+}
+function isEdgeHiddenByFold(edge: any): boolean {
+  return isHiddenByFold(edge.source) || isHiddenByFold(edge.target);
+}
+const visibleNodes = computed(() => graph.nodes.filter((n) => !isHiddenByFold(n.id)));
+const visibleEdges = computed(() => graph.edges.filter((e) => !isEdgeHiddenByFold(e)));
+
+// ===== 自动布局（分层布局） =====
+function applyAutoLayout() {
+  const nodes = graph.nodes;
+  if (!nodes.length) return;
+  const children = new Map<string, string[]>();
+  const parents = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    if (!children.has(e.source)) children.set(e.source, []);
+    children.get(e.source)!.push(e.target);
+    if (!parents.has(e.target)) parents.set(e.target, []);
+    parents.get(e.target)!.push(e.source);
+  }
+  const levels = new Map<string, number>();
+  const queue: string[] = [];
+  for (const n of nodes) {
+    if (n.type === "output" || !parents.has(n.id)) {
+      levels.set(n.id, 0);
+      queue.push(n.id);
+    }
+  }
+  while (queue.length) {
+    const curId = queue.shift()!;
+    const curLevel = levels.get(curId)!;
+    for (const childId of children.get(curId) || []) {
+      const newLevel = curLevel + 1;
+      if (!levels.has(childId) || levels.get(childId)! < newLevel) {
+        levels.set(childId, newLevel);
+        queue.push(childId);
+      }
+    }
+  }
+  for (const n of nodes) {
+    if (!levels.has(n.id)) levels.set(n.id, 1);
+  }
+  const levelGroups = new Map<number, GNode[]>();
+  for (const n of nodes) {
+    const lv = levels.get(n.id)!;
+    if (!levelGroups.has(lv)) levelGroups.set(lv, []);
+    levelGroups.get(lv)!.push(n);
+  }
+  const COL_GAP = 280;
+  const ROW_GAP = 140;
+  const sortedLevels = [...levelGroups.keys()].sort((a, b) => a - b);
+  for (const lv of sortedLevels) {
+    const group = levelGroups.get(lv)!;
+    group.forEach((n, i) => {
+      n.x = 40 + lv * COL_GAP;
+      n.y = 40 + i * ROW_GAP;
+    });
+  }
+}
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+    e.preventDefault();
+    toggleSearch();
+  }
+}
+// ===== FORMULA 编辑增强 =====
+const formulaFunctions = [
+  { key: "round", label: "round()", desc: "四舍五入" },
+  { key: "max", label: "max()", desc: "最大值" },
+  { key: "min", label: "min()", desc: "最小值" },
+  { key: "abs", label: "abs()", desc: "绝对值" },
+  { key: "ceil", label: "ceil()", desc: "向上取整" },
+  { key: "floor", label: "floor()", desc: "向下取整" },
+  { key: "sqrt", label: "sqrt()", desc: "平方根" },
+  { key: "log", label: "log()", desc: "对数" },
+  { key: "exp", label: "exp()", desc: "指数" },
+  { key: "pow", label: "pow()", desc: "幂运算" },
+];
+const formulaAutocomplete = ref<{ show: boolean; items: string[]; x: number; y: number }>({
+  show: false,
+  items: [],
+  x: 0,
+  y: 0,
+});
+const formulaValidationError = ref<string>("");
+function getFormulaFieldKeys(): string[] {
+  return (props.availableFields || []).map((f) => f.fieldKey).filter(Boolean);
+}
+function validateFormulaExpr(expr: string): string {
+  if (!expr || !expr.trim()) return "";
+  let depth = 0;
+  let inStr = false;
+  let strChar = "";
+  for (const ch of expr) {
+    if (inStr) {
+      if (ch === strChar) inStr = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inStr = true;
+      strChar = ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[") depth++;
+    if (ch === ")" || ch === "]") {
+      depth--;
+      if (depth < 0) return "括号不匹配：多余的关闭括号";
+    }
+  }
+  if (depth > 0) return "括号不匹配：缺少关闭括号";
+  if (inStr) return "引号不匹配：缺少关闭引号";
+  return "";
+}
+function onFormulaInput(e: Event, nodeData: any) {
+  const val = (e.target as HTMLTextAreaElement).value;
+  nodeData.expr = val;
+  formulaValidationError.value = validateFormulaExpr(val);
+}
+function onFormulaKeydown(e: KeyboardEvent, nodeData: any) {
+  if ((e.ctrlKey || e.metaKey) && e.key === " ") {
+    e.preventDefault();
+    showFormulaAutocomplete(e.target as HTMLTextAreaElement, nodeData);
+  }
+}
+function showFormulaAutocomplete(ta: HTMLTextAreaElement, nodeData: any) {
+  const val = ta.value;
+  const cursorPos = ta.selectionStart;
+  const before = val.slice(0, cursorPos);
+  const wordMatch = before.match(/[a-zA-Z_]\w*$/);
+  const word = wordMatch ? wordMatch[0] : "";
+  const fieldKeys = getFormulaFieldKeys();
+  const allItems = [...fieldKeys, ...formulaFunctions.map((f) => f.key)];
+  const filtered = word
+    ? allItems.filter((item) => item.toLowerCase().startsWith(word.toLowerCase()))
+    : allItems;
+  if (!filtered.length) {
+    formulaAutocomplete.value.show = false;
+    return;
+  }
+  const rect = ta.getBoundingClientRect();
+  formulaAutocomplete.value = { show: true, items: filtered, x: rect.left, y: rect.bottom };
+}
+function insertFormulaCompletion(item: string, nodeData: any) {
+  const isFunc = formulaFunctions.some((f) => f.key === item);
+  const suffix = isFunc ? "()" : "";
+  const ta = document.querySelector(".ge-formula-textarea") as HTMLTextAreaElement;
+  if (ta) {
+    const cursor = ta.selectionStart;
+    const val = ta.value;
+    const before = val.slice(0, cursor);
+    const wordMatch = before.match(/[a-zA-Z_]\w*$/);
+    const wordStart = wordMatch ? cursor - wordMatch[0].length : cursor;
+    nodeData.expr = val.slice(0, wordStart) + item + suffix + val.slice(cursor);
+    nextTick(() => {
+      const newPos = wordStart + item.length + (isFunc ? 1 : 0);
+      ta.selectionStart = ta.selectionEnd = newPos;
+      ta.focus();
+    });
+  }
+  formulaAutocomplete.value.show = false;
+}
 
 let _seq = 0;
 function uid(p = "n"): string {
@@ -755,6 +1071,10 @@ watch(
 
 onMounted(() => {
   /* 无需远程数据：字段由父组件以 availableFields 传入 */
+  window.addEventListener("keydown", onGlobalKeydown);
+});
+onUnmounted(() => {
+  window.removeEventListener("keydown", onGlobalKeydown);
 });
 </script>
 
@@ -1017,5 +1337,141 @@ onMounted(() => {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* ===== 搜索 ===== */
+.ge-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ge-search-input {
+  width: 180px;
+}
+.ge-search-count {
+  font-size: 11px;
+  color: #909399;
+  white-space: nowrap;
+}
+
+/* ===== 搜索高亮 / 暗化 ===== */
+.ge-node-match {
+  outline: 2px solid #e6a23c !important;
+  box-shadow: 0 0 8px rgba(230, 162, 60, 0.5);
+}
+.ge-node-dim {
+  opacity: 0.3;
+}
+
+/* ===== 折叠按钮 ===== */
+.ge-fold-btn {
+  cursor: pointer;
+  font-size: 10px;
+  margin-right: 3px;
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+}
+.ge-fold-btn:hover {
+  color: #ecf5ff;
+}
+.ge-collapse-badge {
+  font-size: 10px;
+  color: #e67e22;
+  background: #fef0e6;
+  padding: 2px 8px;
+  text-align: center;
+  border-top: 1px dashed #f5dab1;
+}
+
+/* ===== FORMULA 编辑器增强 ===== */
+.ge-formula-editor {
+  width: 100%;
+  position: relative;
+}
+.ge-formula-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 10px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background: #fafbfc;
+  color: #303133;
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+  box-sizing: border-box;
+}
+.ge-formula-textarea:focus {
+  border-color: #409eff;
+  box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.2);
+}
+.ge-formula-textarea.ge-formula-error {
+  border-color: #f56c6c;
+  background: #fef0f0;
+}
+.ge-formula-error-msg {
+  font-size: 11px;
+  color: #f56c6c;
+  margin-top: 4px;
+  line-height: 1.3;
+}
+.ge-formula-hints {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #909399;
+  line-height: 1.6;
+}
+.ge-formula-hint-title {
+  margin-bottom: 2px;
+}
+.ge-formula-key {
+  display: inline-block;
+  background: #ecf5ff;
+  color: #409eff;
+  border: 1px solid #d9ecff;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin: 0 2px;
+  font-size: 10px;
+  font-family: monospace;
+}
+.ge-formula-fn {
+  display: inline-block;
+  background: #f0f9eb;
+  color: #67c23a;
+  border: 1px solid #e1f3d8;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin: 0 2px;
+  font-size: 10px;
+  font-family: monospace;
+}
+
+/* ===== 自动补全下拉 ===== */
+.ge-formula-autocomplete {
+  position: fixed;
+  z-index: 9999;
+  background: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 200px;
+  overflow-y: auto;
+  min-width: 160px;
+}
+.ge-formula-ac-item {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: monospace;
+  cursor: pointer;
+  color: #303133;
+}
+.ge-formula-ac-item:hover {
+  background: #ecf5ff;
+  color: #409eff;
 }
 </style>
