@@ -6,23 +6,23 @@ REM  输出同时上屏并写入日志，便于出错后回看（PowerShell Tee-
 REM  若系统无 powershell，或 powershell 调用失败（如执行策略受限），
 REM  则退化为直接运行（不写日志），脚本依然可用且不闪退。
 REM ============================================================
-set "_LOG=%~dp0update_server.log"
-if "%~1"=="" (
+if not defined _TEED (
+  set "_TEED=1"
   set "_BAT=%~f0"
+  set "_LOG=%~dp0update_server.log"
   where powershell >nul 2>&1
   if not errorlevel 1 (
     powershell -NoProfile -Command "cmd /c $env:_BAT 2>&1 | Tee-Object -FilePath $env:_LOG"
     if errorlevel 1 (
-      REM PowerShell 执行受限，退回直接运行主体（不写日志，但仍可排障）
-      call "%~f0" __SKIP_TEE__
+      REM 管道命令调用失败（如执行策略受限），直接运行主体（不写日志但仍可排障）
+      call "%~f0"
     )
   ) else (
-    call "%~f0" __SKIP_TEE__
+    call "%~f0"
   )
   goto :eof
 )
 
-:run
 cd /d "%~dp0.."
 
 REM ============================================================
