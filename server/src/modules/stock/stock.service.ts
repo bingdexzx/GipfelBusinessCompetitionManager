@@ -1046,6 +1046,10 @@ export class StockService {
         if (r) results.push(r);
       }
       const advanced = results.filter((x) => !x.skipped).length;
+      // 统一发送一次 bulk 广播（替代原先每只股票 5 条事件，避免事件风暴）
+      if (advanced > 0) {
+        this.realtime.emitResourceChanged("stocks", null, competitionId, "bulk");
+      }
       // S9：实时事件携带每轮定价诊断，前端可展开「定价诊断」面板
       this.realtime.broadcastToCompetition(competitionId, "stock:round-advanced", {
         competitionId,
@@ -1259,11 +1263,7 @@ export class StockService {
       await tx.stock.update({ where: { id: stock.id }, data: { currentPrice: price.final, round: newRound } });
     });
 
-    this.realtime.emitResourceChanged("stocks", stock.id, competitionId, "updated");
-    this.realtime.emitResourceChanged("stocks", stock.id, competitionId, "created");
-    this.realtime.emitResourceChanged("stocks", stock.id, competitionId, "bulk");
-    this.realtime.emitResourceChanged("stocks", stock.id, competitionId, "bulk");
-    this.realtime.emitResourceChanged("stocks", stock.id, competitionId, "bulk");
+    // 广播由 advanceRound 统一处理，此处不再逐条 emit
 
     return {
       stockId: stock.id,

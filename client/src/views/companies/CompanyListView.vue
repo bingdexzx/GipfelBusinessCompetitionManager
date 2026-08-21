@@ -172,7 +172,24 @@ async function handleCreate() {
 }
 
 async function handleDelete(row: any) {
-  await ElMessageBox.confirm(`确定删除 "${row.name}" 吗？`, { type: "warning" });
+  /* 二次确认：第一次确认意图，第二次输入公司名称确认（防误删） */
+  await ElMessageBox.confirm(
+    `删除公司将级联清除其所有产业字段值，此操作不可恢复。确定继续吗？`,
+    "删除确认",
+    { type: "warning", confirmButtonText: "继续", cancelButtonText: "取消" },
+  );
+  await ElMessageBox.prompt(
+    `请输入公司名称「${row.name}」以确认删除`,
+    "二次确认",
+    {
+      type: "error",
+      confirmButtonText: "确认删除",
+      cancelButtonText: "取消",
+      inputPattern: new RegExp(`^${row.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+      inputErrorMessage: "公司名称不匹配",
+      inputPlaceholder: row.name,
+    },
+  );
   try {
     await api.delete(`/companies/${row.id}`);
     ElMessage.success("已删除");
