@@ -14,9 +14,8 @@ export class CreateWarehouseDto {
   @IsIn(["MATERIAL", "PART", "PRODUCT", "FUEL"])
   type: string;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateWarehouseDto {

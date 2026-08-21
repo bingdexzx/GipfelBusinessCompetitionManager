@@ -126,14 +126,47 @@ export class RegionService {
    * 解析不依赖 Region 实体，仅按 card.companyId / card.industryFieldId 取当前值。
    */
   private async resolveCards(cards: any[]): Promise<any[]> {
+    if (cards.length === 0) return [];
+
+    // 1. 批量查询所有涉及的公司（含产业类型 + 字段定义）
+    const companyIds = [...new Set(cards.map((c: any) => c.companyId).filter(Boolean))];
+    const companies = await this.prisma.company.findMany({
+      where: { id: { in: companyIds } },
+      include: { industryType: { include: { fields: true } } },
+    });
+    const companyMap = new Map<number, any>(companies.map((c: any) => [c.id, c]));
+
+    // 2. 收集所有需要查询字段值的 (companyId, industryFieldId) 对
+    const fvPairs: { companyId: number; industryFieldId: number }[] = [];
+    for (const card of cards) {
+      const company = companyMap.get(card.companyId);
+      if (company?.industryType) {
+        const field = company.industryType.fields.find(
+          (f: any) => f.id === card.industryFieldId,
+        );
+        if (field) {
+          fvPairs.push({ companyId: card.companyId, industryFieldId: card.industryFieldId });
+        }
+      }
+    }
+
+    // 3. 批量查询所有字段值（ONE query instead of N）
+    const fvRecords = fvPairs.length > 0
+      ? await this.prisma.companyFieldValue.findMany({
+          where: { OR: fvPairs.map((p) => ({ companyId: p.companyId, industryFieldId: p.industryFieldId })) },
+        })
+      : [];
+    const fvMap = new Map<string, any>();
+    for (const fv of fvRecords) {
+      fvMap.set(`${fv.companyId}:${fv.industryFieldId}`, fv);
+    }
+
+    // 4. 用 Map 查找替代逐条查询
     const result: any[] = [];
     for (const card of cards) {
       const entry: any = { ...card };
       try {
-        const company = await this.prisma.company.findUnique({
-          where: { id: card.companyId },
-          include: { industryType: { include: { fields: true } } },
-        });
+        const company = companyMap.get(card.companyId);
         if (!company || !company.industryType) {
           entry.valid = false;
           entry.value = null;
@@ -151,14 +184,7 @@ export class RegionService {
             entry.fieldType = null;
             entry.companyName = company.name;
           } else {
-            const fv = await this.prisma.companyFieldValue.findUnique({
-              where: {
-                companyId_industryFieldId: {
-                  companyId: card.companyId,
-                  industryFieldId: card.industryFieldId,
-                },
-              } as any,
-            });
+            const fv = fvMap.get(`${card.companyId}:${card.industryFieldId}`);
             entry.valid = true;
             entry.value = fv ? fv.value : field.defaultValue ?? null;
             entry.fieldName = field.name;
@@ -233,24 +259,41 @@ export class RegionService {
     const nodeNames = new Set(nodes.map((n: any) => n.name));
     if (nodeNames.size === 0) return [];
 
-    const compWhere: any = { industryTypeId: { not: null } };
-    if (competitionId) compWhere.competitionId = competitionId;
-    const companies = await this.prisma.company.findMany({
-      where: compWhere,
-      include: {
-        industryType: { include: { fields: true } },
-        fieldValues: true,
+    // 1. 查找所有产业类型中的 "location" 字段 ID
+    const locationFields = await this.prisma.industryField.findMany({
+      where: { fieldKey: "location" },
+      select: { id: true },
+    });
+    if (locationFields.length === 0) return [];
+    const locationFieldIds = locationFields.map((f: any) => f.id);
+
+    // 2. 批量查询这些字段的 CompanyFieldValue 记录（带公司 competitionId 过滤）
+    const cfvWhere: any = {
+      industryFieldId: { in: locationFieldIds },
+    };
+    if (competitionId) {
+      cfvWhere.company = { competitionId };
+    }
+    const cfvs = await this.prisma.companyFieldValue.findMany({
+      where: cfvWhere,
+      select: {
+        companyId: true,
+        value: true,
+        company: { select: { id: true, name: true, industryTypeId: true } },
       },
     });
+
+    // 3. 过滤：解析存储值后匹配节点名
     const result: any[] = [];
-    for (const c of companies as any[]) {
-      const locField = c.industryType?.fields?.find((f: any) => f.fieldKey === "location");
-      if (!locField) continue;
-      const cfv = c.fieldValues?.find((f: any) => f.industryFieldId === locField.id);
-      const locName = this.parseLocationValue(cfv?.value);
+    for (const cfv of cfvs as any[]) {
+      const locName = this.parseLocationValue(cfv.value);
       if (!locName) continue;
       if (nodeNames.has(locName)) {
-        result.push({ id: c.id, name: c.name, industryTypeId: c.industryTypeId });
+        result.push({
+          id: cfv.company.id,
+          name: cfv.company.name,
+          industryTypeId: cfv.company.industryTypeId,
+        });
       }
     }
     return result;
@@ -312,7 +355,7 @@ export class RegionService {
     let region = await this.getRegionByName(competitionId, name);
     if (!region) {
       region = await this.prisma.region.create({
-        data: { name, competitionId: competitionId ?? null, overviewCards: serializeCards([]) },
+        data: { name, competitionId: competitionId!, overviewCards: serializeCards([]) },
       });
     }
     const updated = await this.prisma.region.update({

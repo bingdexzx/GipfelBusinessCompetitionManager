@@ -47,9 +47,8 @@ export class CreateVehicleDto {
   @Type(() => VehiclePathTypeItem)
   vehiclePathTypes?: VehiclePathTypeItem[];
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateVehicleDto {

@@ -1,4 +1,4 @@
-import { IsInt, IsOptional } from "class-validator";
+import { IsInt } from "class-validator";
 import { Type } from "class-transformer";
 
 /**
@@ -10,8 +10,7 @@ import { Type } from "class-transformer";
  * 故用 @Type(() => Number) 在全局 transform 阶段先转为数字，@IsInt 才能通过。
  */
 export class MapBackgroundTargetDto {
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }

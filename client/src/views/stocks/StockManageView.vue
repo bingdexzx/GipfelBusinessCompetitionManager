@@ -345,7 +345,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { Plus, Refresh, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { stockApi, companiesApi, regionsApi, companyFieldsApi } from "@/api";
@@ -829,6 +829,12 @@ function scheduleAccountReload() {
 useResourceChanged("company-field", scheduleAccountReload);
 
 onMounted(reloadAll);
+onBeforeUnmount(() => {
+  if (accountReloadTimer) {
+    clearTimeout(accountReloadTimer);
+    accountReloadTimer = undefined;
+  }
+});
 </script>
 
 <style scoped>

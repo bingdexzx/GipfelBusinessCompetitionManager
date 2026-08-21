@@ -44,7 +44,7 @@ export class ConsumerDemandService {
     const productType = await this.resolveProductName(dto.productId);
     const item = await this.prisma.consumerDemand.create({
       data: {
-        competitionId: dto.competitionId ?? null,
+        competitionId: dto.competitionId,
         region: dto.region,
         productId: dto.productId,
         productType,

@@ -37,9 +37,8 @@ export class CreateProductDto {
   @Type(() => TechRequirementItem)
   techRequirements: TechRequirementItem[];
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateProductDto {

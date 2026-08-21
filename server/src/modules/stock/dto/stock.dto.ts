@@ -87,10 +87,9 @@ export class CreateStockDto {
   @IsString()
   industryAvgCarbonRefs?: string; // 行业碳排均值绑定的区域总览卡片引用数组 JSON [{region,cardId},...]
 
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  competitionId?: number; // 由 CompetitionScopeGuard 注入为操作人真实归属比赛
+  competitionId!: number; // 由 CompetitionScopeGuard 注入为操作人真实归属比赛
 }
 
 export class UpdateStockDto {
@@ -214,10 +213,9 @@ export class CreateFundsAccountDto {
   @IsInt()
   bindFieldId?: number; // 绑定产业字段 ID（仅公司账户），现金将同步该字段值
 
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateFundsAccountDto {
@@ -273,10 +271,9 @@ export class CreateOrderDto {
   @Min(0.0001)
   quantity: number;
 
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 // 做市商配置

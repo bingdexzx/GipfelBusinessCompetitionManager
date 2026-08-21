@@ -48,9 +48,8 @@ export class CreateRegionDto {
   @IsString()
   description?: string;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 
   @IsOptional()
   @IsArray()

@@ -8,9 +8,8 @@ export class CreateCompanyDto {
   @IsInt()
   industryTypeId?: number;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 
   @IsOptional()
   @IsInt()

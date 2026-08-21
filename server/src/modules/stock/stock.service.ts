@@ -375,19 +375,33 @@ export class StockService {
       select: { id: true, name: true, industryTypeId: true },
       orderBy: { name: "asc" },
     });
+
+    // 批量查询所有涉及产业类型的 NUMBER 字段（ONE query instead of N）
+    const uniqueTypeIds = [...new Set(
+      companies.map((c) => c.industryTypeId).filter((id): id is number => id != null),
+    )];
+    const allFields = uniqueTypeIds.length > 0
+      ? await this.prisma.industryField.findMany({
+          where: { industryTypeId: { in: uniqueTypeIds }, fieldType: "NUMBER" },
+          select: { id: true, fieldKey: true, name: true, fieldType: true, industryTypeId: true },
+          orderBy: { sortOrder: "asc" },
+        })
+      : [];
+    const fieldsByTypeId = new Map<number, any[]>();
+    for (const f of allFields) {
+      const list = fieldsByTypeId.get(f.industryTypeId) ?? [];
+      list.push(f);
+      fieldsByTypeId.set(f.industryTypeId, list);
+    }
+
     const result: any[] = [];
     for (const c of companies) {
-      // 无产业类型的公司没有可绑定字段，直接给空字段列表（同时避免 industryTypeId 为 null 触发的类型错误）
       if (c.industryTypeId == null) {
         result.push({ id: c.id, name: c.name, industryTypeId: null, fields: [] });
-        continue;
+      } else {
+        const fields = fieldsByTypeId.get(c.industryTypeId) ?? [];
+        result.push({ id: c.id, name: c.name, industryTypeId: c.industryTypeId, fields });
       }
-      const fields = await this.prisma.industryField.findMany({
-        where: { industryTypeId: c.industryTypeId, fieldType: "NUMBER" },
-        select: { id: true, fieldKey: true, name: true, fieldType: true },
-        orderBy: { sortOrder: "asc" },
-      });
-      result.push({ id: c.id, name: c.name, industryTypeId: c.industryTypeId, fields });
     }
     return { companies: result };
   }

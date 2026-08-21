@@ -21,9 +21,8 @@ export class CreateMaterialDto {
   @IsString()
   nodePrices?: string;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateMaterialDto {

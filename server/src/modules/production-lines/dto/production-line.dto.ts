@@ -16,9 +16,8 @@ export class CreateProductionLineDto {
   @Min(0)
   maxPerYear: number;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateProductionLineDto {

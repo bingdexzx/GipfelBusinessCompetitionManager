@@ -190,6 +190,8 @@ let chart: echarts.ECharts | null = null;
 let resizeHandler: (() => void) | null = null;
 let mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
 let mouseUpHandler: (() => void) | null = null;
+let mouseDownHandler: ((e: MouseEvent) => void) | null = null;
+let wheelHandler: ((e: WheelEvent) => void) | null = null;
 
 const form = reactive({
   name: "",
@@ -218,6 +220,15 @@ onBeforeUnmount(() => {
   if (mouseUpHandler) {
     window.removeEventListener("mouseup", mouseUpHandler);
     mouseUpHandler = null;
+  }
+  const wrap = panWrapRef.value;
+  if (mouseDownHandler && wrap) {
+    wrap.removeEventListener("mousedown", mouseDownHandler);
+    mouseDownHandler = null;
+  }
+  if (wheelHandler && wrap) {
+    wrap.removeEventListener("wheel", wheelHandler);
+    wheelHandler = null;
   }
   if (chart) {
     chart.dispose();
@@ -364,11 +375,16 @@ function renderTree() {
     oy = 0,
     s = 1;
 
-  wrap.addEventListener("mousedown", (e: MouseEvent) => {
+  // 清理之前的 mousedown 事件监听器
+  if (mouseDownHandler) {
+    wrap.removeEventListener("mousedown", mouseDownHandler);
+  }
+  mouseDownHandler = (e: MouseEvent) => {
     if (e.button !== 0) return;
     panning = true;
     panStart = [e.clientX - ox, e.clientY - oy];
-  });
+  };
+  wrap.addEventListener("mousedown", mouseDownHandler);
 
   const mover = (e: MouseEvent) => {
     if (!panning) return;
@@ -393,20 +409,21 @@ function renderTree() {
   window.addEventListener("mousemove", mover);
   window.addEventListener("mouseup", uper);
 
-  wrap.addEventListener(
-    "wheel",
-    (e: WheelEvent) => {
-      e.preventDefault();
-      const r = wrap.parentElement!.getBoundingClientRect();
-      const mx = (e.clientX - r.left) / s,
-        my = (e.clientY - r.top) / s;
-      s = Math.max(0.2, Math.min(5, s * (e.deltaY > 0 ? 0.9 : 1.1)));
-      ox = e.clientX - r.left - mx * s;
-      oy = e.clientY - r.top - my * s;
-      wrap.style.transform = `translate(${ox}px, ${oy}px) scale(${s})`;
-    },
-    { passive: false },
-  );
+  // 清理之前的 wheel 事件监听器
+  if (wheelHandler) {
+    wrap.removeEventListener("wheel", wheelHandler);
+  }
+  wheelHandler = (e: WheelEvent) => {
+    e.preventDefault();
+    const r = wrap.parentElement!.getBoundingClientRect();
+    const mx = (e.clientX - r.left) / s,
+      my = (e.clientY - r.top) / s;
+    s = Math.max(0.2, Math.min(5, s * (e.deltaY > 0 ? 0.9 : 1.1)));
+    ox = e.clientX - r.left - mx * s;
+    oy = e.clientY - r.top - my * s;
+    wrap.style.transform = `translate(${ox}px, ${oy}px) scale(${s})`;
+  };
+  wrap.addEventListener("wheel", wheelHandler, { passive: false });
 
   // 清理之前的 resize 事件监听器
   if (resizeHandler) {

@@ -8,9 +8,8 @@ export class CreateFuelDto {
   @Min(0)
   pricePerLiter: number;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateFuelDto {

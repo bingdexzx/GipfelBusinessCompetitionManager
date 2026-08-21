@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from "@nestjs/common";
 import { safeEvaluate } from "../../common/safe-expression";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CompanyFieldsService } from "../company-fields/company-fields.service";
+import { parseFieldConfig } from "../../common/json.util";
 
 // 导入拆分后的引擎子模块
 import {
@@ -883,6 +884,7 @@ async function computeTechResearchCost(
  *   注：经济管理中心为普通参与方（isHost=false），需绑定公司并正常计产业字段。
  * - 公司未设产业类型 / 该产业下无此字段：报错中止（不静默取 0，避免合同算错）。
  * - 无字段值记录时回落 IndustryField.defaultValue。
+ * - ctx 含 __fieldCache 时优先查缓存（execute 启动时预加载），避免每条 FIELD 效果 3 次查询。
  */
 async function readCompanyFieldValue(
   role: string,
@@ -894,6 +896,19 @@ async function readCompanyFieldValue(
   const party = ctx?.parties?.get(role);
   if (!party) throw new BadRequestException(`产业字段取值失败：合同中不存在参与方「${role}」`);
   if (party.isHost || party.companyId == null) return 0;
+
+  // 快速路径：预加载缓存命中时直接返回，跳过 3 次 DB 查询
+  const cache: Map<string, { value: string | null; fieldType: string; defaultValue: string | null; companyName: string; industryTypeId: number }> | undefined =
+    (ctx as any)?.__fieldCache;
+  if (cache) {
+    const key = `${party.companyId}:${fieldKey}`;
+    const hit = cache.get(key);
+    if (hit) {
+      return parseStoredFieldValue(hit.value ?? hit.defaultValue, hit.fieldType);
+    }
+    // 缓存中找不到：可能公司无产业类型或字段不存在，走原始路径报错（保留原有错误语义）
+  }
+
   const company = await prisma.company.findUnique({ where: { id: party.companyId } });
   if (!company) throw new BadRequestException(`公司不存在(#${party.companyId})`);
   if (!company.industryTypeId)
@@ -1575,6 +1590,56 @@ export class ContractEngineService {
       parties: partyMap,
     };
 
+    // 预加载字段值缓存：批量查询所有参与方公司的产业字段值，避免 readCompanyFieldValue 逐条 N+1 查询
+    const partyCompanyIds = parties
+      .filter((p) => !p.isHost && p.companyId != null)
+      .map((p) => p.companyId!);
+    if (partyCompanyIds.length > 0) {
+      const companies = await this.prisma.company.findMany({
+        where: { id: { in: partyCompanyIds } },
+        select: { id: true, name: true, industryTypeId: true },
+      });
+      const typeIds = [...new Set(companies.map((c: any) => c.industryTypeId).filter(Boolean))];
+      const fields = typeIds.length > 0
+        ? await this.prisma.industryField.findMany({
+            where: { industryTypeId: { in: typeIds } },
+            select: { id: true, fieldKey: true, fieldType: true, defaultValue: true, industryTypeId: true, name: true },
+          })
+        : [];
+      const fvs = await this.prisma.companyFieldValue.findMany({
+        where: { companyId: { in: partyCompanyIds } },
+        select: { companyId: true, industryFieldId: true, value: true },
+      });
+      // 构建 fieldId→field 的反查
+      const fieldById = new Map<number, any>();
+      for (const f of fields) fieldById.set(f.id, f);
+      // 组装缓存 Map<companyId:fieldKey, entry>
+      const fieldCache = new Map<string, { value: string | null; fieldType: string; defaultValue: string | null; companyName: string; industryTypeId: number }>();
+      // 先为所有公司的所有字段插入默认条目（含 defaultValue），确保字段存在但无 CompanyFieldValue 记录时也能命中缓存
+      for (const c of companies) {
+        if (!c.industryTypeId) continue;
+        for (const f of fields) {
+          if (f.industryTypeId !== c.industryTypeId) continue;
+          fieldCache.set(`${c.id}:${f.fieldKey}`, {
+            value: null,
+            fieldType: f.fieldType,
+            defaultValue: f.defaultValue,
+            companyName: c.name,
+            industryTypeId: c.industryTypeId,
+          });
+        }
+      }
+      // 用实际 CompanyFieldValue 覆盖
+      for (const fv of fvs) {
+        const field = fieldById.get(fv.industryFieldId);
+        if (!field) continue;
+        const key = `${fv.companyId}:${field.fieldKey}`;
+        const existing = fieldCache.get(key);
+        if (existing) existing.value = fv.value;
+      }
+      (ctx as any).__fieldCache = fieldCache;
+    }
+
     const resolvePartyCompany = (role: string): PartyDef | null => {
       const p = partyMap.get(role);
       if (!p || p.isHost || p.companyId == null) return null;
@@ -1657,7 +1722,7 @@ export class ContractEngineService {
           const applied = applyFieldEffect(
             current?.value,
             field.fieldType,
-            this.parseFieldConfig(field.config),
+            parseFieldConfig(field.config),
             eff.op,
             newValue,
           );
@@ -1756,7 +1821,7 @@ export class ContractEngineService {
       const field = await prisma.industryField.findUnique({ where: { id: industryFieldId } });
       if (!field) continue;
       const fieldType = field.fieldType;
-      const config = this.parseFieldConfig(field.config);
+      const config = parseFieldConfig(field.config);
 
       const deletedRowsForField = deletedRows.filter(
         (r) => r.companyId === companyId && r.industryFieldId === industryFieldId,
@@ -1814,15 +1879,7 @@ export class ContractEngineService {
     return field;
   }
 
-  /** 解析产业字段 config（DICTIONARY -> entries/valueType；LIST -> itemType），失败兜底为空对象。 */
-  private parseFieldConfig(raw: string | null | undefined): any {
-    if (!raw) return {};
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return {};
-    }
-  }
+  // parseFieldConfig 已移至 common/json.util.ts 统一导出
 
   /**
    * 前置检查：核验公司状态。throwOnFail=true 时任一不过抛 BadRequestException（执行中止）；
@@ -2061,7 +2118,7 @@ export class ContractEngineService {
             const r = compareField(
               cfv?.value,
               def.fieldType,
-              this.parseFieldConfig(def.config),
+              parseFieldConfig(def.config),
               (c.op || "LEN_GTE") as CompareOp,
               expected,
             );

@@ -40,9 +40,8 @@ export class CreateInfrastructureDto {
   @Min(0)
   activationPrice: number;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateInfrastructureDto {

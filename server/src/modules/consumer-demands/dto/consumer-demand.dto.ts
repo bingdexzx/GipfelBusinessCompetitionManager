@@ -2,9 +2,8 @@ import { IsInt, IsOptional, IsString, Min } from "class-validator";
 
 /** 新建消费者需求：归属比赛 + 区域 + 关联产品 + 数量 + 备注。 */
 export class CreateConsumerDemandDto {
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 
   @IsString()
   region: string;

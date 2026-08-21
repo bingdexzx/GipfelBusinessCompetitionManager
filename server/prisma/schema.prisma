@@ -48,6 +48,8 @@ model User {
   tokenVersion Int          @default(0)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+
+  @@index([competitionId, updatedAt])
 }
 
 model FiscalYear {
@@ -60,6 +62,7 @@ model FiscalYear {
   updatedAt     DateTime    @updatedAt
 
   @@unique([competitionId, year])
+  @@index([competitionId, updatedAt])
 }
 
 model Competition {
@@ -110,20 +113,21 @@ model Material {
   // 计算原料总价格时按参与方所在节点取对应价，未设地点价的节点按 0 计。
   nodePrices               String   @default("{}")
   type                      String   @default("NORMAL") // NORMAL, SPECIAL
-  competitionId             Int?
-  competition               Competition?   @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId             Int
+  competition               Competition    @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   partMaterials             PartMaterial[]
   createdAt                 DateTime       @default(now())
   updatedAt                 DateTime       @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model Part {
   id               Int                     @id @default(autoincrement())
   name             String
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   partMaterials    PartMaterial[]
   productParts     ProductPart[]
   techRequirements PartTechRequirement[]
@@ -131,6 +135,7 @@ model Part {
   updatedAt        DateTime                @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model PartMaterial {
@@ -155,8 +160,8 @@ model PartTechRequirement {
 model Product {
   id               Int                        @id @default(autoincrement())
   name             String
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition                @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   productParts     ProductPart[]
   techRequirements ProductTechRequirement[]
   consumerDemands  ConsumerDemand[]
@@ -164,6 +169,7 @@ model Product {
   updatedAt        DateTime                   @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model ProductPart {
@@ -191,8 +197,8 @@ model TechNode {
   description          String?
   tier                 Int                        @default(0)
   researchCost         Float                      @default(0)
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition                @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   prerequisites        TechPrerequisite[]         @relation("NodePrerequisites")
   requiredBy           TechPrerequisite[]         @relation("NodeRequiredBy")
   partRequirements     PartTechRequirement[]
@@ -201,6 +207,7 @@ model TechNode {
   updatedAt            DateTime                   @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model TechPrerequisite {
@@ -217,13 +224,14 @@ model MapNodeType {
   name        String
   description String?
   color       String?
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   nodes       MapNode[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model PathType {
@@ -231,14 +239,15 @@ model PathType {
   name        String
   description String?
   color       String?
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   edges       MapEdge[]
   vehicles    VehiclePathType[]
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model MapNode {
@@ -248,8 +257,8 @@ model MapNode {
   nodeTypeId Int
   x          Float       @default(0)
   y          Float       @default(0)
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   nodeType   MapNodeType @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
   edgesFrom  MapEdge[]   @relation("EdgeFrom")
   edgesTo    MapEdge[]   @relation("EdgeTo")
@@ -257,6 +266,7 @@ model MapNode {
   updatedAt  DateTime    @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model MapEdge {
@@ -265,8 +275,8 @@ model MapEdge {
   toNodeId   Int
   distance   Float
   pathTypeId Int
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   fromNode   MapNode  @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
   toNode     MapNode  @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
   pathType   PathType @relation(fields: [pathTypeId], references: [id], onDelete: Cascade)
@@ -274,6 +284,7 @@ model MapEdge {
   updatedAt  DateTime @updatedAt
 
   @@unique([fromNodeId, toNodeId])
+  @@index([competitionId, updatedAt])
 }
 
 model Infrastructure {
@@ -288,12 +299,13 @@ model Infrastructure {
   perCapitaIncomeBonus       Float    @default(0)
   carbonReductionBonus       Float    @default(0)
   activationPrice            Float
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model Warehouse {
@@ -302,12 +314,13 @@ model Warehouse {
   capacity Float
   price    Float
   type     String   // MATERIAL, PART, PRODUCT
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model ProductionLine {
@@ -316,25 +329,27 @@ model ProductionLine {
   price      Float
   laborCount Int
   maxPerYear Float
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model Fuel {
   id            Int       @id @default(autoincrement())
   name          String
   pricePerLiter Float
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   vehicles      Vehicle[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model Vehicle {
@@ -345,14 +360,15 @@ model Vehicle {
   maxCargo             Float
   price                Float
   carbonEmission       Float
-  competitionId    Int?
-  competition      Competition?            @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  fuel                 Fuel              @relation(fields: [fuelId], references: [id])
+  competitionId    Int
+  competition      Competition             @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  fuel                 Fuel              @relation(fields: [fuelId], references: [id], onDelete: Restrict)
   vehiclePathTypes     VehiclePathType[]
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 model VehiclePathType {
@@ -418,8 +434,8 @@ model Region {
   name           String
   description    String?
   // 区域为比赛级数据（无 competitionId 视为全局模板，通常不使用）；删除比赛级联删除其下区域
-  competitionId  Int?
-  competition    Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId  Int
+  competition    Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   // 总览卡片配置：JSON 字符串，元素结构见 README §9.11.2
   // [{ id, displayName, companyId, industryFieldId }]
   overviewCards  String    @default("[]")
@@ -428,14 +444,15 @@ model Region {
   updatedAt      DateTime  @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 // ============ 消费者需求（按区域记录的产品需求） ============
 model ConsumerDemand {
   id            Int       @id @default(autoincrement())
   // 比赛级数据，删除比赛时级联删除
-  competitionId Int?
-  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId Int
+  competition   Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   region        String               // 区域名（对应地图区域）
   productId     Int?                 // 关联产品（产品主数据）；产品删除时置空不级联
   product       Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -446,6 +463,7 @@ model ConsumerDemand {
   updatedAt     DateTime @updatedAt
 
   @@index([competitionId, region])
+  @@index([competitionId, updatedAt])
 }
 
 // ============ 公司（产业实例） ============
@@ -453,10 +471,10 @@ model Company {
   id             Int                  @id @default(autoincrement())
   name           String
   industryTypeId Int?
-  competitionId  Int?
+  competitionId  Int
   status         String               @default("ACTIVE")
-  competition    Competition?         @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  industryType   IndustryType?        @relation(fields: [industryTypeId], references: [id])
+  competition    Competition          @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  industryType   IndustryType?        @relation(fields: [industryTypeId], references: [id], onDelete: SetNull)
   // 区域归属：一个公司仅属一个区域；删除区域时 regionId 置空（SetNull），不级联删公司
   regionId       Int?
   region         Region?              @relation(fields: [regionId], references: [id], onDelete: SetNull)
@@ -464,6 +482,8 @@ model Company {
   stocks         Stock[]              // 关联的上市股票（股票系统）
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
+
+  @@index([competitionId, updatedAt])
 }
 
 model CompanyFieldValue {
@@ -518,6 +538,8 @@ model Contract {
   fieldEffects    ContractFieldEffect[]
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+
+  @@index([competitionId, updatedAt])
 }
 
 // ContractFieldEffect：合同执行时对某产业字段造成的单次改写（叶子效果）的不可变记录。
@@ -565,6 +587,7 @@ model Message {
   updatedAt     DateTime @updatedAt
 
   @@index([competitionId])
+  @@index([competitionId, updatedAt])
   @@index([senderId])
 }
 
@@ -614,8 +637,8 @@ model Stock {
   round            Int       @default(0) // 已完成轮次（已生成的 K 线数）
   companyId        Int?      // 关联商赛公司（可选，用于低级管理范围匹配与展示）
   company          Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  competitionId    Int?
-  competition      Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId    Int
+  competition      Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   orders           StockOrder[]
   holdings         StockHolding[]
   candles          StockCandle[]
@@ -623,6 +646,7 @@ model Stock {
   updatedAt        DateTime  @updatedAt
 
   @@unique([competitionId, code])
+  @@index([competitionId, updatedAt])
 }
 
 // 资金账户：现金账户，用于买卖任意股票。ownerType=COMPANY 时归属某公司，=USER 时归属某用户。
@@ -634,14 +658,15 @@ model StockFundsAccount {
   userId        Int?      // ownerType=USER 时指向 User.id（自己的账户）
   cashBalance   Float     @default(1000000) // 现金余额（元）
   bindFieldId   Int?      // 绑定产业字段 ID（仅公司账户），现金将同步该字段值
-  competitionId Int?
-  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId Int
+  competition   Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   orders        StockOrder[]
   holdings       StockHolding[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@unique([competitionId, name])
+  @@index([competitionId, updatedAt])
 }
 
 // 持仓：某资金账户持有某股票的数量与成本价。
@@ -653,12 +678,13 @@ model StockHolding {
   costPrice     Float     // 成本价（元/股）
   fundsAccount  StockFundsAccount @relation(fields: [fundsAccountId], references: [id], onDelete: Cascade)
   stock         Stock     @relation(fields: [stockId], references: [id], onDelete: Cascade)
-  competitionId Int?
-  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId Int
+  competition   Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@unique([fundsAccountId, stockId])
+  @@index([competitionId, updatedAt])
 }
 
 // 订单：玩家在某轮对某股票下的买卖委托。PENDING 在「下一轮」撮合后变 FILLED / CANCELLED。
@@ -674,12 +700,13 @@ model StockOrder {
   round         Int       @default(0) // 下单所属轮次
   fundsAccount  StockFundsAccount @relation(fields: [fundsAccountId], references: [id], onDelete: Cascade)
   stock         Stock     @relation(fields: [stockId], references: [id], onDelete: Cascade)
-  competitionId Int?
-  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId Int
+  competition   Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([competitionId, stockId, round, status])
+  @@index([competitionId, updatedAt])
 }
 
 // K 线：每轮每股票一根。close = 本轮最终价（限幅 ±10% 后的理论价）。
@@ -693,12 +720,13 @@ model StockCandle {
   close         Float
   changePct     Float     // 涨跌幅 % = (close-open)/open*100
   stock         Stock     @relation(fields: [stockId], references: [id], onDelete: Cascade)
-  competitionId Int?
-  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  competitionId Int
+  competition   Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@unique([stockId, round])
+  @@index([competitionId, updatedAt])
 }
 
 // 审计日志（R10 安全加固）：数据库写操作与异常上下文落库。

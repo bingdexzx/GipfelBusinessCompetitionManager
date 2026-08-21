@@ -13,9 +13,8 @@ export class CreateMapNodeTypeDto {
   @IsString()
   color?: string;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateMapNodeTypeDto {
@@ -45,9 +44,8 @@ export class CreatePathTypeDto {
   @IsString()
   color?: string;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdatePathTypeDto {
@@ -83,9 +81,8 @@ export class CreateMapNodeDto {
   @Min(0)
   y: number;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateMapNodeDto {
@@ -135,9 +132,8 @@ export class CreateMapEdgeDto {
   @IsNumber()
   pathTypeId?: number;
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateMapEdgeDto {

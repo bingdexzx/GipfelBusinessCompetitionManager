@@ -26,9 +26,8 @@ export class CreateTechNodeDto {
   @Type(() => PrerequisiteItem)
   prerequisites?: PrerequisiteItem[];
 
-  @IsOptional()
   @IsInt()
-  competitionId?: number;
+  competitionId!: number;
 }
 
 export class UpdateTechNodeDto {
