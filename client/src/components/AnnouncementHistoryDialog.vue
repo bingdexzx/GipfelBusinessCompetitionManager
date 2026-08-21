@@ -1,7 +1,7 @@
 <template>
   <el-dialog v-model="model" title="更新记录" width="560px" append-to-body>
     <div
-      v-for="(a, i) in announcements"
+      v-for="(a, i) in displayAnnouncements"
       :key="a.version"
       class="ah-item"
       :class="{ 'ah-latest': i === 0 }"
@@ -27,6 +27,18 @@ const model = computed({
   get: () => props.modelValue,
   set: (v: boolean) => emit("update:modelValue", v),
 });
+
+// 历史更新记录里移除「点击不再显示…查看更新记录」这一句操作指引：
+// 该提示仅面向「版本更新后自动弹出的公告」（其带「不再显示」按钮），在历史记录查看场景无意义。
+// 数据本身保留不动，版本更新弹窗（AnnouncementDialog）继续正常显示该句。
+const STRIP_HINT_RE = /<p>\s*点击「不再显示」[\s\S]*?查看更新记录」\s*<\/p>\s*/g;
+
+const displayAnnouncements = computed(() =>
+  announcements.map((a) => ({
+    ...a,
+    content: a.content.replace(STRIP_HINT_RE, ""),
+  })),
+);
 </script>
 
 <style scoped>
