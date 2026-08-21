@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "vite build && electron-builder",
+    "electron:build:linux": "vite build && electron-builder --linux",
     "electron:preview": "vite build && electron .",
     "lint": "eslint \"src/**/*.{ts,vue}\" --fix",
     "lint:check": "eslint \"src/**/*.{ts,vue}\"",
@@ -51,8 +52,7 @@
   "build": {
     "appId": "gipfel.businesscompetitionmanager",
     "productName": "Gipfel商赛系统",
-    "artifactName": "Gipfel商赛系统 Setup ${version}-${arch}.${ext}",
-    "icon": "build/icon.ico",
+    "artifactName": "Gipfel商赛系统 ${version}-${platform}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -71,6 +71,35 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
     }
   }
 }
