@@ -12,7 +12,7 @@
     <div class="announcement-date">{{ current.date }}</div>
     <div class="announcement-content" v-html="current.content"></div>
     <template #footer>
-      <el-button type="primary" @click="onConfirm">不再显示</el-button>
+      <el-button type="primary" @click="onConfirm">确 定</el-button>
     </template>
   </el-dialog>
 </template>
