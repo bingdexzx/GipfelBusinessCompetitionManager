@@ -1747,6 +1747,29 @@ function computeBBox(): { x: number; y: number; w: number; h: number } | null {
 }
 
 /**
+ * 自动适配模式下背景图的显示矩形（等比 cover 铺满节点包围盒，保持图片原始比例、不变形、居中）。
+ * - 以图片原始像素尺寸为基准，按 cover 比例缩放使其覆盖节点包围盒，再居中放置。
+ * - auto 模式不依赖用户变换，仅作「未对齐时的占位底图」。
+ * 该函数被 backgroundConfig（auto 分支）与「进入编辑态 / 重置」初始化 transform 时复用，
+ * 保证从 auto 无缝切换到手动编辑时图片尺寸不跳变。
+ */
+function getAutoRect(): { x: number; y: number; w: number; h: number } {
+  const img = backgroundImage.value;
+  const iw = img?.naturalWidth || 800;
+  const ih = img?.naturalHeight || 600;
+  const box = bgBBox.value || { x: 0, y: 0, w: iw, h: ih };
+  const cover = Math.max(box.w / iw, box.h / ih);
+  const dw = iw * cover;
+  const dh = ih * cover;
+  return {
+    x: box.x + (box.w - dw) / 2,
+    y: box.y + (box.h - dh) / 2,
+    w: dw,
+    h: dh,
+  };
+}
+
+/**
  * 重新锚定背景覆盖框（仅 auto 模式）：
  * - 手动模式（bgTransform 已设置）：保持用户调整后的背景变换，不跟随节点。
  * - auto 模式：覆盖框始终等于「最新节点集合的包围盒 + 留白」，因此节点坐标变化
@@ -1874,22 +1897,31 @@ async function clearBackground() {
 const backgroundConfig = computed(() => {
   if (!backgroundImage.value) return null;
   const img = backgroundImage.value;
-  const box =
-    bgBBox.value ||
-    ({
-      x: 0,
-      y: 0,
-      w: img.naturalWidth || 800,
-      h: img.naturalHeight || 600,
-    } as { x: number; y: number; w: number; h: number });
   const t = bgTransform.value;
-  const scale = t?.scale ?? 1;
+  if (t) {
+    // 手动对齐模式：以图片「原始像素尺寸 × scale」显示（保持原始宽高比，不被拉伸），
+    // 位置 = 用户保存的世界坐标。尺寸只取决于图片本身与 scale，与节点集合无关，
+    // 因此重新进入界面时背景图位置/大小完全复现，不再随节点包围盒变化而偏移。
+    const scale = t.scale ?? 1;
+    return {
+      image: img,
+      x: t.x,
+      y: t.y,
+      width: (img.naturalWidth || 1) * scale,
+      height: (img.naturalHeight || 1) * scale,
+      draggable: bgEditMode.value,
+      listening: bgEditMode.value,
+      opacity: 0.85,
+    };
+  }
+  // 自动适配模式：等比 cover 铺满节点包围盒（保持图片原始比例，不变形），居中放置。
+  const r = getAutoRect();
   return {
     image: img,
-    x: t ? t.x : box.x,
-    y: t ? t.y : box.y,
-    width: box.w * scale,
-    height: box.h * scale,
+    x: r.x,
+    y: r.y,
+    width: r.w,
+    height: r.h,
     draggable: bgEditMode.value,
     listening: bgEditMode.value,
     opacity: 0.85,
@@ -1900,13 +1932,10 @@ const backgroundConfig = computed(() => {
 const bgScale = computed({
   get: () => bgTransform.value?.scale ?? 1,
   set: (v: number) => {
-    const box = bgBBox.value;
     if (!bgTransform.value) {
-      bgTransform.value = {
-        x: box?.x ?? 0,
-        y: box?.y ?? 0,
-        scale: v,
-      };
+      // 防御性初始化：以当前 auto 显示状态为基底，避免尺寸跳变。
+      const r = getAutoRect();
+      bgTransform.value = { x: r.x, y: r.y, scale: v };
     } else {
       bgTransform.value = { ...bgTransform.value, scale: v };
     }
@@ -1918,11 +1947,14 @@ function toggleBgEditMode() {
   if (!backgroundImage.value) return;
   const entering = !bgEditMode.value;
   if (entering && !bgTransform.value) {
-    const box = bgBBox.value;
+    // 以当前 auto 显示状态初始化，保证进入编辑态时图片尺寸不跳变，用户在原位置上微调。
+    const r = getAutoRect();
+    const iw = backgroundImage.value?.naturalWidth || 800;
+    const cover = r.w / iw;
     bgTransform.value = {
-      x: box?.x ?? 0,
-      y: box?.y ?? 0,
-      scale: 1,
+      x: r.x,
+      y: r.y,
+      scale: cover,
     };
   }
   bgEditMode.value = !bgEditMode.value;
@@ -1944,8 +1976,11 @@ function handleBgDragEnd(e: any) {
 
 /** 重置为自动适配（位置=节点包围盒左上、缩放=1）。 */
 function resetBgTransform() {
-  const box = bgBBox.value;
-  bgTransform.value = { x: box?.x ?? 0, y: box?.y ?? 0, scale: 1 };
+  // 重置为自动适配显示状态（等比 cover 铺满节点包围盒），而非固定 1 倍，避免尺寸跳变。
+  const r = getAutoRect();
+  const iw = backgroundImage.value?.naturalWidth || 800;
+  const cover = r.w / iw;
+  bgTransform.value = { x: r.x, y: r.y, scale: cover };
   persistTransform();
 }
 
