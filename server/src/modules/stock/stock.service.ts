@@ -35,6 +35,8 @@ export class StockService {
     private fields: CompanyFieldsService,
   ) {}
 
+  private _advanceLocks = new Map<number, Promise<void>>();
+
   private isSuper(user: ReqUser) {
     return user.role === "SUPER_ADMIN";
   }
@@ -992,54 +994,68 @@ export class StockService {
 
   async advanceRound(user: ReqUser, competitionId: number, dto: AdvanceRoundDto = {}) {
     if (!this.isHighManager(user)) throw new ForbiddenException("仅高级管理可推进轮次");
-    const where: Record<string, unknown> = { competitionId };
-    if (dto.stockIds && dto.stockIds.length) where.id = { in: dto.stockIds };
-    const stocks = await this.prisma.stock.findMany({ where });
-    const fieldMap = await this.resolveFieldValueMap(competitionId);
-    const results: any[] = [];
 
-    // S8：比赛级 stockConfig（缺失字段回退默认值），dto.stockConfig 可临时覆盖本轮
-    const baseConfig = await this.loadStockConfig(competitionId);
-    const stockConfig: StockConfig = dto.stockConfig ? { ...baseConfig, ...dto.stockConfig } : baseConfig;
-    const mmConfig = dto.marketMaker;
-
-    let totalMmOrders = 0;
-    for (const stock of stocks) {
-      await this.applyPbRound(stock);
-      // 连续封板判定（最近 3 根 K 线）
-      const recent = await this.prisma.stockCandle.findMany({
-        where: { stockId: stock.id, competitionId },
-        orderBy: { round: "desc" },
-        take: 3,
-      });
-      let up = 0;
-      let down = 0;
-      for (const c of recent) {
-        if (c.changePct >= 9.9) {
-          up++;
-          down = 0;
-        } else if (c.changePct <= -9.9) {
-          down++;
-          up = 0;
-        } else {
-          break;
-        }
-      }
-      // AI 做市商：在撮合前自动生成买卖挂单，提供流动性
-      const mm = await this.generateMarketMakerOrders(stock, competitionId, stockConfig, mmConfig, up, down);
-      totalMmOrders += mm.count;
-      const r = await this.advanceOneStock(stock, competitionId, fieldMap, stockConfig, up, down, mm.intervened);
-      if (r) results.push(r);
+    // Prevent concurrent advance for the same competition
+    if (this._advanceLocks.has(competitionId)) {
+      throw new ConflictException("轮次推进正在进行中，请稍候");
     }
-    const advanced = results.filter((x) => !x.skipped).length;
-    // S9：实时事件携带每轮定价诊断，前端可展开「定价诊断」面板
-    this.realtime.broadcastToCompetition(competitionId, "stock:round-advanced", {
-      competitionId,
-      count: advanced,
-      marketMakerOrders: totalMmOrders,
-      results,
-    });
-    return { advanced, skipped: results.length - advanced, results, marketMakerOrders: totalMmOrders };
+
+    let resolve!: () => void;
+    this._advanceLocks.set(competitionId, new Promise(r => resolve = r));
+
+    try {
+      const where: Record<string, unknown> = { competitionId };
+      if (dto.stockIds && dto.stockIds.length) where.id = { in: dto.stockIds };
+      const stocks = await this.prisma.stock.findMany({ where });
+      const fieldMap = await this.resolveFieldValueMap(competitionId);
+      const results: any[] = [];
+
+      // S8：比赛级 stockConfig（缺失字段回退默认值），dto.stockConfig 可临时覆盖本轮
+      const baseConfig = await this.loadStockConfig(competitionId);
+      const stockConfig: StockConfig = dto.stockConfig ? { ...baseConfig, ...dto.stockConfig } : baseConfig;
+      const mmConfig = dto.marketMaker;
+
+      let totalMmOrders = 0;
+      for (const stock of stocks) {
+        await this.applyPbRound(stock);
+        // 连续封板判定（最近 3 根 K 线）
+        const recent = await this.prisma.stockCandle.findMany({
+          where: { stockId: stock.id, competitionId },
+          orderBy: { round: "desc" },
+          take: 3,
+        });
+        let up = 0;
+        let down = 0;
+        for (const c of recent) {
+          if (c.changePct >= 9.9) {
+            up++;
+            down = 0;
+          } else if (c.changePct <= -9.9) {
+            down++;
+            up = 0;
+          } else {
+            break;
+          }
+        }
+        // AI 做市商：在撮合前自动生成买卖挂单，提供流动性
+        const mm = await this.generateMarketMakerOrders(stock, competitionId, stockConfig, mmConfig, up, down);
+        totalMmOrders += mm.count;
+        const r = await this.advanceOneStock(stock, competitionId, fieldMap, stockConfig, up, down, mm.intervened);
+        if (r) results.push(r);
+      }
+      const advanced = results.filter((x) => !x.skipped).length;
+      // S9：实时事件携带每轮定价诊断，前端可展开「定价诊断」面板
+      this.realtime.broadcastToCompetition(competitionId, "stock:round-advanced", {
+        competitionId,
+        count: advanced,
+        marketMakerOrders: totalMmOrders,
+        results,
+      });
+      return { advanced, skipped: results.length - advanced, results, marketMakerOrders: totalMmOrders };
+    } finally {
+      this._advanceLocks.delete(competitionId);
+      resolve();
+    }
   }
 
   private async advanceOneStock(

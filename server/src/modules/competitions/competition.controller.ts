@@ -16,6 +16,7 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
 import { RequirePermissions } from "../../permissions/permissions.decorator";
 import { NoCompetitionScope } from "../../common/decorators/no-competition-scope.decorator";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
 
 @Controller("competitions")
 @NoCompetitionScope()
@@ -24,16 +25,28 @@ export class CompetitionController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  findAll(
+  async findAll(
+    @CurrentUser() user: any,
     @Query("updatedAfter") updatedAfter?: string,
     @Query("requireExistingIds") requireExistingIds?: string,
   ) {
-    return this.service.findAll(updatedAfter, requireExistingIds === "true");
+    if (user.role === "SUPER_ADMIN") {
+      return this.service.findAll(updatedAfter, requireExistingIds === "true");
+    }
+    // Non-super-admin: only see their own competition
+    if (user.competitionId) {
+      return this.service.findOne(user.competitionId);
+    }
+    return [];
   }
 
   @Get(":id")
   @UseGuards(JwtAuthGuard)
-  findOne(@Param("id", ParseIntPipe) id: number) {
+  async findOne(@CurrentUser() user: any, @Param("id", ParseIntPipe) id: number) {
+    // Non-super-admin can only view their own competition
+    if (user.role !== "SUPER_ADMIN" && user.competitionId !== id) {
+      return null;
+    }
     return this.service.findOne(id);
   }
 

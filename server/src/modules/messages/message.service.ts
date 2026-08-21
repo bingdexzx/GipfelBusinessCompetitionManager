@@ -141,6 +141,11 @@ export class MessageService {
       throw new BadRequestException("未选择任何接收人");
     }
 
+    const MAX_RECIPIENTS = 500;
+    if (recipientIds.size > MAX_RECIPIENTS) {
+      throw new BadRequestException(`收件人数量超过上限（${MAX_RECIPIENTS}）`);
+    }
+
     const message = await this.prisma.message.create({
       data: {
         title: dto.title,

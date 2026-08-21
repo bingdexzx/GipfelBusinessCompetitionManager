@@ -65,6 +65,8 @@ function isLocalOrPrivateOrigin(origin: string): boolean {
 export class RealtimeGateway implements OnGatewayInit {
   private readonly logger = new Logger(RealtimeGateway.name);
 
+  private _replayThrottles = new Map<string, { count: number; resetAt: number }>();
+
   @WebSocketServer()
   server: Server;
 
@@ -81,10 +83,7 @@ export class RealtimeGateway implements OnGatewayInit {
 
   async handleConnection(client: Socket) {
     try {
-      const authToken =
-        client.handshake.auth && client.handshake.auth.token
-          ? client.handshake.auth.token
-          : client.handshake.query && (client.handshake.query.token as string);
+      const authToken = client.handshake.auth?.token;
       if (!authToken) {
         client.disconnect();
         return;
@@ -103,11 +102,17 @@ export class RealtimeGateway implements OnGatewayInit {
       // 解析调用者的比赛归属与角色，供 subscribe 时做房间归属校验（防跨比赛订阅）。
       const user = (await this.prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, role: true, competitionId: true, mustChangePassword: true },
+        select: { id: true, role: true, competitionId: true, mustChangePassword: true, tokenVersion: true },
       })) as any;
       if (!user) {
         // 账号已被删除：即便令牌尚未过期也不允许接入实时通道。
         client.disconnect();
+        return;
+      }
+      // TokenVersion check: kick old device sessions (same as HTTP JwtStrategy)
+      if (typeof payload.tv === "number" && payload.tv !== user.tokenVersion) {
+        client.emit("auth:required", { reason: "账号已在其他设备登录" });
+        client.disconnect(true);
         return;
       }
       if (user.mustChangePassword) {
@@ -127,8 +132,9 @@ export class RealtimeGateway implements OnGatewayInit {
     }
   }
 
-  handleDisconnect(_client: Socket) {
+  handleDisconnect(client: Socket) {
     // 断开时 socket.io 会自动清理房间归属，无需额外处理
+    this._replayThrottles.delete(client.id);
   }
 
   @SubscribeMessage("subscribe")
@@ -172,8 +178,21 @@ export class RealtimeGateway implements OnGatewayInit {
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { lastSeq?: number },
   ) {
+    // Rate limit: max 5 replays per minute per client
+    const now = Date.now();
+    const key = client.id;
+    let throttle = this._replayThrottles.get(key);
+    if (!throttle || now > throttle.resetAt) {
+      throttle = { count: 0, resetAt: now + 60_000 };
+      this._replayThrottles.set(key, throttle);
+    }
+    if (throttle.count >= 5) return { replayed: 0, error: "请求过于频繁" };
+    throttle.count++;
+
     if (!payload || typeof payload.lastSeq !== "number") return;
-    const events = this.realtime.getEventsAfter(payload.lastSeq);
+    // Validate lastSeq
+    const lastSeq = Math.max(0, Math.min(payload.lastSeq, Number.MAX_SAFE_INTEGER));
+    const events = this.realtime.getEventsAfter(lastSeq);
     if (events.length > 0) {
       client.emit("sync:replay:result", { events });
     } else {
