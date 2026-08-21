@@ -1,0 +1,87 @@
+name: Build Desktop App
+
+# 触发方式：
+#   1. 手动：仓库 Actions 页面 -> Build Desktop App -> Run workflow
+#   2. 自动：推送 v* 开头的 tag（如 v1.3.17）时触发
+# 说明：三平台同时构建较耗时，默认不绑定 push 到 main，避免每次提交都跑。
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  windows:
+    name: Windows (nsis ia32+x64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        working-directory: client
+        run: npm install
+      - name: Build & package
+        working-directory: client
+        run: npm run electron:build
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: client/release/*.exe
+
+  macos:
+    name: macOS (dmg x64+arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Apple Silicon runner 上交叉编译 x64 需要 Rosetta
+      - name: Install Rosetta
+        run: sudo softwareupdate --install-rosetta --agree-to-license
+      - name: Install dependencies
+        working-directory: client
+        run: npm install
+      - name: Build & package
+        working-directory: client
+        run: npm run electron:build -- --mac
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: client/release/*.dmg
+
+  linux:
+    name: Linux (AppImage+deb x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        working-directory: client
+        run: npm install
+      - name: Build & package
+        working-directory: client
+        run: npm run electron:build -- --linux --x64
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            client/release/*.AppImage
+            client/release/*.deb
+
+# 可选：代码签名
+#   macOS / Windows 未签名包仍可用，但 macOS 会被 Gatekeeper 拦截（需用户右键->打开绕过），
+#   Windows 会有 SmartScreen 警告。如需签名，在仓库 Settings -> Secrets 配置：
+#     CSC_LINK     签名的 p12(pfx) 证书下载链接（或 base64 内容）
+#     CSC_KEY_PASSWORD  证书密码
+#   electron-builder 检测到这两个变量会自动签名，无需改此文件。
