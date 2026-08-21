@@ -141,9 +141,10 @@ const loading = ref(false);
 const searchText = ref("");
 
 const filteredData = computed(() => {
-  if (!searchText.value) return data.value;
+  const list = Array.isArray(data.value) ? data.value : [];
+  if (!searchText.value) return list;
   const q = searchText.value.toLowerCase();
-  return data.value.filter((w) => w.name.toLowerCase().includes(q));
+  return list.filter((w) => String(w?.name ?? "").toLowerCase().includes(q));
 });
 
 const detailVisible = ref(false);
@@ -182,14 +183,16 @@ async function loadData() {
   try {
     if (!compStore.competitionId) {
       data.value = [];
+      loading.value = false;
       return;
     }
     const res = await api.get("/warehouses", {
       params: { competitionId: compStore.competitionId },
     });
-    data.value = res;
+    data.value = Array.isArray(res) ? res : [];
   } catch (e) {
     console.error("Failed to load warehouses:", e);
+    data.value = [];
   } finally {
     loading.value = false;
   }

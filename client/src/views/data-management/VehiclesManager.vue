@@ -221,13 +221,14 @@ const formRules = {
 };
 
 const filteredData = computed(() => {
-  if (!searchText.value) return data.value;
+  const list = Array.isArray(data.value) ? data.value : [];
+  if (!searchText.value) return list;
   const q = searchText.value.toLowerCase();
-  return data.value.filter(
+  return list.filter(
     (item) =>
-      String(item.name || "")
+      String(item?.name ?? "")
         .toLowerCase()
-        .includes(q) || String(item.fuelConsumptionPerKm ?? "").includes(q),
+        .includes(q) || String(item?.fuelConsumptionPerKm ?? "").includes(q),
   );
 });
 

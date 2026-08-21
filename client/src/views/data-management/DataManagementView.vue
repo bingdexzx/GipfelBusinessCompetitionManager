@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from "vue";
+import { computed, defineAsyncComponent, type Component } from "vue";
 import { useRoute } from "vue-router";
 import { moduleConfigs } from "@/config/dataModules";
 
@@ -16,18 +16,29 @@ const route = useRoute();
 const type = computed(() => (route.meta?.type as string) || "");
 const title = computed(() => (route.meta?.title as string) || "");
 
-const MANAGER_TYPES = [
-  "maps",
-  "parts",
-  "products",
-  "vehicles",
-  "tech-tree",
-  "materials",
-  "warehouses",
-  "production-lines",
-  "infrastructures",
-  "fuels",
-];
+// 一次性创建所有异步组件引用，避免 computed 里每次调用 defineAsyncComponent 工厂
+// 导致每次渲染返回新引用，Vue 反复判定组件类型变化、卸载重挂载、陷入 loading 死循环。
+const MANAGER_COMPONENTS: Record<string, Component> = {
+  maps: defineAsyncComponent(() => import("./MapsManager.vue")),
+  parts: defineAsyncComponent(() => import("./PartsManager.vue")),
+  products: defineAsyncComponent(() => import("./ProductsManager.vue")),
+  vehicles: defineAsyncComponent(() => import("./VehiclesManager.vue")),
+  "tech-tree": defineAsyncComponent(() => import("./TechTreeManager.vue")),
+  materials: defineAsyncComponent(() => import("./MaterialsManager.vue")),
+  warehouses: defineAsyncComponent(() => import("./WarehousesManager.vue")),
+  "production-lines": defineAsyncComponent(() =>
+    import("./ProductionLinesManager.vue"),
+  ),
+  infrastructures: defineAsyncComponent(() =>
+    import("./InfrastructureManager.vue"),
+  ),
+  fuels: defineAsyncComponent(() => import("./FuelManager.vue")),
+};
+const DEFAULT_MANAGER: Component = defineAsyncComponent(() =>
+  import("@/components/common/DataManager.vue"),
+);
+
+const MANAGER_TYPES = Object.keys(MANAGER_COMPONENTS);
 
 const isManagerType = computed(() => MANAGER_TYPES.includes(type.value as string));
 
@@ -35,25 +46,9 @@ const currentConfig = computed(() =>
   isManagerType.value ? null : moduleConfigs[type.value] || null,
 );
 
-const managerComponent = computed(() => {
-  if (type.value === "maps") return defineAsyncComponent(() => import("./MapsManager.vue"));
-  if (type.value === "parts") return defineAsyncComponent(() => import("./PartsManager.vue"));
-  if (type.value === "products") return defineAsyncComponent(() => import("./ProductsManager.vue"));
-  if (type.value === "vehicles") return defineAsyncComponent(() => import("./VehiclesManager.vue"));
-  if (type.value === "tech-tree")
-    return defineAsyncComponent(() => import("./TechTreeManager.vue"));
-  if (type.value === "materials")
-    return defineAsyncComponent(() => import("./MaterialsManager.vue"));
-  if (type.value === "warehouses")
-    return defineAsyncComponent(() => import("./WarehousesManager.vue"));
-  if (type.value === "production-lines")
-    return defineAsyncComponent(() => import("./ProductionLinesManager.vue"));
-  if (type.value === "infrastructures")
-    return defineAsyncComponent(() => import("./InfrastructureManager.vue"));
-  if (type.value === "fuels")
-    return defineAsyncComponent(() => import("./FuelManager.vue"));
-  return defineAsyncComponent(() => import("@/components/common/DataManager.vue"));
-});
+const managerComponent = computed(
+  () => MANAGER_COMPONENTS[type.value as string] ?? DEFAULT_MANAGER,
+);
 </script>
 
 <style scoped>

@@ -110,9 +110,10 @@ const data = ref<any[]>([]);
 const loading = ref(false);
 const searchText = ref("");
 const filteredData = computed(() => {
-  if (!searchText.value) return data.value;
+  const list = Array.isArray(data.value) ? data.value : [];
+  if (!searchText.value) return list;
   const q = searchText.value.toLowerCase();
-  return data.value.filter((p: any) => p.name.toLowerCase().includes(q));
+  return list.filter((p: any) => String(p?.name ?? "").toLowerCase().includes(q));
 });
 
 const detailVisible = ref(false),
@@ -157,9 +158,10 @@ async function loadData() {
     const res = await api.get("/production-lines", {
       params: { competitionId: compStore.competitionId },
     });
-    data.value = res;
+    data.value = Array.isArray(res) ? res : [];
   } catch (e) {
     console.error("Failed to load production lines:", e);
+    data.value = [];
   } finally {
     loading.value = false;
   }
