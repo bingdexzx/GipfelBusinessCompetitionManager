@@ -61,10 +61,12 @@ body {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--dur-base) var(--ease-standard),
-    border-color var(--dur-base) var(--ease-standard);
+    border-color var(--dur-base) var(--ease-standard),
+    transform var(--dur-base) var(--ease-out-expo);
 }
 .el-card:hover {
   box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 .el-card__header {
   border-bottom: 1px solid var(--color-border);
@@ -99,24 +101,37 @@ body {
 .el-button--primary:not(.is-plain):not(:disabled):active {
   transform: translateY(0);
 }
+// 按钮焦点态：统一发光环
+.el-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.2);
+}
+// 危险按钮 hover 统一
+.el-button--danger:not(.is-plain):not(:disabled):hover {
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+}
 
 // ===================== Table =====================
 .el-table {
   --el-table-border-color: var(--color-border);
   --el-table-header-bg-color: #fafbfe;
   border-radius: var(--radius-md);
+  overflow: hidden;
 }
 .el-table th.el-table__cell {
   background: #fafbfe !important;
   color: var(--color-text-secondary);
   font-weight: 600;
   font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .el-table td.el-table__cell {
   color: var(--el-text-color-regular);
 }
 .el-table .el-table__row {
-  transition: background-color var(--dur-fast) var(--ease-standard);
+  transition: background-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
 }
 .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
   background: var(--el-color-primary-light-9);
@@ -134,12 +149,31 @@ body {
 .el-textarea__inner {
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 1px var(--color-border) inset;
-  transition: box-shadow var(--dur-fast) var(--ease-standard);
+  transition: box-shadow var(--dur-base) var(--ease-out-expo),
+    border-color var(--dur-base) var(--ease-out-expo);
 }
 .el-input__wrapper.is-focus,
 .el-textarea__inner:focus {
   box-shadow: 0 0 0 1px var(--el-color-primary) inset,
-    0 0 0 4px rgba(var(--color-primary-rgb), 0.12);
+    0 0 0 4px rgba(var(--color-primary-rgb), 0.1);
+  border-color: var(--color-primary);
+}
+
+// ===================== Breadcrumb =====================
+.el-breadcrumb__inner {
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+.el-breadcrumb__inner.is-link:hover {
+  color: var(--color-primary);
+}
+.el-breadcrumb__inner:last-child {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+.el-breadcrumb__separator {
+  color: var(--color-text-tertiary);
 }
 
 // ===================== Dialog =====================
@@ -166,28 +200,32 @@ body {
 }
 
 // ===================== 弹窗打开时统一虚化整片背景 =====================
-// 遮罩层只负责半透明深色调；虚化由对 .app-layout 整体 filter:blur 实现。
-// 侧栏 + 标题栏 + 内容区走同一条规则、同一时机，效果一致、回退不慢半拍。
 .el-overlay {
-  background-color: rgba(15, 23, 42, 0.45);
-  // 遮罩淡出时长与 .app-layout 模糊恢复一致(0.12s)，两者同时发生
-  transition: opacity 0.12s var(--ease-standard);
+  background-color: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: opacity 0.18s var(--ease-out-expo);
 }
-// 缩短弹窗自身的进出场动画，关闭时更快让出背景恢复
+// 弹窗进出场：缩放 + 淡入淡出，更高级的质感
 .el-dialog,
-.el-dialog-fade-enter-active,
-.el-dialog-fade-leave-active,
 .el-overlay-dialog {
-  transition-duration: 0.12s;
+  transition: opacity 0.2s var(--ease-out-expo),
+    transform 0.2s var(--ease-out-expo);
+}
+.el-dialog-fade-enter-from {
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
+}
+.el-dialog-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.97) translateY(-4px);
 }
 .app-layout {
-  // 模糊恢复（关闭弹窗）为 0.01s
   transition: filter 0.01s var(--ease-standard);
 }
 body.modal-open .app-layout {
   filter: blur(4px);
-  // 进入虚化保持较快
-  transition: filter 0.12s var(--ease-standard);
+  transition: filter 0.18s var(--ease-out-expo);
 }
 
 // ===================== Pagination =====================
@@ -276,18 +314,59 @@ body.modal-open .app-layout {
 }
 
 // ===================== Route transition =====================
-.fade-slide-enter-active,
+.fade-slide-enter-active {
+  transition: opacity var(--dur-slow) var(--ease-out-expo),
+    transform var(--dur-slow) var(--ease-out-expo);
+}
 .fade-slide-leave-active {
   transition: opacity var(--dur-base) var(--ease-standard),
     transform var(--dur-base) var(--ease-standard);
 }
 .fade-slide-enter-from {
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateY(12px) scale(0.99);
 }
 .fade-slide-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-6px) scale(0.995);
+}
+
+// ===================== Entrance animations =====================
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.anim-fade-in-up {
+  animation: fade-in-up var(--dur-slow) var(--ease-out-expo) both;
+  animation-delay: var(--anim-delay, 0ms);
+}
+
+.anim-fade-in-scale {
+  animation: fade-in-scale var(--dur-slow) var(--ease-out-expo) both;
+  animation-delay: var(--anim-delay, 0ms);
+}
+
+// Stagger children: parent sets this, children use --anim-delay via nth-child
+.anim-stagger > * {
+  --anim-delay: calc((var(--stagger-index, 0)) * 60ms);
 }
 
 // ===================== Loading =====================

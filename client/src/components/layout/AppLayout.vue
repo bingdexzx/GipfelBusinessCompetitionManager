@@ -150,9 +150,10 @@ onBeforeUnmount(() => {
   right: -120px;
   width: 420px;
   height: 420px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.1), rgba(6, 182, 212, 0) 70%);
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.08), rgba(6, 182, 212, 0) 70%);
   pointer-events: none;
   z-index: 0;
+  animation: glow-drift 20s ease-in-out infinite alternate;
 }
 .app-main::after {
   content: "";
@@ -161,9 +162,14 @@ onBeforeUnmount(() => {
   left: 200px;
   width: 380px;
   height: 380px;
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.08), rgba(139, 92, 246, 0) 70%);
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.06), rgba(139, 92, 246, 0) 70%);
   pointer-events: none;
   z-index: 0;
+  animation: glow-drift 25s ease-in-out infinite alternate-reverse;
+}
+@keyframes glow-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(30px, 20px) scale(1.1); }
 }
 .app-content {
   position: relative;

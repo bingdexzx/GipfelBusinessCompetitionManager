@@ -64,13 +64,13 @@ function handleLogout() {
 <style scoped>
 .topbar {
   height: var(--topbar-height);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-bottom: 1px solid var(--color-border);
   box-shadow:
     0 1px 0 rgba(16, 24, 40, 0.02),
-    0 2px 8px rgba(16, 24, 40, 0.03);
+    0 4px 16px rgba(16, 24, 40, 0.04);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -78,6 +78,16 @@ function handleLogout() {
   flex-shrink: 0;
   position: relative;
   z-index: 5;
+}
+.topbar::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.15) 30%, rgba(139, 92, 246, 0.15) 70%, transparent 100%);
+  pointer-events: none;
 }
 .topbar-left {
   display: flex;

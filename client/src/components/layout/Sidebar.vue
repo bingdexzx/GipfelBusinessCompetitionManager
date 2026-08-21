@@ -272,13 +272,14 @@ const activeMenu = computed(() => {
 .sidebar {
   width: var(--sidebar-width);
   height: 100vh;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfe 100%);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   user-select: none;
   position: relative;
   overflow: hidden;
+  z-index: 10;
 }
 .sidebar::before {
   content: "";
@@ -360,21 +361,23 @@ const activeMenu = computed(() => {
   border-radius: var(--radius-sm);
   font-size: 13.5px;
   color: var(--color-text-secondary);
-  transition: all var(--dur-fast) var(--ease-standard);
+  transition: all var(--dur-base) var(--ease-out-expo);
+  position: relative;
+  overflow: hidden;
 }
+// Hover: 渐变背景滑入 + 图标微移
 .sidebar-menu :deep(.el-sub-menu__title:hover),
 .sidebar-menu :deep(.el-menu-item:not(.is-active):hover) {
   background: var(--el-color-primary-light-9);
   color: var(--color-primary);
+  transform: translateX(2px);
 }
 .sidebar-menu :deep(.el-menu-item.is-active) {
   position: relative;
   background: var(--gradient-brand-soft);
   color: var(--color-primary);
   font-weight: 600;
-}
-.sidebar-menu :deep(.el-menu-item) {
-  position: relative;
+  transform: translateX(2px);
 }
 .msg-badge {
   margin-left: auto;
