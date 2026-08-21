@@ -3,9 +3,10 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0.."
 
 REM ============================================================
-REM  日志：所有外部命令输出同时上屏并写入 tools/update_server.log，
-REM  便于出错后回看。改用纯 cmd 实现（不再依赖 powershell 管道），
-REM  避免管道内 pause 失效导致的窗口闪退。
+REM  Log: all external command output is shown on screen AND written
+REM  to tools/update_server.log for post-mortem. Pure cmd only (no
+REM  shell pipe wrapper) so that `pause` still works inside the console
+REM  and the window never auto-closes on error.
 REM ============================================================
 set "_LOG=%~dp0update_server.log"
 set "_TMP=%TEMP%\update_server_tmp.txt"
@@ -15,7 +16,6 @@ echo ============================================================ >> "%_LOG%"
 
 REM ============================================================
 REM  Gipfel server one-click update (deploy to production host)
-REM
 REM  Steps:
 REM    1. check prerequisites (git / pm2)
 REM    2. stop PM2  (gipfel-server)
@@ -25,7 +25,6 @@ REM    5. npm install (server)
 REM    6. npm run build (shared + nest)
 REM    7. prisma db push (migrate schema)
 REM    8. pm2 restart / start
-REM
 REM  Requires: git, Node.js + npm, PM2.
 REM  PM2 first-time setup: cd server ^&^& pm2 start dist/main.js --name gipfel-server
 REM ============================================================
@@ -48,10 +47,11 @@ if errorlevel 1 (
     echo [WARN] PM2 not found. Skip start/stop; install with: npm install -g pm2
 )
 
-REM 友好提示：server/.env 不存在时 JWT_SECRET 等无法加载
+REM friendly hint: missing server/.env means JWT_SECRET etc. won't load
 if not exist "server\.env" (
-    echo [WARN] server/.env 不存在：JWT_SECRET 等变量将无法加载，服务启动会失败。
-    echo         请从 server/.env.example 复制为 .env 并填入 JWT_SECRET，或设置系统环境变量。
+    echo [WARN] server/.env not found: JWT_SECRET and other vars will be missing,
+    echo         server will fail to start. Copy server/.env.example to server/.env
+    echo         and fill JWT_SECRET, or set system environment variables.
 )
 
 echo.
@@ -140,7 +140,7 @@ echo ============================================================
 echo [OK] Update finished. Health check:
 echo      curl http://localhost:3000/api/ping
 echo ============================================================
-echo 本次运行日志已保存至：tools\update_server.log
+echo  Run log saved to: tools\update_server.log
 echo Press any key to close this window.
 pause >nul
 exit /b 0
@@ -151,7 +151,7 @@ echo ============================================================
 echo [ABORT] Update aborted. If the server was stopped, restart:
 echo         pm2 restart gipfel-server
 echo ============================================================
-echo 错误详情见日志：tools\update_server.log（与脚本同目录）
+echo  Error details in log: tools\update_server.log (same dir as script)
 echo Press any key to close this window.
 pause
 exit /b 1
