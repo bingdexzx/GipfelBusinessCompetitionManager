@@ -7,7 +7,7 @@
       <div class="app-content">
         <router-view v-slot="{ Component }">
           <transition name="fade-slide" mode="out-in">
-            <div :key="route.fullPath" class="route-wrap">
+            <div class="route-wrap">
               <component :is="Component" :key="route.fullPath" />
             </div>
           </transition>
