@@ -1,6 +1,7 @@
 import { IsString, MinLength, IsOptional, IsIn, IsInt, IsArray } from "class-validator";
 import { Transform } from "class-transformer";
 import { IsPasswordStrong } from "../../common/validators/password.validator";
+import { UserRole } from "@prisma/client";
 
 export class CreateUserDto {
   @IsString()
@@ -13,7 +14,7 @@ export class CreateUserDto {
   @IsOptional()
   @Transform(({ value }) => (value === "" || value === null ? undefined : value))
   @IsIn(["SUPER_ADMIN", "COMPETITION_ADMIN", "PLAYER"])
-  role?: string;
+  role?: UserRole;
 
   @IsOptional()
   @IsString()
@@ -62,7 +63,7 @@ export class CreateUserDto {
 export class UpdateUserDto {
   @IsOptional()
   @IsIn(["SUPER_ADMIN", "COMPETITION_ADMIN", "PLAYER"])
-  role?: string;
+  role?: UserRole;
 
   @IsOptional()
   @IsString()

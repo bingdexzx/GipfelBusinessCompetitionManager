@@ -9,6 +9,7 @@ import * as path from "path";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { CreateMessageDto, MessageImageDto } from "./dto/message.dto";
+import { validateMessageImages } from "../../common/validators/json-schema";
 
 interface Actor {
   id: number;
@@ -112,6 +113,13 @@ export class MessageService {
   }
 
   async create(actor: Actor, dto: CreateMessageDto) {
+    // 校验 images JSON
+    if (dto.images && dto.images.length > 0) {
+      const validation = validateMessageImages(JSON.stringify(dto.images));
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
+    }
     // 超管可经 dto.competitionId 把收件范围收敛到指定比赛；归属账号忽略该字段，
     // 恒以自身 competitionId 为准。不传 competitionId 时超管作用于全部比赛（全站广播）。
     const selectable = await this.getSelectableUsers(actor, dto.competitionId);

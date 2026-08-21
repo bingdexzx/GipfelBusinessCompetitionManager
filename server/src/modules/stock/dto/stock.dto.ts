@@ -9,6 +9,7 @@ import {
   IsArray,
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
+import { OrderSide } from "@prisma/client";
 
 // 创建股票时填入的「基础信息」（对应 Excel「基础信息」表前 8 列）。
 // 初始价 initPrice 由公式自动算：ROUND(initNetProfit*10000/totalShares/industryPE, 2)。
@@ -259,7 +260,7 @@ export class CreateOrderDto {
   fundsAccountId: number;
 
   @IsIn(["BUY", "SELL"])
-  side: "BUY" | "SELL";
+  side: OrderSide;
 
   @Type(() => Number)
   @IsNumber()

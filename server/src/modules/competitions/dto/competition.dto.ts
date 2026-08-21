@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsIn, IsObject, IsInt, Min, Max } from "class-validator";
+import { CompetitionStatus, FiscalYearStatus } from "@prisma/client";
 
 export class CreateCompetitionDto {
   @IsString()
@@ -12,7 +13,7 @@ export class UpdateCompetitionDto {
 
   @IsOptional()
   @IsIn(["ACTIVE", "CLOSED"])
-  status?: string;
+  status?: CompetitionStatus;
 
   // 股票系统全局配置（JSON，S8）：比赛级 stockConfig，缺失字段回退默认值
   @IsOptional()
@@ -30,6 +31,6 @@ export class CreateFiscalYearDto {
 export class UpdateFiscalYearDto {
   @IsOptional()
   @IsString()
-  @IsIn(["OPEN", "CLOSED"])
-  status?: string;
+  @IsIn(["ACTIVE", "CLOSED"])
+  status?: FiscalYearStatus;
 }

@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsInt, IsIn, IsObject } from "class-validator";
+import { ContractStatus } from "@prisma/client";
 
 // 合同实例 DTO（创建即存草稿，编号分步补全）。
 // parties: JSON [{role:"A",companyId:5,isHost:false,contractNumber:"HT-001"}, ...]
@@ -40,5 +41,5 @@ export class UpdatePartyNumbersDto {
 export class UpdateContractStatusDto {
   @IsString()
   @IsIn(["TERMINATED"])
-  status: string;
+  status: ContractStatus;
 }

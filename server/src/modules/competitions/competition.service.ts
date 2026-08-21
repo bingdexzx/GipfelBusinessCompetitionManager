@@ -4,6 +4,7 @@ import { CreateCompetitionDto, UpdateCompetitionDto } from "./dto/competition.dt
 import { RealtimeService } from "../../realtime/realtime.service";
 import { CompanyFieldsService } from "../company-fields/company-fields.service";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
+import { FiscalYearStatus } from "@prisma/client";
 
 @Injectable()
 export class CompetitionService {
@@ -14,7 +15,7 @@ export class CompetitionService {
     private companyFields: CompanyFieldsService,
   ) {}
 
-  async findAll(updatedAfter?: string, requireExistingIds = false) {
+  async findAll(updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere = {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
@@ -23,10 +24,10 @@ export class CompetitionService {
           include: { fiscalYears: true, _count: { select: { users: true, companies: true } } },
           orderBy: { updatedAt: "desc" },
         });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.competition.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(items, existingIds);
+      return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
     return this.prisma.competition.findMany({
       where,
@@ -99,7 +100,7 @@ export class CompetitionService {
     return created;
   }
 
-  async updateFiscalYear(id: number, dto: { status?: string }) {
+  async updateFiscalYear(id: number, dto: { status?: FiscalYearStatus }) {
     const fy = await this.prisma.fiscalYear.findUnique({ where: { id } });
     if (!fy) throw new NotFoundException("财年不存在");
     const prevStatus = fy.status;

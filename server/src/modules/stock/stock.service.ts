@@ -16,6 +16,7 @@ import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { RegionService } from "../regions/region.service";
 import { CompanyFieldsService } from "../company-fields/company-fields.service";
+import { validateStockFieldRef, validateStockIndustryAvgCarbonRefs } from "../../common/validators/json-schema";
 
 export interface ReqUser {
   id: number;
@@ -428,16 +429,24 @@ export class StockService {
     if (!competitionId) throw new BadRequestException("缺少比赛上下文");
     const existing = await this.prisma.stock.findFirst({ where: { competitionId, code: dto.code } });
     if (existing) throw new ConflictException("股票代码已存在");
-    // 校验绑定引用格式（非空但非法则拒绝）
-    if (dto.carbonFieldRef && !this.parseFieldRef(dto.carbonFieldRef)) {
-      throw new BadRequestException("carbonFieldRef 格式非法，应为 JSON {region, cardId}");
+    // 校验绑定引用格式（Zod）
+    if (dto.carbonFieldRef) {
+      const validation = validateStockFieldRef(dto.carbonFieldRef);
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
     }
-    if (dto.happinessFieldRef && !this.parseFieldRef(dto.happinessFieldRef)) {
-      throw new BadRequestException("happinessFieldRef 格式非法，应为 JSON {region, cardId}");
+    if (dto.happinessFieldRef) {
+      const validation = validateStockFieldRef(dto.happinessFieldRef);
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
     }
-    // 行业碳排均值多字段绑定：非空但非法（非数组或含非法项）则拒绝。
-    if (dto.industryAvgCarbonRefs && this.parseFieldRefs(dto.industryAvgCarbonRefs).length === 0) {
-      throw new BadRequestException("industryAvgCarbonRefs 格式非法，应为 JSON [{region, cardId}, ...]");
+    if (dto.industryAvgCarbonRefs) {
+      const validation = validateStockIndustryAvgCarbonRefs(dto.industryAvgCarbonRefs);
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
     }
     const pb = await this.computePbData(null, dto);
     const initPrice = computeInitPrice(dto.initNetProfit, dto.totalShares, pb.industryPE);
@@ -485,20 +494,29 @@ export class StockService {
     if (dto.industryAvgCarbon !== undefined) data.industryAvgCarbon = dto.industryAvgCarbon;
     if (dto.happiness !== undefined) data.happiness = dto.happiness;
     if (dto.carbonFieldRef !== undefined) {
-      if (dto.carbonFieldRef && !this.parseFieldRef(dto.carbonFieldRef)) {
-        throw new BadRequestException("carbonFieldRef 格式非法，应为 JSON {region, cardId}");
+      if (dto.carbonFieldRef) {
+        const validation = validateStockFieldRef(dto.carbonFieldRef);
+        if (!validation.success) {
+          throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+        }
       }
       data.carbonFieldRef = dto.carbonFieldRef ?? null;
     }
     if (dto.happinessFieldRef !== undefined) {
-      if (dto.happinessFieldRef && !this.parseFieldRef(dto.happinessFieldRef)) {
-        throw new BadRequestException("happinessFieldRef 格式非法，应为 JSON {region, cardId}");
+      if (dto.happinessFieldRef) {
+        const validation = validateStockFieldRef(dto.happinessFieldRef);
+        if (!validation.success) {
+          throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+        }
       }
       data.happinessFieldRef = dto.happinessFieldRef ?? null;
     }
     if (dto.industryAvgCarbonRefs !== undefined) {
-      if (dto.industryAvgCarbonRefs && this.parseFieldRefs(dto.industryAvgCarbonRefs).length === 0) {
-        throw new BadRequestException("industryAvgCarbonRefs 格式非法，应为 JSON [{region, cardId}, ...]");
+      if (dto.industryAvgCarbonRefs) {
+        const validation = validateStockIndustryAvgCarbonRefs(dto.industryAvgCarbonRefs);
+        if (!validation.success) {
+          throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+        }
       }
       data.industryAvgCarbonRefs = dto.industryAvgCarbonRefs ?? null;
     }

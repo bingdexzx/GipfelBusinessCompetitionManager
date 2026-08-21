@@ -5,6 +5,7 @@ import { CompanyFieldsService } from "../company-fields/company-fields.service";
 import { CreateRegionDto, UpdateRegionDto, SaveOverviewCardsDto } from "./dto/region.dto";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
+import { validateRegionOverviewCards } from "../../common/validators/json-schema";
 
 function parseCards(json: string): any[] {
   try {
@@ -55,6 +56,13 @@ export class RegionService {
   }
 
   async create(dto: CreateRegionDto) {
+    // 校验 overviewCards JSON
+    if (dto.overviewCards && dto.overviewCards.length > 0) {
+      const validation = validateRegionOverviewCards(JSON.stringify(dto.overviewCards));
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
+    }
     const region = await this.prisma.region.create({
       data: {
         name: dto.name,
@@ -68,6 +76,13 @@ export class RegionService {
   }
 
   async update(id: number, dto: UpdateRegionDto) {
+    // 校验 overviewCards JSON
+    if (dto.overviewCards && dto.overviewCards.length > 0) {
+      const validation = validateRegionOverviewCards(JSON.stringify(dto.overviewCards));
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
+    }
     await this.findOne(id);
     const region = await this.prisma.region.update({
       where: { id },

@@ -276,6 +276,107 @@ export function validateGraph(raw: string): ValidationResult<z.infer<typeof Grap
   return validateWithSchema(raw, GraphSchema);
 }
 
+// ========== Material.nodePrices 校验 ==========
+
+const NodePricesSchema = z.record(z.string(), z.number().nonnegative());
+
+/**
+ * 校验 Material.nodePrices JSON 字符串
+ * @example
+ * ```json
+ * { "node1": 100, "node2": 200 }
+ * ```
+ */
+export function validateMaterialNodePrices(raw: string): ValidationResult<z.infer<typeof NodePricesSchema>> {
+  return validateWithSchema(raw, NodePricesSchema);
+}
+
+// ========== Region.overviewCards 校验 ==========
+
+const OverviewCardSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  companyId: z.number().int(),
+  industryFieldId: z.number().int(),
+  zone: z.string().optional(),
+});
+
+const OverviewCardsSchema = z.array(OverviewCardSchema);
+
+/**
+ * 校验 Region.overviewCards JSON 字符串
+ * @example
+ * ```json
+ * [
+ *   { "id": "card1", "displayName": "碳排放", "companyId": 1, "industryFieldId": 5, "zone": "top" }
+ * ]
+ * ```
+ */
+export function validateRegionOverviewCards(raw: string): ValidationResult<z.infer<typeof OverviewCardsSchema>> {
+  return validateWithSchema(raw, OverviewCardsSchema);
+}
+
+// ========== Message.images 校验 ==========
+
+const MessageImageSchema = z.object({
+  url: z.string(),
+  filename: z.string(),
+});
+
+const MessageImagesSchema = z.array(MessageImageSchema);
+
+/**
+ * 校验 Message.images JSON 字符串
+ * @example
+ * ```json
+ * [
+ *   { "url": "/uploads/message-images/msg-1-123.png", "filename": "msg-1-123.png" }
+ * ]
+ * ```
+ */
+export function validateMessageImages(raw: string): ValidationResult<z.infer<typeof MessageImagesSchema>> {
+  return validateWithSchema(raw, MessageImagesSchema);
+}
+
+// ========== Stock field refs 校验 ==========
+
+const FieldRefSchema = z.object({
+  companyId: z.number().int(),
+  fieldKey: z.string(),
+}).nullable();
+
+/**
+ * 校验 Stock.carbonFieldRef / happinessFieldRef JSON 字符串
+ * @example
+ * ```json
+ * { "companyId": 1, "fieldKey": "carbonEmission" }
+ * ```
+ */
+export function validateStockFieldRef(raw: string): ValidationResult<z.infer<typeof FieldRefSchema>> {
+  return validateWithSchema(raw, FieldRefSchema);
+}
+
+const IndustryAvgCarbonRefSchema = z.object({
+  companyId: z.number().int(),
+  fieldKey: z.string(),
+});
+
+const IndustryAvgCarbonRefsSchema = z.array(IndustryAvgCarbonRefSchema).nullable();
+
+/**
+ * 校验 Stock.industryAvgCarbonRefs JSON 字符串
+ * @example
+ * ```json
+ * [
+ *   { "companyId": 1, "fieldKey": "carbonEmission" },
+ *   { "companyId": 2, "fieldKey": "carbonEmission" }
+ * ]
+ * ```
+ */
+export function validateStockIndustryAvgCarbonRefs(raw: string): ValidationResult<z.infer<typeof IndustryAvgCarbonRefsSchema>> {
+  return validateWithSchema(raw, IndustryAvgCarbonRefsSchema);
+}
+
 // ========== 统一校验入口 ==========
 
 /**

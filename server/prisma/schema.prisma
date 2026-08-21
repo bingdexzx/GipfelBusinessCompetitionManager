@@ -7,19 +7,48 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ========== 枚举值定义（注释形式） ==========
-// 由于 SQLite 不支持原生 enum，使用 String + 注释定义合法值
-// UserRole: SUPER_ADMIN | COMPETITION_ADMIN | PLAYER
-// ContractStatus: DRAFT | PENDING_EXEC | EXECUTED | TERMINATED
-// OrderSide: BUY | SELL
-// OrderStatus: PENDING | FILLED | CANCELLED
-// FiscalYearStatus: ACTIVE | CLOSED
+// ========== 枚举定义 ==========
+// Prisma 在 SQLite 上以字符串形式存储枚举，提供类型安全
+
+enum UserRole {
+  SUPER_ADMIN
+  COMPETITION_ADMIN
+  PLAYER
+}
+
+enum CompetitionStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum FiscalYearStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum ContractStatus {
+  DRAFT
+  PENDING_EXEC
+  EXECUTED
+  TERMINATED
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  PENDING
+  FILLED
+  CANCELLED
+}
 
 model User {
   id            Int         @id @default(autoincrement())
   username      String      @unique
   passwordHash  String
-  role          String      @default("PLAYER") // SUPER_ADMIN | COMPETITION_ADMIN | PLAYER
+  role          UserRole    @default(PLAYER)
   displayName   String?
   competitionId Int?
   competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
@@ -56,7 +85,7 @@ model FiscalYear {
   id            Int         @id @default(autoincrement())
   competitionId Int
   year          Int
-  status        String      @default("ACTIVE") // ACTIVE | CLOSED
+  status        FiscalYearStatus @default(ACTIVE)
   competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -68,7 +97,7 @@ model FiscalYear {
 model Competition {
   id              Int                @id @default(autoincrement())
   name            String             @unique
-  status          String             @default("ACTIVE") // ACTIVE, ARCHIVED
+  status          CompetitionStatus  @default(ACTIVE)
   fiscalYears     FiscalYear[]
   users           User[]
   companies       Company[]
@@ -526,7 +555,7 @@ model Contract {
   competitionId   Int
   contractTypeId  Int
   name            String
-  status          String       @default("DRAFT") // DRAFT, PENDING_EXEC, EXECUTED, TERMINATED
+  status          ContractStatus @default(DRAFT)
   parties         String       // JSON: [{role:"A",companyId:5,isHost:false}, ...]
   inputs          String       @default("{}") // JSON: 已填写的输入参数
   executionLog    String?      // JSON: 执行审计日志
@@ -692,11 +721,11 @@ model StockOrder {
   id            Int       @id @default(autoincrement())
   stockId       Int
   fundsAccountId Int
-  side          String    // BUY | SELL
+  side          OrderSide
   price         Float     // 委托价（元/股）
   quantity      Float     // 委托数量（股）
   amount        Float     // 金额 = price * quantity
-  status        String    @default("PENDING") // PENDING | FILLED | CANCELLED
+  status        OrderStatus @default(PENDING)
   round         Int       @default(0) // 下单所属轮次
   fundsAccount  StockFundsAccount @relation(fields: [fundsAccountId], references: [id], onDelete: Cascade)
   stock         Stock     @relation(fields: [stockId], references: [id], onDelete: Cascade)

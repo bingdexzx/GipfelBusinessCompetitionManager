@@ -1,23 +1,24 @@
-import { Injectable, NotFoundException, ConflictException } from "@nestjs/common";
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateMaterialDto, UpdateMaterialDto } from "./dto/material.dto";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
 import type { DeleteImpactItem, DeleteImpact } from "../../common/types/delete-impact";
+import { validateMaterialNodePrices } from "../../common/validators/json-schema";
 
 @Injectable()
 export class MaterialService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(page = 1, pageSize = 50, competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
+  async findAll(page = 1, pageSize = 50, competitionId?: number, updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere = competitionId ? { competitionId } : {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
       const items = await this.prisma.material.findMany({ where, orderBy: { updatedAt: "desc" } });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.material.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(items, existingIds);
+      return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
     const skip = (page - 1) * pageSize;
     const [items, total] = await Promise.all([
@@ -39,6 +40,13 @@ export class MaterialService {
   }
 
   async create(dto: CreateMaterialDto) {
+    // 校验 nodePrices JSON
+    if (dto.nodePrices) {
+      const validation = validateMaterialNodePrices(dto.nodePrices);
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
+    }
     const existing = await this.prisma.material.findFirst({
       where: { competitionId: dto.competitionId, name: dto.name },
     });
@@ -47,6 +55,13 @@ export class MaterialService {
   }
 
   async update(id: number, dto: UpdateMaterialDto) {
+    // 校验 nodePrices JSON
+    if (dto.nodePrices) {
+      const validation = validateMaterialNodePrices(dto.nodePrices);
+      if (!validation.success) {
+        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
+      }
+    }
     const item = await this.findOne(id);
     if (dto.name) {
       const existing = await this.prisma.material.findFirst({
