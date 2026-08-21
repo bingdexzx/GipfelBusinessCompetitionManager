@@ -10,4 +10,4 @@ import { CompanyFieldsModule } from "../company-fields/company-fields.module";
   providers: [ConsumerDemandService],
   exports: [ConsumerDemandService],
 })
-export class ConsumerDemandsModule {}
+export class ConsumerDemandModule {}

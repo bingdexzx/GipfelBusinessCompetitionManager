@@ -1,6 +1,19 @@
-// 默认服务端地址。用户可在“系统设置”中修改，修改后写入 localStorage 的 serverUrl。
+import { ref } from "vue";
+
+// 默认服务端地址。用户可在"系统设置"中修改，修改后写入 localStorage 的 serverUrl。
 // 集中定义以避免在多个文件中重复硬编码。
-export const DEFAULT_SERVER_URL = "http://localhost:3000";
+export const DEFAULT_SERVER_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
+/**
+ * 全局版本封锁标志。
+ *
+ * 当客户端自身版本与服务端版本「不一致」时置为 true，作为请求拦截器与实时连接的
+ * 唯一封锁真源：被封锁后所有业务请求（除版本校验请求本身）一律不发网络，实时通道
+ * 也被断开，前端以不可关闭的提示层告知用户「请联系管理员获取最新版本」。
+ *
+ * 由 stores/version.ts 读写，api/request.ts 与 realtime/socket.ts 读取。
+ */
+export const versionBlocked = ref(false);
 
 /**
  * 规范化服务器地址：去空白、无协议时补 http://、去掉尾部斜杠，保留用户显式输入的 https。

@@ -1,7 +1,7 @@
 import { io, type Socket } from "socket.io-client";
-import { getApiBaseUrl } from "@/config";
-import { versionBlocked } from "@/version-block";
+import { getApiBaseUrl, versionBlocked } from "@/config";
 import { getAccountItem } from "@/utils/accountStorage";
+import { logger } from "@/utils/logger";
 
 let socket: Socket | null = null;
 // 记录当前 socket 连接所用的 baseUrl；serverUrl 变更后用于检测并重建单例。
@@ -46,7 +46,7 @@ export function connectRealtime(): Socket | null {
     reconnectionDelay: 2000,
   });
   socket.on("connect_error", (err: Error) => {
-    console.error("[Realtime] 连接失败:", err.message);
+    logger.error("[Realtime] 连接失败:", err.message);
   });
   // 断线自动重连成功（仅 reconnection，不含首次 connect）：通知业务层重订阅房间 + 回源刷新。
   socket.io.on("reconnect", () => {

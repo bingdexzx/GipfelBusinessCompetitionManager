@@ -10,4 +10,4 @@ import { RealtimeModule } from "../../realtime/realtime.module";
   providers: [FilesService],
   exports: [FilesService],
 })
-export class FilesModule {}
+export class FileModule {}

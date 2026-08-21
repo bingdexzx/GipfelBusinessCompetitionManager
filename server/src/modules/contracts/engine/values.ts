@@ -29,27 +29,11 @@ export {
   COND_KIND_LABEL,
 } from "@gipfel/engine-dsl";
 
-// ========== 纯函数工具 ==========
-
-/** 任意值转数字（布尔/空串/非有限值兜底为 0）。 */
-export function toNumber(v: any): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "boolean") return v ? 1 : 0;
-  if (v == null || v === "") return 0;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/** 真值判定：非 null、非空字符串、非零数字、非空数组 / 非空对象均视为真。 */
-export function isTruthy(v: any): boolean {
-  if (v == null) return false;
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number") return v !== 0;
-  if (typeof v === "string") return v.trim().length > 0;
-  if (Array.isArray(v)) return v.length > 0;
-  if (typeof v === "object") return Object.keys(v).length > 0;
-  return Boolean(v);
-}
+// ========== 纯函数工具（统一从 common/engine-ops 导出，此处 re-export 保持向后兼容） ==========
+import { toNumber as _toNumber, isTruthy as _isTruthy } from "../../../common/engine-ops";
+export { _toNumber as toNumber, _isTruthy as isTruthy };
+const toNumber = _toNumber;
+const isTruthy = _isTruthy;
 
 /** 把输入值规范为数字数组（支持数组、JSON 字符串数组、逗号分隔字符串）。 */
 export function toNumberArray(v: any): number[] {

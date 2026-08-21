@@ -24,13 +24,13 @@ import { WarehouseModule } from "./modules/warehouses/warehouse.module";
 import { ProductionLineModule } from "./modules/production-lines/production-line.module";
 import { CompetitionModule } from "./modules/competitions/competition.module";
 import { CompanyModule } from "./modules/companies/company.module";
-import { FilesModule } from "./modules/files/files.module";
+import { FileModule } from "./modules/files/files.module";
 import { IndustryTypeModule } from "./modules/industry-types/industry-type.module";
 import { CompanyFieldsModule } from "./modules/company-fields/company-fields.module";
 import { ContractsModule } from "./modules/contracts/contracts.module";
-import { RegionsModule } from "./modules/regions/region.module";
-import { ConsumerDemandsModule } from "./modules/consumer-demands/consumer-demand.module";
-import { MessagesModule } from "./modules/messages/message.module";
+import { RegionModule } from "./modules/regions/region.module";
+import { ConsumerDemandModule } from "./modules/consumer-demands/consumer-demand.module";
+import { MessageModule } from "./modules/messages/message.module";
 import { StockModule } from "./modules/stock/stock.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 
@@ -60,14 +60,14 @@ import { RealtimeModule } from "./realtime/realtime.module";
     WarehouseModule,
     ProductionLineModule,
     CompetitionModule,
-    FilesModule,
+    FileModule,
     CompanyModule,
     IndustryTypeModule,
     CompanyFieldsModule,
     ContractsModule,
-    RegionsModule,
-    ConsumerDemandsModule,
-    MessagesModule,
+    RegionModule,
+    ConsumerDemandModule,
+    MessageModule,
     StockModule,
     RealtimeModule,
   ],

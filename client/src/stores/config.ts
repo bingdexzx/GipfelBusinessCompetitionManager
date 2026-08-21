@@ -5,10 +5,11 @@ import {
   normalizeServerUrl,
   getApiBaseUrl,
   setServerUrl as persistServerUrl,
+  versionBlocked,
 } from "@/config";
 
 // 重新导出地址规范化工具，供视图层（如登录页）直接从本模块导入，保持一致来源。
-export { normalizeServerUrl, getApiBaseUrl };
+export { normalizeServerUrl, getApiBaseUrl, versionBlocked };
 
 export const useConfigStore = defineStore("config", () => {
   const serverUrl = ref(DEFAULT_SERVER_URL);

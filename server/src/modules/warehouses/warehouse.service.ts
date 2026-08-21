@@ -2,24 +2,26 @@ import { Injectable, NotFoundException, ConflictException } from "@nestjs/common
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateWarehouseDto, UpdateWarehouseDto } from "./dto/warehouse.dto";
 import { assertSameCompetition } from "../../common/scope";
-import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
+import { BaseCrudService } from "../../common/base-crud.service";
 import { DeleteImpact, DeleteImpactItem } from "../../common/types/delete-impact";
 
 @Injectable()
-export class WarehouseService {
-  constructor(private prisma: PrismaService) {}
+export class WarehouseService extends BaseCrudService {
+  constructor(protected readonly prisma: PrismaService) {
+    super(prisma);
+  }
 
   async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
-    const baseWhere = competitionId ? { competitionId } : {};
-    const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
-    if (incremental) {
-      const items = await this.prisma.warehouse.findMany({ where, orderBy: { updatedAt: "desc" } });
-      const existingIds = requireExistingIds
-        ? (await this.prisma.warehouse.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
-        : [];
-      return buildIncrementalResult(items, existingIds);
-    }
-    return this.prisma.warehouse.findMany({ where, orderBy: { updatedAt: "desc" } });
+    // 仓库无分页，使用极大 pageSize 获取全部数据，返回原始数组保持 API 兼容
+    const result = await this.findAllGeneric(this.prisma.warehouse, {
+      page: 1,
+      pageSize: 10000,
+      competitionId,
+      updatedAfter,
+      requireExistingIds,
+    });
+    // 增量模式返回 IncrementalListResult（含 existingIds），非增量模式返回原始数组
+    return "incremental" in result ? result : result.items;
   }
 
   async findOne(id: number) {

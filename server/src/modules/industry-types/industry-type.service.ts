@@ -13,14 +13,11 @@ import { cleanupFieldReferences } from "../../common/field-ref-cleanup";
 
 const FIELD_TYPES = INDUSTRY_FIELD_TYPES;
 
-// parseConfig 已移至 common/json.util.ts 作为 parseFieldConfig 导出
-const parseConfig = parseFieldConfig;
-
 // 给产业类型（含 fields）附加解析后的 config 对象，并把字段 config 字段替换为对象。
 function withParsedFields(item: any) {
   const fields = (item.fields || []).map((f: any) => ({
     ...f,
-    config: parseConfig(f.config),
+    config: parseFieldConfig(f.config),
   }));
   return { ...item, fields };
 }
@@ -305,7 +302,7 @@ export class IndustryTypeService {
       where: { industryTypeId },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     });
-    return fields.map((f) => ({ ...f, config: parseConfig(f.config) }));
+    return fields.map((f) => ({ ...f, config: parseFieldConfig(f.config) }));
   }
 
   private validateField(

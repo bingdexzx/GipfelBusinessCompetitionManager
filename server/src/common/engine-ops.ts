@@ -5,7 +5,29 @@
  * 不依赖 Prisma，可独立单测。
  */
 
-import { toNumber, deepEqual } from "../modules/contracts/engine/values";
+import { deepEqual } from "../modules/contracts/engine/values";
+
+// ========== 纯函数工具（从 contracts/engine/values 提取到 common，供多引擎共用） ==========
+
+/** 任意值转数字（布尔/空串/非有限值兜底为 0）。 */
+export function toNumber(v: unknown, fallback = 0): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (v == null || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** 真值判定：非 null、非空字符串、非零数字、非空数组 / 非空对象均视为真。 */
+export function isTruthy(v: unknown): boolean {
+  if (v == null) return false;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") return (v as string).trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v as object).length > 0;
+  return Boolean(v);
+}
 
 // ========== OP 运算名 ==========
 

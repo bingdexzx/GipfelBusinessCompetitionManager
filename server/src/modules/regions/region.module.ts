@@ -10,4 +10,4 @@ import { CompanyFieldsModule } from "../company-fields/company-fields.module";
   providers: [RegionService],
   exports: [RegionService],
 })
-export class RegionsModule {}
+export class RegionModule {}

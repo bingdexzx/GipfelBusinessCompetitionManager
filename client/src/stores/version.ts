@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import api from "@/api/request";
 import { CLIENT_VERSION_FALLBACK, resolveClientVersion } from "@/data/version";
-import { versionBlocked } from "@/version-block";
+import { versionBlocked } from "@/config";
 import { disconnectRealtime } from "@/realtime/socket";
 
 /**
