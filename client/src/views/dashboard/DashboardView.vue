@@ -223,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import DashboardWidget from "@/components/dashboard/DashboardWidget.vue";
 import {
@@ -294,9 +294,9 @@ function loadWidgets() {
   }
 }
 
-let saveTimer: any = null;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
 function saveWidgets() {
-  clearTimeout(saveTimer);
+  if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
       localStorage.setItem(storageKey.value, JSON.stringify(widgets.value));
@@ -471,6 +471,12 @@ useResourceChanged("consumer-demand", () => load());
 
 onMounted(() => {
   loadWidgets();
+});
+onBeforeUnmount(() => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
 });
 </script>
 

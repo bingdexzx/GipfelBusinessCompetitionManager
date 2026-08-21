@@ -854,8 +854,16 @@ const routeAddVal = ref<number | null>(null);
 async function loadMapNodes() {
   if (mapNodes.value.length || !compStore.competitionId) return;
   try {
-    const res: any = await mapsApi.nodes.list(1, 10000, compStore.competitionId);
-    mapNodes.value = Array.isArray(res) ? res : res?.items || [];
+    let allNodes: any[] = [];
+    let page = 1;
+    while (true) {
+      const res: any = await mapsApi.nodes.list(page, 200, compStore.competitionId);
+      const items = Array.isArray(res) ? res : res?.items ?? [];
+      allNodes = allNodes.concat(items);
+      if (items.length < 200) break;
+      page++;
+    }
+    mapNodes.value = allNodes;
   } catch (e) {
     console.error(e);
   }
@@ -882,8 +890,16 @@ const techNodes = ref<any[]>([]);
 async function loadTechNodes() {
   if (techNodes.value.length || !compStore.competitionId) return;
   try {
-    const res: any = await api.get("/tech-nodes", { params: { page: 1, pageSize: 10000 } });
-    techNodes.value = Array.isArray(res) ? res : res?.items || [];
+    let allNodes: any[] = [];
+    let page = 1;
+    while (true) {
+      const res: any = await api.get("/tech-nodes", { params: { page, pageSize: 200 } });
+      const items = Array.isArray(res) ? res : res?.items ?? [];
+      allNodes = allNodes.concat(items);
+      if (items.length < 200) break;
+      page++;
+    }
+    techNodes.value = allNodes;
   } catch (e) {
     console.error(e);
   }
@@ -1364,9 +1380,8 @@ async function executeContract(row: any) {
 function showExecuteError(e: any) {
   const msg: string =
     e?.response?.data?.message || (e?.message ? String(e.message) : "操作失败");
-  ElMessageBox.alert(msg.replace(/\n/g, "<br/>"), "合同操作失败", {
+  ElMessageBox.alert(msg, "合同操作失败", {
     type: "error",
-    dangerouslyUseHTMLString: true,
     confirmButtonText: "我知道了",
   }).catch(() => {});
 }
