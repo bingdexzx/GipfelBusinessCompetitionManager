@@ -4,11 +4,13 @@
 
 import { onUnmounted } from "vue";
 import { useCompetitionStore } from "@/stores/competition";
+import { updateLastReceivedSeq } from "./socket";
 
 /** 事件详情类型 */
 export interface ResourceChangedDetail {
   resource?: string;
   id?: number | null;
+  ids?: number[];
   action?: string;
   competitionId?: number | null;
   seq?: number | null;
@@ -43,7 +45,15 @@ export function useResourceChanged(
   const handler = (e: Event) => {
     const detail = (e as CustomEvent).detail as ResourceChangedDetail | undefined;
     if (!detail || detail.resource !== resource) return;
-
+    
+    // 更新最后一个接收到的事件序号（用于重连后补发遗漏事件）
+    if (detail.seq != null) {
+      updateLastReceivedSeq(detail.seq);
+    }
+    
+    // 兼容新旧事件格式：优先使用ids数组，其次使用单个id
+    const eventIds = detail.ids || (detail.id != null ? [detail.id] : []);
+    
     // 按 scope 过滤
     if (scope === "any") {
       // 不检查 competitionId，直接触发

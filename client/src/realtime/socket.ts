@@ -8,6 +8,8 @@ let socket: Socket | null = null;
 let connectedBaseUrl: string | null = null;
 // 断线自动重连成功后触发的回调（由业务层注册，用于重订阅房间 + 回源刷新）。
 let reconnectHandler: (() => void) | null = null;
+// 记录最后一个接收到的事件序号，用于重连后补发遗漏事件
+let lastReceivedSeq: number = 0;
 
 function getBaseUrl(): string {
   return getApiBaseUrl();
@@ -50,6 +52,10 @@ export function connectRealtime(): Socket | null {
   });
   // 断线自动重连成功（仅 reconnection，不含首次 connect）：通知业务层重订阅房间 + 回源刷新。
   socket.io.on("reconnect", () => {
+    // 重连后请求补发遗漏的事件
+    if (lastReceivedSeq > 0) {
+      socket?.emit("sync:replay", { lastSeq: lastReceivedSeq });
+    }
     reconnectHandler?.();
   });
   return socket;
@@ -85,4 +91,11 @@ export function offRealtime(event: string, handler?: (payload: any) => void) {
 /** 注册「断线自动重连成功」回调（仅 reconnection 触发，不含首次连接）。 */
 export function onReconnect(handler: () => void) {
   reconnectHandler = handler;
+}
+
+/** 更新最后一个接收到的事件序号（用于重连后补发遗漏事件） */
+export function updateLastReceivedSeq(seq: number) {
+  if (seq > lastReceivedSeq) {
+    lastReceivedSeq = seq;
+  }
 }

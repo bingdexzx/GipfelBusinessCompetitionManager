@@ -19,15 +19,15 @@ export class ContractTypeService {
     return typeof value === "string" ? value : JSON.stringify(value);
   }
 
-  async findAll(enabledOnly?: boolean, updatedAfter?: string, requireExistingIds = false) {
+  async findAll(enabledOnly?: boolean, updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere = enabledOnly ? { enabled: true } : undefined;
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
       const rows = await this.prisma.contractType.findMany({ where, orderBy: { id: "asc" } });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.contractType.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(rows.map((it) => this.toResponse(it)), existingIds);
+      return buildIncrementalResult(rows.map((it) => this.toResponse(it)), allCurrentIds, previousIds);
     }
     const items = await this.prisma.contractType.findMany({
       where: baseWhere,

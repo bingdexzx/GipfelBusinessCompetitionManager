@@ -69,6 +69,11 @@ export class RealtimeService {
   private seq = 0; // 全局单调递增序号（内存计数，重启归零可接受）
   private eventBuffer: Array<{ event: string; data: any; ts: number }> = [];
   private readonly BUFFER_SIZE = 1000; // 环形缓冲大小
+  
+  // 微批处理相关
+  private pendingEvents: Map<string, { resource: string; ids: number[]; action: string; competitionId: number | null }> = new Map();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly FLUSH_DELAY = 50; // 50ms 批处理延迟
 
   constructor() {
     if (!_singleton) _singleton = this;
@@ -127,6 +132,39 @@ export class RealtimeService {
   }
 
   /**
+   * 刷新待处理事件缓冲区
+   */
+  private flushPendingEvents() {
+    if (!this.server || this.pendingEvents.size === 0) return;
+    
+    const events = Array.from(this.pendingEvents.values());
+    this.pendingEvents.clear();
+    this.flushTimer = null;
+    
+    for (const event of events) {
+      const seq = this.nextSeq();
+      const ts = Date.now();
+      const payload = { 
+        resource: event.resource, 
+        ids: event.ids, 
+        action: event.action, 
+        competitionId: event.competitionId, 
+        seq, 
+        ts 
+      };
+
+      // 记录到环形缓冲
+      this.bufferEvent("resource:changed", payload);
+
+      if (event.competitionId != null) {
+        this.server.to(`comp-${event.competitionId}`).emit("resource:changed", payload);
+      } else {
+        this.server.emit("resource:changed", payload);
+      }
+    }
+  }
+
+  /**
    * 广播「某资源某条记录发生变更（created / updated / deleted / bulk）」，供前端实时作废
    * 本地缓存并刷新当前列表。
    * - competitionId 为数字：仅向该比赛房间广播（租户隔离，他人比赛不觉察）。
@@ -141,17 +179,25 @@ export class RealtimeService {
     action: "created" | "updated" | "deleted" | "bulk",
   ) {
     if (!this.server) return;
-    const seq = this.nextSeq();
-    const ts = Date.now();
-    const payload = { resource, id, action, competitionId, seq, ts };
-
-    // 记录到环形缓冲
-    this.bufferEvent("resource:changed", payload);
-
-    if (competitionId != null) {
-      this.server.to(`comp-${competitionId}`).emit("resource:changed", payload);
-    } else {
-      this.server.emit("resource:changed", payload);
+    
+    // 生成缓冲键
+    const bufferKey = `${competitionId}:${resource}:${action}`;
+    
+    // 获取或创建缓冲事件
+    let buffered = this.pendingEvents.get(bufferKey);
+    if (!buffered) {
+      buffered = { resource, ids: [], action, competitionId };
+      this.pendingEvents.set(bufferKey, buffered);
+    }
+    
+    // 添加ID到数组（如果id不为null）
+    if (id != null) {
+      buffered.ids.push(id);
+    }
+    
+    // 如果没有定时器，启动一个
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flushPendingEvents(), this.FLUSH_DELAY);
     }
   }
 

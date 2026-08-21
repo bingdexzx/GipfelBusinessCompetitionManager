@@ -28,15 +28,15 @@ export class RegionService {
     private companyFields: CompanyFieldsService,
   ) {}
 
-  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
+  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere: any = competitionId ? { competitionId } : {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
       const items = await this.prisma.region.findMany({ where, orderBy: { updatedAt: "desc" } });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.region.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(items, existingIds);
+      return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
     return this.prisma.region.findMany({
       where,

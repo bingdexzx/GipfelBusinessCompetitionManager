@@ -346,7 +346,7 @@ export class StockService {
 
   // ---------------- 股票 ----------------
 
-  async findAllStocks(page = 1, pageSize = 50, competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
+  async findAllStocks(page = 1, pageSize = 50, competitionId?: number, updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere = competitionId ? { competitionId } : {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     const fieldMap = await this.resolveFieldValueMap(competitionId);
@@ -354,10 +354,10 @@ export class StockService {
       const items = await this.prisma.stock.findMany({ where, orderBy: { code: "asc" } });
       const pbMap = await this.resolveEffectivePbs(items);
       const decorated = items.map((s) => this.decorateEffective(s, fieldMap, pbMap));
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.stock.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(decorated, existingIds);
+      return buildIncrementalResult(decorated, allCurrentIds, previousIds);
     }
     const skip = (page - 1) * pageSize;
     const [items, total] = await Promise.all([

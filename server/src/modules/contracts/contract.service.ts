@@ -37,6 +37,7 @@ export class ContractService {
     user?: any,
     updatedAfter?: string,
     requireExistingIds = false,
+    previousIds?: number[],
   ) {
     const where: any = {};
     if (competitionId) where.competitionId = competitionId;
@@ -53,16 +54,16 @@ export class ContractService {
       changed = this.filterByScope(changed, user);
       // 全量 id（应用范围过滤），供前端 diff 出被删除的本地副本；
       // 仅当显式要求（周期/重连对账）时才计算，否则跳过以降低服务端压力
-      let existingIds: number[] = [];
+      let allCurrentIds: number[] = [];
       if (requireExistingIds) {
         const baseRows = await this.prisma.contract.findMany({
           where,
           include: { contractType: true },
         });
         const scopedBase = this.filterByScope(baseRows, user);
-        existingIds = scopedBase.map((c) => c.id);
+        allCurrentIds = scopedBase.map((c) => c.id);
       }
-      return buildIncrementalResult(changed, existingIds);
+      return buildIncrementalResult(changed, allCurrentIds, previousIds);
     }
 
     let items = await this.prisma.contract.findMany({

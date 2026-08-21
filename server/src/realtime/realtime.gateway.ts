@@ -170,10 +170,10 @@ export class RealtimeGateway implements OnGatewayInit {
   @SubscribeMessage("sync:replay")
   handleSyncReplay(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { afterSeq?: number },
+    @MessageBody() payload: { lastSeq?: number },
   ) {
-    if (!payload || typeof payload.afterSeq !== "number") return;
-    const events = this.realtime.getEventsAfter(payload.afterSeq);
+    if (!payload || typeof payload.lastSeq !== "number") return;
+    const events = this.realtime.getEventsAfter(payload.lastSeq);
     if (events.length > 0) {
       client.emit("sync:replay:result", { events });
     } else {

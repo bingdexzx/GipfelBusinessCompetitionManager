@@ -141,7 +141,7 @@ export class IndustryTypeService {
 
   // ============ 产业类型 ============
 
-  async findAll(updatedAfter?: string, requireExistingIds = false) {
+  async findAll(updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere = {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
@@ -153,10 +153,10 @@ export class IndustryTypeService {
             _count: { select: { companies: true } },
           },
         });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.industryType.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(rows.map(withParsedFields), existingIds);
+      return buildIncrementalResult(rows.map(withParsedFields), allCurrentIds, previousIds);
     }
     const items = await this.prisma.industryType.findMany({
       where,

@@ -15,6 +15,7 @@ export class CompanyService {
     regionId?: number,
     scopes?: number[] | null,
     requireExistingIds = false,
+    previousIds?: number[],
   ) {
     const baseWhere: any = competitionId ? { competitionId } : {};
     if (regionId !== undefined) baseWhere.regionId = regionId;
@@ -27,10 +28,10 @@ export class CompanyService {
           include: { industryType: true, _count: true },
           orderBy: { updatedAt: "desc" },
         });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.company.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(items, existingIds);
+      return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
     return this.prisma.company.findMany({
       where,

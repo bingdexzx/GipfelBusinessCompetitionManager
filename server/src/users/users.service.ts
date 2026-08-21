@@ -134,15 +134,15 @@ export class UsersService {
     };
   }
 
-  async findAll(page = 1, pageSize = 20, competitionId?: number | null, updatedAfter?: string, requireExistingIds = false) {
+  async findAll(page = 1, pageSize = 20, competitionId?: number | null, updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere = competitionId === undefined ? {} : { competitionId };
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
       const rows = await this.prisma.user.findMany({ where, orderBy: { createdAt: "desc" } });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.user.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(rows.map((u) => this.toView(u)), existingIds);
+      return buildIncrementalResult(rows.map((u) => this.toView(u)), allCurrentIds, previousIds);
     }
     const skip = (page - 1) * pageSize;
     const [items, total] = await Promise.all([

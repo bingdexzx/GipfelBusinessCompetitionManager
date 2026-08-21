@@ -135,6 +135,7 @@ import {
   getFullSyncAt,
   setFullSyncAt,
   patchFullItems,
+  getFullItemIds,
   extractItems,
   maxUpdatedAtOf,
   inferShape,
@@ -389,17 +390,13 @@ async function syncMapFull(url: string, config: AxiosRequestConfig, competitionI
     const v = vRaw as Record<string, unknown> | null;
     if (v && v.incremental) {
       const existingIds = v.existingIds as Record<string, unknown> | undefined;
-      if (needReconcile) {
-        await patchFullItems(subs[0], (v.nodes as unknown[]) || [], existingIds?.nodes as number[] | undefined);
-        await patchFullItems(subs[1], (v.edges as unknown[]) || [], existingIds?.edges as number[] | undefined);
-        await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || [], existingIds?.nodeTypes as number[] | undefined);
-        await patchFullItems(subs[3], (v.pathTypes as unknown[]) || [], existingIds?.pathTypes as number[] | undefined);
-      } else {
-        await patchFullItems(subs[0], (v.nodes as unknown[]) || []);
-        await patchFullItems(subs[1], (v.edges as unknown[]) || []);
-        await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || []);
-        await patchFullItems(subs[3], (v.pathTypes as unknown[]) || []);
-      }
+      const deletedIds = v.deletedIds as Record<string, unknown> | undefined;
+      // 优先使用deletedIds（新协议：客户端发送previousIds，服务器返回deletedIds）
+      // 向后兼容：如果服务器返回existingIds（旧协议），则使用existingIds
+      await patchFullItems(subs[0], (v.nodes as unknown[]) || [], existingIds?.nodes as number[] | undefined, deletedIds?.nodes as number[] | undefined);
+      await patchFullItems(subs[1], (v.edges as unknown[]) || [], existingIds?.edges as number[] | undefined, deletedIds?.edges as number[] | undefined);
+      await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || [], existingIds?.nodeTypes as number[] | undefined, deletedIds?.nodeTypes as number[] | undefined);
+      await patchFullItems(subs[3], (v.pathTypes as unknown[]) || [], existingIds?.pathTypes as number[] | undefined, deletedIds?.pathTypes as number[] | undefined);
       await setBaseline(ck, (v.serverTime as string) || baseline);
       await setFullSyncAt(ck, Date.now());
       return reconstructMap(competitionId);
@@ -468,7 +465,11 @@ async function syncCompanyFields(url: string, config: AxiosRequestConfig, compan
       });
       const v = vRaw as Record<string, unknown> | null;
       if (v && v.incremental) {
-        const merged = await patchFullItems(ck, (v.fields as unknown[]) || [], v.existingIds as number[] | undefined);
+        // 优先使用deletedIds（新协议：客户端发送previousIds，服务器返回deletedIds）
+        // 向后兼容：如果服务器返回existingIds（旧协议），则使用existingIds
+        const deletedIds = v.deletedIds as number[] | undefined;
+        const existingIds = v.existingIds as number[] | undefined;
+        const merged = await patchFullItems(ck, (v.fields as unknown[]) || [], existingIds, deletedIds);
         await setBaseline(ck, (v.serverTime as string) || baseline);
         await setFullSyncAt(ck, Date.now());
         const firstMerged = merged[0] as Record<string, unknown> | undefined;
@@ -531,11 +532,11 @@ async function cachedGetImpl(url: string, config: AxiosRequestConfig): Promise<u
       const vRaw = await (api as any).get(url, { ...config, params: incParams });
       const v = vRaw as Record<string, unknown> | null;
       if (v && v.incremental) {
-        // 仅对账模式才用 existingIds 核对删除：新鲜窗口下服务端默认不下发 existingIds，
-        // 误传空数组会把本地副本整盘清空（O1 行为变更）；删除由实时事件精确移除，无需全量核对。
-        const merged = needReconcile
-          ? await patchFullItems(ck, (v.items as unknown[]) || [], v.existingIds as number[] | undefined)
-          : await patchFullItems(ck, (v.items as unknown[]) || []);
+        // 优先使用deletedIds（新协议：客户端发送previousIds，服务器返回deletedIds）
+        // 向后兼容：如果服务器返回existingIds（旧协议），则使用existingIds
+        const deletedIds = v.deletedIds as number[] | undefined;
+        const existingIds = v.existingIds as number[] | undefined;
+        const merged = await patchFullItems(ck, (v.items as unknown[]) || [], existingIds, deletedIds);
         await setBaseline(ck, (v.serverTime as string) || baseline);
         // 对账成功后刷新「上次全量同步时间」，使 existingIds 开销每 FULL_SYNC_INTERVAL_MS 才发生一次
         await setFullSyncAt(ck, Date.now());
@@ -651,7 +652,11 @@ export async function reconcileAllIncremental(): Promise<void> {
             });
             const v = vRaw as Record<string, unknown> | null;
             if (v && v.incremental) {
-              await patchFullItems(c.collectionKey, (v.fields as unknown[]) || [], v.existingIds as number[] | undefined);
+              // 优先使用deletedIds（新协议：客户端发送previousIds，服务器返回deletedIds）
+              // 向后兼容：如果服务器返回existingIds（旧协议），则使用existingIds
+              const deletedIds = v.deletedIds as number[] | undefined;
+              const existingIds = v.existingIds as number[] | undefined;
+              await patchFullItems(c.collectionKey, (v.fields as unknown[]) || [], existingIds, deletedIds);
               await setBaseline(c.collectionKey, (v.serverTime as string) || base);
             }
           } catch {
@@ -677,7 +682,11 @@ export async function reconcileAllIncremental(): Promise<void> {
           });
           const v = vRaw as Record<string, unknown> | null;
           if (v && v.incremental) {
-            await patchFullItems(c.collectionKey, (v.items as unknown[]) || [], v.existingIds as number[] | undefined);
+            // 优先使用deletedIds（新协议：客户端发送previousIds，服务器返回deletedIds）
+            // 向后兼容：如果服务器返回existingIds（旧协议），则使用existingIds
+            const deletedIds = v.deletedIds as number[] | undefined;
+            const existingIds = v.existingIds as number[] | undefined;
+            await patchFullItems(c.collectionKey, (v.items as unknown[]) || [], existingIds, deletedIds);
             await setBaseline(c.collectionKey, (v.serverTime as string) || baseline);
           }
         } catch {
@@ -699,11 +708,14 @@ export async function reconcileAllIncremental(): Promise<void> {
           const v = vRaw as Record<string, unknown> | null;
           if (v && v.incremental) {
             const existingIds = v.existingIds as Record<string, unknown> | undefined;
+            const deletedIds = v.deletedIds as Record<string, unknown> | undefined;
             const subs = MAP_SUB_RESOURCES.map((r) => mapSubKey(r, m.competitionId));
-            await patchFullItems(subs[0], (v.nodes as unknown[]) || [], existingIds?.nodes as number[] | undefined);
-            await patchFullItems(subs[1], (v.edges as unknown[]) || [], existingIds?.edges as number[] | undefined);
-            await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || [], existingIds?.nodeTypes as number[] | undefined);
-            await patchFullItems(subs[3], (v.pathTypes as unknown[]) || [], existingIds?.pathTypes as number[] | undefined);
+            // 优先使用deletedIds（新协议：客户端发送previousIds，服务器返回deletedIds）
+            // 向后兼容：如果服务器返回existingIds（旧协议），则使用existingIds
+            await patchFullItems(subs[0], (v.nodes as unknown[]) || [], existingIds?.nodes as number[] | undefined, deletedIds?.nodes as number[] | undefined);
+            await patchFullItems(subs[1], (v.edges as unknown[]) || [], existingIds?.edges as number[] | undefined, deletedIds?.edges as number[] | undefined);
+            await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || [], existingIds?.nodeTypes as number[] | undefined, deletedIds?.nodeTypes as number[] | undefined);
+            await patchFullItems(subs[3], (v.pathTypes as unknown[]) || [], existingIds?.pathTypes as number[] | undefined, deletedIds?.pathTypes as number[] | undefined);
             await setBaseline(m.syncKey, (v.serverTime as string) || baseline);
           }
         } catch {

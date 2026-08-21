@@ -18,6 +18,7 @@ export interface FindAllOptions {
   competitionId?: number;
   updatedAfter?: string;
   requireExistingIds?: boolean;
+  previousIds?: number[];
   include?: Record<string, unknown>;
   orderBy?: Record<string, "asc" | "desc">;
 }
@@ -38,7 +39,7 @@ export abstract class BaseCrudService {
    * @param options 查询选项（分页、比赛过滤、增量基线等）
    * @param baseWhere 额外的业务过滤条件（可选）
    */
-  protected async findAllGeneric<T>(
+  protected async findAllGeneric<T extends { id: number }>(
     model: CrudModelDelegate<T>,
     options: FindAllOptions,
     baseWhere: Record<string, unknown> = {},
@@ -49,6 +50,7 @@ export abstract class BaseCrudService {
       competitionId,
       updatedAfter,
       requireExistingIds = false,
+      previousIds,
       include,
       orderBy = { updatedAt: "desc" },
     } = options;
@@ -60,10 +62,10 @@ export abstract class BaseCrudService {
 
     if (incremental) {
       const items = await model.findMany({ where: finalWhere, orderBy });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await model.findMany({ where, select: { id: true } })).map((r: any) => r.id)
         : [];
-      return buildIncrementalResult(items, existingIds);
+      return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
 
     const skip = (page - 1) * pageSize;

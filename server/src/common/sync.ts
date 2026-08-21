@@ -50,21 +50,39 @@ export function serverNowIso(): string {
 export interface IncrementalListResult {
   items: any[];
   total: number;
-  existingIds: number[];
+  existingIds?: number[];
+  deletedIds?: number[];
   serverTime: string;
   incremental: true;
 }
 
-export function buildIncrementalResult(
-  changedItems: any[],
-  existingIds: number[],
+export function buildIncrementalResult<T extends { id: number }>(
+  updated: T[],
+  allCurrentIds: number[],
+  previousIds?: number[],
   total?: number,
 ): IncrementalListResult {
-  return {
-    items: changedItems,
-    total: total ?? changedItems.length,
-    existingIds,
-    serverTime: serverNowIso(),
-    incremental: true,
+  const serverNow = new Date().toISOString();
+  
+  if (previousIds && previousIds.length > 0) {
+    // 客户端发送了缓存的ID - 计算差异
+    const currentSet = new Set(allCurrentIds);
+    const deletedIds = previousIds.filter(id => !currentSet.has(id));
+    return { 
+      items: updated, 
+      total: total ?? updated.length, 
+      deletedIds, 
+      serverTime: serverNow, 
+      incremental: true 
+    };
+  }
+  
+  // 向后兼容：返回所有ID（旧客户端行为）
+  return { 
+    items: updated, 
+    total: total ?? updated.length, 
+    existingIds: allCurrentIds, 
+    serverTime: serverNow, 
+    incremental: true 
   };
 }

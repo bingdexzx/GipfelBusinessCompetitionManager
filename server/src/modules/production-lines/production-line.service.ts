@@ -9,15 +9,15 @@ import { DeleteImpact, DeleteImpactItem } from "../../common/types/delete-impact
 export class ProductionLineService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
+  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
     const baseWhere = competitionId ? { competitionId } : {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
       const items = await this.prisma.productionLine.findMany({ where, orderBy: { updatedAt: "desc" } });
-      const existingIds = requireExistingIds
+      const allCurrentIds = requireExistingIds
         ? (await this.prisma.productionLine.findMany({ where: baseWhere, select: { id: true } })).map((e) => e.id)
         : [];
-      return buildIncrementalResult(items, existingIds);
+      return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
     return this.prisma.productionLine.findMany({ where, orderBy: { updatedAt: "desc" } });
   }

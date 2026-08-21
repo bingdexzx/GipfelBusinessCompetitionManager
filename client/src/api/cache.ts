@@ -205,6 +205,7 @@ export async function patchFullItems(
   collectionKey: string,
   changed: any[],
   existingIds?: number[],
+  deletedIds?: number[],
 ): Promise<any[]> {
   const cur = await getFull(collectionKey);
   const map = new Map<number, any>();
@@ -213,15 +214,32 @@ export async function patchFullItems(
     if (it && it.id != null) map.set(it.id, it);
   }
   let result = Array.from(map.values());
-  // existingIds 为数组时（含空数组）视为服务端确认的全量 id 集合，
-  // 本地不在其中的条目即为已删除，应移除。仅 undefined/null 表示「服务端未返回」跳过过滤。
-  if (existingIds && Array.isArray(existingIds)) {
+  
+  // 优先使用deletedIds（新协议：客户端发送previousIds，服务器返回deletedIds）
+  if (deletedIds && Array.isArray(deletedIds) && deletedIds.length > 0) {
+    const deleteSet = new Set(deletedIds);
+    result = result.filter((it) => it && !deleteSet.has(it.id));
+  } 
+  // 向后兼容：existingIds（旧协议：服务器返回所有现有ID）
+  else if (existingIds && Array.isArray(existingIds)) {
     const existSet = new Set(existingIds as number[]);
     result = result.filter((it) => it && existSet.has(it.id));
   }
+  
   const shape: "array" | "paged" = cur ? cur.shape : result.length ? "paged" : "array";
   await setFull(collectionKey, { items: result, shape });
   return result;
+}
+
+/**
+ * 获取本地全量副本中的所有ID（用于增量同步时发送给服务器）
+ */
+export async function getFullItemIds(collectionKey: string): Promise<number[]> {
+  const cur = await getFull(collectionKey);
+  if (!cur || !Array.isArray(cur.items)) return [];
+  return cur.items
+    .filter((it: any) => it && it.id != null)
+    .map((it: any) => it.id);
 }
 
 /**
