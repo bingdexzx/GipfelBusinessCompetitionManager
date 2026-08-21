@@ -44,6 +44,15 @@ const ALLOWED_MIME: Record<string, string> = {
   "image/bmp": ".bmp",
 };
 
+/** 各 MIME 类型对应的 magic bytes（文件头前缀）。 */
+const MAGIC_BYTES: Record<string, Buffer> = {
+  "image/png": Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+  "image/jpeg": Buffer.from([0xff, 0xd8, 0xff]),
+  "image/gif": Buffer.from([0x47, 0x49, 0x46, 0x38]),
+  "image/webp": Buffer.from([0x52, 0x49, 0x46, 0x46]), // RIFF....WEBP 需额外校验偏移 8..11
+  "image/bmp": Buffer.from([0x42, 0x4d]),
+};
+
 @Injectable()
 export class FilesService {
   constructor(
@@ -53,6 +62,25 @@ export class FilesService {
 
   private ensureDir() {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+
+  /** 校验文件头 magic bytes，确保文件内容与声称的 MIME 类型一致。 */
+  private validateMagicBytes(buffer: Buffer, mime: string): boolean {
+    const expected = MAGIC_BYTES[mime];
+    if (!expected) return true; // 无已知签名则跳过
+    if (buffer.length < expected.length) return false;
+    for (let i = 0; i < expected.length; i++) {
+      if (buffer[i] !== expected[i]) return false;
+    }
+    // WebP 特殊处理：RIFF 头之后偏移 8..11 必须为 "WEBP"
+    if (mime === "image/webp") {
+      if (buffer.length < 12) return false;
+      const webpSig = Buffer.from([0x57, 0x45, 0x42, 0x50]); // "WEBP"
+      for (let i = 0; i < 4; i++) {
+        if (buffer[8 + i] !== webpSig[i]) return false;
+      }
+    }
+    return true;
   }
 
   /** 解析 PNG / JPEG 的像素尺寸；其他格式或解析失败返回 null（前端加载后再补）。 */
@@ -163,6 +191,10 @@ export class FilesService {
     const ext = ALLOWED_MIME[file.mimetype];
     if (!ext) {
       throw new BadRequestException("仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）");
+    }
+
+    if (!this.validateMagicBytes(file.buffer, file.mimetype)) {
+      throw new BadRequestException("文件内容与声称的格式不一致");
     }
 
     const cid = this.resolveTarget(user, requested);

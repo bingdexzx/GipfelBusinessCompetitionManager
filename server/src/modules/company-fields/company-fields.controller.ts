@@ -1,6 +1,6 @@
 import { Controller, Get, Put, Body, Param, Query, UseGuards, ParseIntPipe } from "@nestjs/common";
 import { CompanyFieldsService } from "./company-fields.service";
-import { SetCompanyFieldValuesDto } from "./company-fields.dto";
+import { SetCompanyFieldValuesDto } from "./dto/company-fields.dto";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { Ownership } from "../../common/guards/ownership.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";

@@ -23,13 +23,41 @@ const WS_ALLOWED_ORIGINS = (
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+const WS_ALLOW_ALL = WS_ALLOWED_ORIGINS.includes("*");
+
+/** 与 main.ts isLocalOrPrivateOrigin 保持一致：判断来源是否为本地 / 内网。 */
+function isLocalOrPrivateOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    const h = u.hostname;
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "0.0.0.0") return true;
+    if (u.protocol === "file:" || u.protocol === "app:") return true;
+    if (
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(h) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(h)
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 @WebSocketGateway({
   cors: {
     origin: (origin: any, cb: any) => {
-      // 同源 / Electron / 服务间调用（无 Origin）放行；带 Origin 时必须命中白名单。
-      if (!origin || WS_ALLOWED_ORIGINS.includes(origin)) cb(null, true);
-      else cb(new Error("CORS 来源不被允许"));
+      // 同源 / Electron / 服务间调用（无 Origin）放行。
+      if (!origin) return cb(null, true);
+      if (WS_ALLOW_ALL) {
+        // 通配模式：仅对本地/内网来源放行（与 main.ts 一致）
+        if (isLocalOrPrivateOrigin(origin)) return cb(null, true);
+        return cb(new Error("CORS 来源不被允许"));
+      }
+      // 显式白名单模式：命中即放行
+      if (WS_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error("CORS 来源不被允许"));
     },
     credentials: true,
   },

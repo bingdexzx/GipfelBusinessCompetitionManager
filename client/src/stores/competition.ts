@@ -1,6 +1,12 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { getApiBaseUrl } from "@/config";
+import type { Competition } from "@/types/api";
+
+/** 选中的比赛对象：至少包含 id，其余字段可能尚未加载（如 localStorage 恢复 / 快速锁定）。 */
+type CompetitionSelection = Partial<Competition> & { id: number };
+
+import { logger } from "@/utils/logger";
 import {
   connectRealtime,
   disconnectRealtime,
@@ -15,7 +21,7 @@ import { bindResourceChanged } from "@/realtime/resource-changed";
 import { getAccountItem, setAccountItem, removeAccountItem } from "@/utils/accountStorage";
 
 export const useCompetitionStore = defineStore("competition", () => {
-  const selected = ref<any>(null);
+  const selected = ref<CompetitionSelection | null>(null);
   const currentFiscalYear = ref<number | null>(null);
   // 财年网络确认状态：拉取中显示“加载中”，避免初始/切比赛时把 null 渲染成“未开启财年”（跳变）。
   const fiscalYearLoading = ref(false);
@@ -23,7 +29,7 @@ export const useCompetitionStore = defineStore("competition", () => {
   const competitionId = computed(() => selected.value?.id || null);
   const competitionName = computed(() => selected.value?.name || "");
 
-  function selectCompetition(comp: any) {
+  function selectCompetition(comp: CompetitionSelection) {
     selected.value = comp;
     setAccountItem("currentCompetition", JSON.stringify(comp));
     // 切换比赛时先清空旧财年并进入加载态，避免残留上一个比赛的财年（跳变）。
@@ -75,7 +81,7 @@ export const useCompetitionStore = defineStore("competition", () => {
         selectCompetition(comp);
       }
     } catch (e) {
-      console.error("Failed to apply own competition:", e);
+      logger.error("Failed to apply own competition:", e);
     }
   }
 
@@ -95,11 +101,11 @@ export const useCompetitionStore = defineStore("competition", () => {
       if (!res.ok) return;
       const json = await res.json();
       const fys = json.data || [];
-      const active = fys.find((f: any) => f.status === "ACTIVE");
+      const active = fys.find((f: { status: string; year: number }) => f.status === "ACTIVE");
       // 有进行中的财年显示其年份；财年全部结束后显示“未开启财年”(null)
       currentFiscalYear.value = active ? active.year : null;
     } catch (e) {
-      console.error("Failed to load fiscal year:", e);
+      logger.error("Failed to load fiscal year:", e);
       currentFiscalYear.value = null;
     } finally {
       fiscalYearLoading.value = false;
@@ -107,7 +113,7 @@ export const useCompetitionStore = defineStore("competition", () => {
   }
 
   // ===== 实时广播处理（管理员操作 → 所有前端即刻同步）=====
-  function handleFiscalYearChanged(payload: any) {
+  function handleFiscalYearChanged(payload: { competitionId?: number; fiscalYear?: { status: string; year: number } }) {
     if (!payload?.competitionId || payload.competitionId !== competitionId.value) return;
     const fy = payload.fiscalYear;
     if (!fy) {
@@ -124,7 +130,7 @@ export const useCompetitionStore = defineStore("competition", () => {
     // 财年是比赛属性，失效本地比赛缓存，下次展示拉取最新
     invalidateResource("/competitions");
   }
-  function handleCompetitionChanged(payload: any) {
+  function handleCompetitionChanged(payload: Partial<CompetitionSelection>) {
     if (payload?.id && selected.value && payload.id === selected.value.id) {
       selected.value = { ...selected.value, ...payload };
     }
@@ -198,7 +204,7 @@ export const useCompetitionStore = defineStore("competition", () => {
         }
       }
     } catch (e) {
-      console.error("Failed to load from storage:", e);
+      logger.error("Failed to load from storage:", e);
     }
   }
 

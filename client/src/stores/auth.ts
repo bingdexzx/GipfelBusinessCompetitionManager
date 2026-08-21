@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import api, { authApi } from "@/api";
 import { getAccountItem, setAccountItem, removeAccountItem, setActiveUser } from "@/utils/accountStorage";
+import { logger } from "@/utils/logger";
 
 export interface UserInfo {
   id: number;
@@ -24,10 +25,10 @@ export interface UserInfo {
 
 /** 权限目录元数据（从后端获取） */
 export interface PermissionCatalog {
-  domains: any[];
-  groups: any[];
+  domains: unknown[];
+  groups: unknown[];
   actionRank: Record<string, number>;
-  roleTemplates: Record<string, any>;
+  roleTemplates: Record<string, unknown>;
   superAdminOnlyPermissions: string[];
   allKeys: string[];
   labels: Record<string, string>;
@@ -116,7 +117,7 @@ export const useAuthStore = defineStore("auth", () => {
       // 获取权限目录（登录后拉取一次）
       await fetchPermissionCatalog();
     } catch (e) {
-      console.error("Failed to fetch profile:", e);
+      logger.error("Failed to fetch profile:", e);
       logout();
     }
   }
@@ -128,7 +129,7 @@ export const useAuthStore = defineStore("auth", () => {
       const res = await api.get("/api/permissions/catalog", { silent: true });
       permissionCatalog.value = res as PermissionCatalog;
     } catch (e) {
-      console.error("Failed to fetch permission catalog:", e);
+      logger.error("Failed to fetch permission catalog:", e);
       // 静默失败，不影响登录
     }
   }
@@ -188,7 +189,7 @@ export const useAuthStore = defineStore("auth", () => {
     try {
       user.value = await authApi.getProfile();
     } catch (e) {
-      console.error("Failed to refresh profile:", e);
+      logger.error("Failed to refresh profile:", e);
       // 静默失败，保持旧状态
     }
   }

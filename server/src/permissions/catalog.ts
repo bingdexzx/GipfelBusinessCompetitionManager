@@ -152,6 +152,15 @@ export const PERMISSION_CATALOG: PermissionDomain[] = [
     ],
   },
   {
+    key: "consumer-demand",
+    label: "消费者需求",
+    group: "区域",
+    actions: [
+      { key: "consumer-demand:view", action: "view", label: "查看" },
+      { key: "consumer-demand:edit", action: "edit", label: "编辑（增删改）" },
+    ],
+  },
+  {
     key: "contractType",
     label: "合同类型管理",
     group: "合同",

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsIn, IsObject } from "class-validator";
+import { IsString, IsOptional, IsIn, IsObject, IsInt, Min, Max } from "class-validator";
 
 export class CreateCompetitionDto {
   @IsString()
@@ -18,4 +18,18 @@ export class UpdateCompetitionDto {
   @IsOptional()
   @IsObject()
   stockConfig?: any;
+}
+
+export class CreateFiscalYearDto {
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  year!: number;
+}
+
+export class UpdateFiscalYearDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(["OPEN", "CLOSED"])
+  status?: string;
 }

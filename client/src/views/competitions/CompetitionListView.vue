@@ -333,7 +333,7 @@ async function handleDelete(row: any) {
     // 保险：刷新后若当前选中的比赛已被删除（悬空引用），再次同步清空顶部栏
     if (
       compStore.selected &&
-      !competitions.value.some((c) => String(c.id) === String(compStore.selected.id))
+      !competitions.value.some((c) => String(c.id) === String(compStore.selected?.id))
     ) {
       compStore.clearSelection();
     }

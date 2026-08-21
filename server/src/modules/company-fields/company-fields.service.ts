@@ -3,7 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { Prisma } from "@prisma/client";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { serverNowIso } from "../../common/sync";
-import { SetCompanyFieldValuesDto } from "./company-fields.dto";
+import { SetCompanyFieldValuesDto } from "./dto/company-fields.dto";
 import { IndustryCalcEngineService } from "../industry-types/industry-calc-engine.service";
 import { parseFieldConfig } from "../../common/json.util";
 import { FieldWriteConflictException } from "../../common/exceptions/field-write-conflict.exception";
@@ -29,7 +29,7 @@ const TIMER_REF_PREFIX = "field:";
 
 // 把任意输入按产业字段定义序列化/校验为存储字符串
 function serializeFieldValue(field: any, raw: any): string {
-  const cfg = parseConfig(field.config);
+  const cfg = parseFieldConfig(field.config);
   switch (field.fieldType) {
     case "NUMBER":
     case "STRING":
@@ -74,9 +74,6 @@ function serializeFieldValue(field: any, raw: any): string {
       throw new BadRequestException(`未知字段类型：${field.fieldType}`);
   }
 }
-
-// parseConfig 已移至 common/json.util.ts 作为 parseFieldConfig 导出
-const parseConfig = parseFieldConfig;
 
 // 把产业字段存储字符串（可能以 JSON 编码，如 "\"B区节点\""）安全解析为字符串。
 // 公司「所在地」字段等以节点名存储，读取侧需 JSON.parse 还原；已是纯字符串则原样返回。
@@ -198,7 +195,7 @@ export class CompanyFieldsService {
           fieldKey: f.fieldKey,
           fieldType: f.fieldType,
           name: f.name,
-          config: parseConfig(f.config),
+          config: parseFieldConfig(f.config),
           isCalculated: !!f.isCalculated,
           formula: f.formula,
           value: v ? v.value : null,
@@ -733,7 +730,7 @@ export class CompanyFieldsService {
 
   // 把存储字符串按字段类型还原为 JS 值，用于构建求值作用域。
   private typedFromStore(field: any, stored: string | null | undefined): any {
-    const cfg = parseConfig(field.config);
+    const cfg = parseFieldConfig(field.config);
     switch (field.fieldType) {
       case "NUMBER": {
         const n = stored == null ? NaN : Number(stored);

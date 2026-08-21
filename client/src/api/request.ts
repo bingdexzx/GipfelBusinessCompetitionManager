@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import { ElMessage } from "element-plus";
 import { getApiBaseUrl } from "@/config";
 import { versionBlocked } from "@/version-block";
@@ -107,11 +107,11 @@ api.interceptors.response.use(
 );
 
 export interface ApiInstance {
-  get: <T = any>(url: string, config?: any) => Promise<T>;
-  post: <T = any>(url: string, data?: any, config?: any) => Promise<T>;
-  put: <T = any>(url: string, data?: any, config?: any) => Promise<T>;
-  patch: <T = any>(url: string, data?: any, config?: any) => Promise<T>;
-  delete: <T = any>(url: string, config?: any) => Promise<T>;
+  get: <T = any>(url: string, config?: AxiosRequestConfig) => Promise<T>;
+  post: <T = any>(url: string, data?: unknown, config?: AxiosRequestConfig) => Promise<T>;
+  put: <T = any>(url: string, data?: unknown, config?: AxiosRequestConfig) => Promise<T>;
+  patch: <T = any>(url: string, data?: unknown, config?: AxiosRequestConfig) => Promise<T>;
+  delete: <T = any>(url: string, config?: AxiosRequestConfig) => Promise<T>;
   defaults: AxiosInstance["defaults"];
   interceptors: AxiosInstance["interceptors"];
 }
@@ -149,13 +149,13 @@ const LARGE_PAGE_SIZE = 10000;
 // 这些参数不参与集合键（分页/时间戳是「视图」参数，不改变集合身份）。
 const VIEW_PARAMS = new Set(["page", "pageSize", "updatedAfter"]);
 
-const _getInflight = new Map<string, Promise<any>>();
+const _getInflight = new Map<string, Promise<unknown>>();
 
 // ---------- O3：跨挂载新鲜度窗口（stale-while-revalidate）----------
 // 内存 memo：按「请求键」缓存最近一次成功响应；窗口内（且无该资源实时事件）直接返回，
 // 避免同一资源在多个组件/多次挂载被重复发往服务端（仍是后台增量请求，但能省则省）。
 const STALE_WINDOW_MS = 15 * 1000;
-const _memo = new Map<string, { time: number; value: any }>();
+const _memo = new Map<string, { time: number; value: unknown }>();
 // 各资源最近一次实时事件时间；事件后该资源的 memo 立即失效（绕过新鲜度窗口），保证及时刷新。
 const _lastEventAt = new Map<string, number>();
 
@@ -188,12 +188,12 @@ if (typeof window !== "undefined") {
   window.addEventListener("server:changed", _resetMemo);
 }
 
-function _reqKey(method: string, url: string, config?: any): string {
+function _reqKey(method: string, url: string, config?: AxiosRequestConfig): string {
   const params = config?.params ? JSON.stringify(config.params) : "";
   return `${method.toUpperCase()} ${url} ${params}`;
 }
 
-function _cacheable(config?: any): boolean {
+function _cacheable(config?: AxiosRequestConfig): boolean {
   // 仅当显式 cache === false 时才绕过本地缓存（直接走网络拿实时数据）；
   // cache 未设置（undefined，默认）或 cache === true 均走缓存。
   // 注意：此前误写为 `!config?.cache`，导致 cache:false 被反判为「可缓存」，
@@ -203,8 +203,8 @@ function _cacheable(config?: any): boolean {
 }
 
 /** 合并 URL 查询串与 axios params 为单一对象。 */
-function collectParams(url: string, config?: any): Record<string, any> {
-  const params: Record<string, any> = {};
+function collectParams(url: string, config?: AxiosRequestConfig): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
   const qIdx = (url || "").indexOf("?");
   if (qIdx >= 0) {
     const sp = new URLSearchParams(url.slice(qIdx + 1));
@@ -217,7 +217,7 @@ function collectParams(url: string, config?: any): Record<string, any> {
 /** 由 URL + params 推导稳定的「集合键」：资源名 | 非视图参数的升序拼接。
  *  注意：嵌套路由（如 /competitions/123/fiscal-years）必须把子路径编入键，
  *  否则会与父列表（/competitions）撞同一个集合键，互相覆盖本地全量副本。 */
-function collectionKeyFor(url: string, config?: any): string {
+function collectionKeyFor(url: string, config?: AxiosRequestConfig): string {
   const path = (url || "").split("?")[0];
   const parts = path.split("/").filter(Boolean);
   const seg = parts[0] || "";
@@ -240,15 +240,15 @@ function isMapFullUrl(url: string): boolean {
 
 const MAP_SUB_RESOURCES = ["mapNode", "mapEdge", "mapNodeType", "pathType"] as const;
 
-function mapSyncKey(competitionId: any): string {
+function mapSyncKey(competitionId: string | number | undefined): string {
   return `mapFull|competitionId=${competitionId ?? ""}`;
 }
-function mapSubKey(resource: string, competitionId: any): string {
+function mapSubKey(resource: string, competitionId: string | number | undefined): string {
   return `${resource}|competitionId=${competitionId ?? ""}`;
 }
 
 /** 按集合的 shape 与请求的分页参数，把本地全量副本「还原」成组件期望的响应形态。 */
-function reconstruct(items: any[], shape: "array" | "paged", params: Record<string, any>): any {
+function reconstruct(items: unknown[], shape: "array" | "paged", params: Record<string, unknown>): unknown {
   if (shape === "array") return items;
   const page = params.page != null ? parseInt(String(params.page), 10) : 1;
   const pageSize = params.pageSize != null ? parseInt(String(params.pageSize), 10) : 50;
@@ -259,9 +259,9 @@ function reconstruct(items: any[], shape: "array" | "paged", params: Record<stri
 
 /** 全量同步：循环分页拉取，直到取满 total，避免单集合超过 LARGE_PAGE_SIZE 时本地副本被截断。
  *  返回合并后的响应（items 为全量，total 为真实总数），供 storeAndReturn 写入本地全量副本。 */
-async function fetchFullSync(url: string, config: any, params: Record<string, any>): Promise<any> {
-  const syncParams: Record<string, any> = { ...params, page: 1, pageSize: LARGE_PAGE_SIZE };
-  const first: any = await (api as any).get(url, { ...config, params: syncParams });
+async function fetchFullSync(url: string, config: AxiosRequestConfig, params: Record<string, unknown>): Promise<unknown> {
+  const syncParams: Record<string, unknown> = { ...params, page: 1, pageSize: LARGE_PAGE_SIZE };
+  const first: unknown = await (api as any).get(url, { ...config, params: syncParams });
   // 裸数组接口（competitions / companies / industry-types / warehouses / production-lines 等）：
   // 服务端忽略分页参数、一次返回全量数组。直接原样返回，避免被下方分页分支误裹成
   // { items, total, page, pageSize } 对象 —— 否则组件拿到非数组对象，[...res] 会抛 TypeError
@@ -269,7 +269,8 @@ async function fetchFullSync(url: string, config: any, params: Record<string, an
   if (Array.isArray(first)) return first;
   const ex = extractItems(first);
   if (!ex) return first; // 非列表（详情）：原样返回，无需分页
-  const knownTotal = typeof first?.total === "number" ? first.total : null;
+  const firstRec = first as Record<string, unknown> | null;
+  const knownTotal = typeof firstRec?.total === "number" ? firstRec.total : null;
   if (knownTotal != null && knownTotal <= LARGE_PAGE_SIZE) return first; // 单页足以覆盖
   let items = ex.items.slice();
   let page = 1;
@@ -279,30 +280,31 @@ async function fetchFullSync(url: string, config: any, params: Record<string, an
   const MAX_PAGES = 100;
   while ((knownTotal == null ? lastLen === LARGE_PAGE_SIZE : items.length < knownTotal) && page < MAX_PAGES) {
     page++;
-    const r: any = await (api as any).get(url, { ...config, params: { ...syncParams, page, pageSize: LARGE_PAGE_SIZE } });
+    const r: unknown = await (api as any).get(url, { ...config, params: { ...syncParams, page, pageSize: LARGE_PAGE_SIZE } });
     const rx = extractItems(r);
     if (!rx || rx.items.length === 0) break;
     items = items.concat(rx.items);
     lastLen = rx.items.length;
     if (knownTotal != null && items.length >= knownTotal) break;
   }
-  return { ...first, items, total: knownTotal ?? items.length };
+  return { ...(first as Record<string, unknown>), items, total: knownTotal ?? items.length };
 }
 
 /** 全量同步后写入本地副本并设立基线；按请求的分页参数「还原」成组件期望的响应形态返回。
  *  非列表形态（详情）按原 key 缓存以离线降级。 */
 async function storeAndReturn(
   ck: string,
-  v: any,
-  params: Record<string, any>,
+  v: unknown,
+  params: Record<string, unknown>,
   url: string,
-  config?: any,
-): Promise<any> {
+  config?: AxiosRequestConfig,
+): Promise<unknown> {
   const shape = inferShape(v);
   if (shape) {
     const items = extractItems(v)!.items;
     await setFull(ck, { items, shape });
-    const base = v?.serverTime || maxUpdatedAtOf(v);
+    const vRec = v as Record<string, unknown> | null;
+    const base = (vRec?.serverTime as string | undefined) || maxUpdatedAtOf(v);
     if (base) await setBaseline(ck, base);
     await setFullSyncAt(ck, Date.now());
     // 还原分页形态：组件看到的是「当前页切片 + total=全量条数」，与改造前一致，
@@ -315,11 +317,12 @@ async function storeAndReturn(
 }
 
 // ---------- 复合地图 /maps/full ----------
-function maxUpdatedAtComposite(v: any): string | null {
+function maxUpdatedAtComposite(v: unknown): string | null {
   let maxStr: string | null = null;
   let maxMs = -Infinity;
+  const vRec = v as Record<string, unknown> | null;
   for (const key of ["nodes", "edges", "nodeTypes", "pathTypes"]) {
-    const arr = (v && v[key]) || [];
+    const arr = (vRec && vRec[key]) || [];
     if (!Array.isArray(arr)) continue;
     for (const it of arr) {
       const u = it?.updatedAt;
@@ -335,7 +338,7 @@ function maxUpdatedAtComposite(v: any): string | null {
   return maxStr;
 }
 
-async function reconstructMap(competitionId: any): Promise<any> {
+async function reconstructMap(competitionId: string | number | undefined): Promise<Record<string, unknown>> {
   const subs = MAP_SUB_RESOURCES.map((r) => mapSubKey(r, competitionId));
   const [n, e, nt, pt] = await Promise.all(subs.map(getFull));
   return {
@@ -348,23 +351,24 @@ async function reconstructMap(competitionId: any): Promise<any> {
 
 async function storeMapAndReturn(
   ck: string,
-  competitionId: any,
-  v: any,
-): Promise<any> {
+  competitionId: string | number | undefined,
+  v: unknown,
+): Promise<unknown> {
   const subs = MAP_SUB_RESOURCES.map((r) => mapSubKey(r, competitionId));
+  const vRec = v as Record<string, unknown> | null;
   await Promise.all([
-    setFull(subs[0], { items: v?.nodes || [], shape: "array" }),
-    setFull(subs[1], { items: v?.edges || [], shape: "array" }),
-    setFull(subs[2], { items: v?.nodeTypes || [], shape: "array" }),
-    setFull(subs[3], { items: v?.pathTypes || [], shape: "array" }),
+    setFull(subs[0], { items: (vRec?.nodes as unknown[] | undefined) || [], shape: "array" }),
+    setFull(subs[1], { items: (vRec?.edges as unknown[] | undefined) || [], shape: "array" }),
+    setFull(subs[2], { items: (vRec?.nodeTypes as unknown[] | undefined) || [], shape: "array" }),
+    setFull(subs[3], { items: (vRec?.pathTypes as unknown[] | undefined) || [], shape: "array" }),
   ]);
-  const base = v?.serverTime || maxUpdatedAtComposite(v);
+  const base = (vRec?.serverTime as string | undefined) || maxUpdatedAtComposite(v);
   if (base) await setBaseline(ck, base);
   await setFullSyncAt(ck, Date.now());
   return v;
 }
 
-async function syncMapFull(url: string, config: any, competitionId: any): Promise<any> {
+async function syncMapFull(url: string, config: AxiosRequestConfig, competitionId: string | number | undefined): Promise<unknown> {
   const ck = mapSyncKey(competitionId);
   const subs = MAP_SUB_RESOURCES.map((r) => mapSubKey(r, competitionId));
   const [fulls, baseline, fullSyncAt] = await Promise.all([
@@ -379,22 +383,24 @@ async function syncMapFull(url: string, config: any, competitionId: any): Promis
   if (hasCopy && baseline) {
     // 本地已有全量副本：走增量，过期时带 requireExistingIds 复核删除（O2），不再整表重拉。
     const params = collectParams(url, config);
-    const incParams: Record<string, any> = { ...params, updatedAfter: baseline };
+    const incParams: Record<string, unknown> = { ...params, updatedAfter: baseline };
     if (needReconcile) incParams.requireExistingIds = "true";
-    const v = await (api as any).get(url, { ...config, params: incParams });
+    const vRaw = await (api as any).get(url, { ...config, params: incParams });
+    const v = vRaw as Record<string, unknown> | null;
     if (v && v.incremental) {
+      const existingIds = v.existingIds as Record<string, unknown> | undefined;
       if (needReconcile) {
-        await patchFullItems(subs[0], v.nodes || [], v.existingIds?.nodes);
-        await patchFullItems(subs[1], v.edges || [], v.existingIds?.edges);
-        await patchFullItems(subs[2], v.nodeTypes || [], v.existingIds?.nodeTypes);
-        await patchFullItems(subs[3], v.pathTypes || [], v.existingIds?.pathTypes);
+        await patchFullItems(subs[0], (v.nodes as unknown[]) || [], existingIds?.nodes as number[] | undefined);
+        await patchFullItems(subs[1], (v.edges as unknown[]) || [], existingIds?.edges as number[] | undefined);
+        await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || [], existingIds?.nodeTypes as number[] | undefined);
+        await patchFullItems(subs[3], (v.pathTypes as unknown[]) || [], existingIds?.pathTypes as number[] | undefined);
       } else {
-        await patchFullItems(subs[0], v.nodes || []);
-        await patchFullItems(subs[1], v.edges || []);
-        await patchFullItems(subs[2], v.nodeTypes || []);
-        await patchFullItems(subs[3], v.pathTypes || []);
+        await patchFullItems(subs[0], (v.nodes as unknown[]) || []);
+        await patchFullItems(subs[1], (v.edges as unknown[]) || []);
+        await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || []);
+        await patchFullItems(subs[3], (v.pathTypes as unknown[]) || []);
       }
-      await setBaseline(ck, v.serverTime || baseline);
+      await setBaseline(ck, (v.serverTime as string) || baseline);
       await setFullSyncAt(ck, Date.now());
       return reconstructMap(competitionId);
     }
@@ -404,13 +410,13 @@ async function syncMapFull(url: string, config: any, competitionId: any): Promis
   return storeMapAndReturn(ck, competitionId, v);
 }
 
-async function degradeMap(competitionId: any, e: any): Promise<any> {
+async function degradeMap(competitionId: string | number | undefined, e: unknown): Promise<unknown> {
   const reconstructed = await reconstructMap(competitionId);
   if (
-    reconstructed.nodes.length ||
-    reconstructed.edges.length ||
-    reconstructed.nodeTypes.length ||
-    reconstructed.pathTypes.length
+    (reconstructed.nodes as unknown[]).length ||
+    (reconstructed.edges as unknown[]).length ||
+    (reconstructed.nodeTypes as unknown[]).length ||
+    (reconstructed.pathTypes as unknown[]).length
   ) {
     return reconstructed;
   }
@@ -429,20 +435,21 @@ function companyFieldId(url: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-function companyFieldKey(companyId: any): string {
+function companyFieldKey(companyId: string | number | undefined): string {
   return `companyField|companyId=${companyId ?? ""}`;
 }
 
-async function storeCompanyFieldsAndReturn(ck: string, v: any): Promise<any> {
-  const fields: any[] = v?.fields || [];
+async function storeCompanyFieldsAndReturn(ck: string, v: unknown): Promise<unknown> {
+  const vRec = v as Record<string, unknown> | null;
+  const fields: unknown[] = (vRec?.fields as unknown[]) || [];
   await setFull(ck, { items: fields, shape: "array" });
-  const base = v?.serverTime || maxUpdatedAtOf(fields);
+  const base = (vRec?.serverTime as string | undefined) || maxUpdatedAtOf(fields);
   if (base) await setBaseline(ck, base);
   await setFullSyncAt(ck, Date.now());
-  return { industryTypeId: v?.industryTypeId ?? null, fields };
+  return { industryTypeId: vRec?.industryTypeId ?? null, fields };
 }
 
-async function syncCompanyFields(url: string, config: any, companyId: any): Promise<any> {
+async function syncCompanyFields(url: string, config: AxiosRequestConfig, companyId: string | number): Promise<unknown> {
   const ck = companyFieldKey(companyId);
   const [full, baseline] = await Promise.all([
     getFull(ck),
@@ -455,15 +462,17 @@ async function syncCompanyFields(url: string, config: any, companyId: any): Prom
       // 本地已有副本：走增量；服务端 getValues 始终回传 existingIds（含可见字段定义 id），
       // 前端据此核对被隐藏/被移除的字段，无需整表重拉（O2）。
       const params = collectParams(url, config);
-      const v = await (api as any).get(url, {
+      const vRaw = await (api as any).get(url, {
         ...config,
         params: { ...params, updatedAfter: baseline },
       });
+      const v = vRaw as Record<string, unknown> | null;
       if (v && v.incremental) {
-        const merged = await patchFullItems(ck, v.fields || [], v.existingIds);
-        await setBaseline(ck, v.serverTime || baseline);
+        const merged = await patchFullItems(ck, (v.fields as unknown[]) || [], v.existingIds as number[] | undefined);
+        await setBaseline(ck, (v.serverTime as string) || baseline);
         await setFullSyncAt(ck, Date.now());
-        return { industryTypeId: v.industryTypeId ?? merged[0]?.industryTypeId ?? null, fields: merged };
+        const firstMerged = merged[0] as Record<string, unknown> | undefined;
+        return { industryTypeId: v.industryTypeId ?? firstMerged?.industryTypeId ?? null, fields: merged };
       }
       // 服务端未返回增量形态（兜底）：按全量处理
       return storeCompanyFieldsAndReturn(ck, v);
@@ -471,11 +480,12 @@ async function syncCompanyFields(url: string, config: any, companyId: any): Prom
     // 首次 / 写失效：本地无副本，走全量同步
     const v = await (api as any).get(url, config);
     return storeCompanyFieldsAndReturn(ck, v);
-  } catch (e: any) {
+  } catch (e: unknown) {
     const fullNow = await getFull(ck);
     if (fullNow) {
+      const firstItem = fullNow.items[0] as Record<string, unknown> | undefined;
       return {
-        industryTypeId: fullNow.items[0]?.industryTypeId ?? null,
+        industryTypeId: firstItem?.industryTypeId ?? null,
         fields: fullNow.items,
       };
     }
@@ -484,14 +494,15 @@ async function syncCompanyFields(url: string, config: any, companyId: any): Prom
 }
 
 // ---------- 通用列表 ----------
-async function cachedGetImpl(url: string, config: any): Promise<any> {
+async function cachedGetImpl(url: string, config: AxiosRequestConfig): Promise<unknown> {
   // 复合地图
   if (isMapFullUrl(url)) {
     const params = collectParams(url, config);
+    const cid = params.competitionId as string | number | undefined;
     try {
-      return await syncMapFull(url, config, params.competitionId);
+      return await syncMapFull(url, config, cid);
     } catch (e) {
-      return degradeMap(params.competitionId, e);
+      return degradeMap(cid, e);
     }
   }
 
@@ -515,16 +526,17 @@ async function cachedGetImpl(url: string, config: any): Promise<any> {
   try {
     if (hasCopy && baseline) {
       // 本地已有全量副本：始终走增量，不再整表重拉（O2）。
-      const incParams: Record<string, any> = { ...params, updatedAfter: baseline };
+      const incParams: Record<string, unknown> = { ...params, updatedAfter: baseline };
       if (needReconcile) incParams.requireExistingIds = "true";
-      const v = await (api as any).get(url, { ...config, params: incParams });
+      const vRaw = await (api as any).get(url, { ...config, params: incParams });
+      const v = vRaw as Record<string, unknown> | null;
       if (v && v.incremental) {
         // 仅对账模式才用 existingIds 核对删除：新鲜窗口下服务端默认不下发 existingIds，
         // 误传空数组会把本地副本整盘清空（O1 行为变更）；删除由实时事件精确移除，无需全量核对。
         const merged = needReconcile
-          ? await patchFullItems(ck, v.items || [], v.existingIds)
-          : await patchFullItems(ck, v.items || []);
-        await setBaseline(ck, v.serverTime || baseline);
+          ? await patchFullItems(ck, (v.items as unknown[]) || [], v.existingIds as number[] | undefined)
+          : await patchFullItems(ck, (v.items as unknown[]) || []);
+        await setBaseline(ck, (v.serverTime as string) || baseline);
         // 对账成功后刷新「上次全量同步时间」，使 existingIds 开销每 FULL_SYNC_INTERVAL_MS 才发生一次
         await setFullSyncAt(ck, Date.now());
         return reconstruct(merged, full!.shape, params);
@@ -536,7 +548,7 @@ async function cachedGetImpl(url: string, config: any): Promise<any> {
     // 首次 / 写失效 / 401 清缓存：本地无副本，走全量同步（大 pageSize 一次取回）
     const v = await fetchFullSync(url, config, params);
     return await storeAndReturn(ck, v, params, url, config);
-  } catch (e: any) {
+  } catch (e: unknown) {
     // 离线降级
     const fullNow = await getFull(ck);
     if (fullNow) return reconstruct(fullNow.items, fullNow.shape, params);
@@ -546,7 +558,7 @@ async function cachedGetImpl(url: string, config: any): Promise<any> {
   }
 }
 
-async function _cachedGet<T = any>(url: string, config?: any): Promise<T> {
+async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
   if (!_cacheable(config)) {
     // 显式退出缓存的请求视为用户主动操作，仍正常弹错提示。
     return (api as any).get(url, config);
@@ -580,8 +592,8 @@ async function _cachedGet<T = any>(url: string, config?: any): Promise<T> {
 function _mutating(
   method: "post" | "put" | "patch" | "delete",
   url: string,
-  data?: any,
-  config?: any,
+  data?: unknown,
+  config?: AxiosRequestConfig,
 ) {
   const res =
     method === "delete"
@@ -617,8 +629,8 @@ export async function reconcileAllIncremental(): Promise<void> {
   if (!getAccountItem("token")) return;
   // 声明提升到 try 之外：finally 中需要读取本次对账涉及的集合列表，
   // 而 const [cols, maps] 若写在 try 内则对 finally 不可见（块级作用域），会导致 TS 报错且对账事件丢失集合信息。
-  let cols: any[] = [];
-  let maps: any[] = [];
+  let cols: { collectionKey: string; resource: string; rest: string }[] = [];
+  let maps: { syncKey: string; competitionId: string | number }[] = [];
   try {
     [cols, maps] = await Promise.all([listFullCollections(), listMapSyncKeys()]);
 
@@ -633,13 +645,14 @@ export async function reconcileAllIncremental(): Promise<void> {
           const base = await getBaseline(c.collectionKey);
           if (!base) return;
           try {
-            const v = await (api as any).get(`/company-fields/${cid}`, {
+            const vRaw = await (api as any).get(`/company-fields/${cid}`, {
               params: { updatedAfter: base },
               silent: true,
             });
+            const v = vRaw as Record<string, unknown> | null;
             if (v && v.incremental) {
-              await patchFullItems(c.collectionKey, v.fields || [], v.existingIds);
-              await setBaseline(c.collectionKey, v.serverTime || base);
+              await patchFullItems(c.collectionKey, (v.fields as unknown[]) || [], v.existingIds as number[] | undefined);
+              await setBaseline(c.collectionKey, (v.serverTime as string) || base);
             }
           } catch {
             /* 单个集合失败不影响其余 */
@@ -650,7 +663,7 @@ export async function reconcileAllIncremental(): Promise<void> {
         if (!seg || seg === "maps") return; // 复合地图单独处理
         const baseline = await getBaseline(c.collectionKey);
         if (!baseline) return;
-        const params: Record<string, any> = {};
+        const params: Record<string, unknown> = {};
         if (c.rest) {
           for (const kv of c.rest.split("&")) {
             const eq = kv.indexOf("=");
@@ -658,13 +671,14 @@ export async function reconcileAllIncremental(): Promise<void> {
           }
         }
         try {
-          const v = await (api as any).get(`/${seg}`, {
+          const vRaw = await (api as any).get(`/${seg}`, {
             params: { ...params, updatedAfter: baseline, requireExistingIds: "true" },
             silent: true,
           });
+          const v = vRaw as Record<string, unknown> | null;
           if (v && v.incremental) {
-            await patchFullItems(c.collectionKey, v.items || [], v.existingIds);
-            await setBaseline(c.collectionKey, v.serverTime || baseline);
+            await patchFullItems(c.collectionKey, (v.items as unknown[]) || [], v.existingIds as number[] | undefined);
+            await setBaseline(c.collectionKey, (v.serverTime as string) || baseline);
           }
         } catch {
           /* 单个集合失败不影响其余 */
@@ -678,17 +692,19 @@ export async function reconcileAllIncremental(): Promise<void> {
         const baseline = await getBaseline(m.syncKey);
         if (!baseline) return;
         try {
-          const v = await (api as any).get("/maps/full", {
+          const vRaw = await (api as any).get("/maps/full", {
             params: { competitionId: m.competitionId, updatedAfter: baseline, requireExistingIds: "true" },
             silent: true,
           });
+          const v = vRaw as Record<string, unknown> | null;
           if (v && v.incremental) {
+            const existingIds = v.existingIds as Record<string, unknown> | undefined;
             const subs = MAP_SUB_RESOURCES.map((r) => mapSubKey(r, m.competitionId));
-            await patchFullItems(subs[0], v.nodes || [], v.existingIds?.nodes);
-            await patchFullItems(subs[1], v.edges || [], v.existingIds?.edges);
-            await patchFullItems(subs[2], v.nodeTypes || [], v.existingIds?.nodeTypes);
-            await patchFullItems(subs[3], v.pathTypes || [], v.existingIds?.pathTypes);
-            await setBaseline(m.syncKey, v.serverTime || baseline);
+            await patchFullItems(subs[0], (v.nodes as unknown[]) || [], existingIds?.nodes as number[] | undefined);
+            await patchFullItems(subs[1], (v.edges as unknown[]) || [], existingIds?.edges as number[] | undefined);
+            await patchFullItems(subs[2], (v.nodeTypes as unknown[]) || [], existingIds?.nodeTypes as number[] | undefined);
+            await patchFullItems(subs[3], (v.pathTypes as unknown[]) || [], existingIds?.pathTypes as number[] | undefined);
+            await setBaseline(m.syncKey, (v.serverTime as string) || baseline);
           }
         } catch {
           /* 忽略 */
@@ -712,10 +728,10 @@ const cachedApi = {
   defaults: api.defaults,
   interceptors: api.interceptors,
   get: _cachedGet,
-  post: (u: string, d?: any, c?: any) => _mutating("post", u, d, c),
-  put: (u: string, d?: any, c?: any) => _mutating("put", u, d, c),
-  patch: (u: string, d?: any, c?: any) => _mutating("patch", u, d, c),
-  delete: (u: string, c?: any) => _mutating("delete", u, undefined, c),
+  post: (u: string, d?: unknown, c?: AxiosRequestConfig) => _mutating("post", u, d, c),
+  put: (u: string, d?: unknown, c?: AxiosRequestConfig) => _mutating("put", u, d, c),
+  patch: (u: string, d?: unknown, c?: AxiosRequestConfig) => _mutating("patch", u, d, c),
+  delete: (u: string, c?: AxiosRequestConfig) => _mutating("delete", u, undefined, c),
 } as unknown as ApiInstance;
 
 export default cachedApi;

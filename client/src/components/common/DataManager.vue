@@ -143,7 +143,7 @@ const props = defineProps<{
     list: () => Promise<{ items: T[] } | T[]>;
     create: (data: any) => Promise<any>;
     update: (id: number, data: any) => Promise<any>;
-    remove: (id: number, competitionId?: number) => Promise<any>;
+    remove: (id: number, competitionId?: number | null) => Promise<any>;
     impact?: (id: number) => Promise<any>;
   };
   /** 管理（新建/编辑/删除）所需的权限键；缺省视为无需校验（始终可管理）。 */

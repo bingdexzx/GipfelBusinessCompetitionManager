@@ -11,7 +11,7 @@ import {
   ParseIntPipe,
 } from "@nestjs/common";
 import { CompetitionService } from "./competition.service";
-import { CreateCompetitionDto, UpdateCompetitionDto } from "./dto/competition.dto";
+import { CreateCompetitionDto, UpdateCompetitionDto, CreateFiscalYearDto, UpdateFiscalYearDto } from "./dto/competition.dto";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
 import { RequirePermissions } from "../../permissions/permissions.decorator";
@@ -68,14 +68,14 @@ export class CompetitionController {
   @Post(":id/fiscal-years")
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions("competition:manage")
-  createFiscalYear(@Param("id", ParseIntPipe) id: number, @Body() dto: { year: number }) {
+  createFiscalYear(@Param("id", ParseIntPipe) id: number, @Body() dto: CreateFiscalYearDto) {
     return this.service.createFiscalYear(id, dto);
   }
 
   @Patch("fiscal-years/:fyId")
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions("competition:manage")
-  updateFiscalYear(@Param("fyId", ParseIntPipe) fyId: number, @Body() dto: { status?: string }) {
+  updateFiscalYear(@Param("fyId", ParseIntPipe) fyId: number, @Body() dto: UpdateFiscalYearDto) {
     return this.service.updateFiscalYear(fyId, dto);
   }
 

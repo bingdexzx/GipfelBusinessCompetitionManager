@@ -92,7 +92,8 @@ async function bootstrap() {
   const prisma = app.get(PrismaService);
   const admin = await prisma.user.findUnique({ where: { username: "admin" } });
   if (!admin) {
-    const hash = await bcrypt.hash("admin123", 12);
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || "admin123";
+    const hash = await bcrypt.hash(adminPassword, 12);
     await prisma.user.create({
       data: {
         username: "admin",
@@ -103,7 +104,7 @@ async function bootstrap() {
         mustChangePassword: true,
       },
     });
-    logger.log("[Init] 默认超管已创建: admin / admin123（首次登录后强制改密）", "Bootstrap");
+    logger.log("[Init] 默认超管已创建（首次登录后强制改密）", "Bootstrap");
   }
 
   app.setGlobalPrefix("api");

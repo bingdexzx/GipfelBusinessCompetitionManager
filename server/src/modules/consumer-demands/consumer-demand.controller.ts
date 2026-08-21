@@ -20,7 +20,7 @@ import { Ownership } from "../../common/guards/ownership.guard";
 @Ownership({ model: "consumerDemand" })
 @Controller("consumer-demands")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
-@RequirePermissions("data:region:view")
+@RequirePermissions("consumer-demand:view")
 export class ConsumerDemandController {
   constructor(private service: ConsumerDemandService) {}
 
@@ -36,19 +36,19 @@ export class ConsumerDemandController {
   }
 
   @Post()
-  @RequirePermissions("data:region:edit")
+  @RequirePermissions("consumer-demand:edit")
   create(@Body() dto: CreateConsumerDemandDto) {
     return this.service.create(dto);
   }
 
   @Patch(":id")
-  @RequirePermissions("data:region:edit")
+  @RequirePermissions("consumer-demand:edit")
   update(@Param("id", ParseIntPipe) id: number, @Body() dto: UpdateConsumerDemandDto) {
     return this.service.update(id, dto);
   }
 
   @Delete(":id")
-  @RequirePermissions("data:region:edit")
+  @RequirePermissions("consumer-demand:edit")
   remove(
     @Param("id", ParseIntPipe) id: number,
     @Query("competitionId") competitionId?: string,

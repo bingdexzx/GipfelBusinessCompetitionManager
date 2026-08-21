@@ -1,4 +1,40 @@
 import api, { getErrorMessage } from "./request";
+import type {
+  CreateUserInput,
+  UpdateUserInput,
+  CreateMaterialInput,
+  UpdateMaterialInput,
+  CreatePartInput,
+  UpdatePartInput,
+  CreateProductInput,
+  UpdateProductInput,
+  CreateMapNodeInput,
+  UpdateMapNodeInput,
+  CreateMapEdgeInput,
+  UpdateMapEdgeInput,
+  CreateMapNodeTypeInput,
+  UpdateMapNodeTypeInput,
+  CreatePathTypeInput,
+  UpdatePathTypeInput,
+  CreateInfrastructureInput,
+  UpdateInfrastructureInput,
+  CreateFuelInput,
+  UpdateFuelInput,
+  CreateIndustryTypeInput,
+  UpdateIndustryTypeInput,
+  CreateIndustryFieldInput,
+  UpdateIndustryFieldInput,
+  CreateContractTypeInput,
+  UpdateContractTypeInput,
+  CreateContractInput,
+  UpdateCompanyInput,
+  CreateRegionInput,
+  CreateStockInput,
+  UpdateStockInput,
+  CreateStockFundsAccountInput,
+  UpdateStockFundsAccountInput,
+  CreateStockOrderInput,
+} from "@/types/api";
 
 export { getErrorMessage };
 
@@ -23,8 +59,8 @@ export const usersApi = {
     return api.get("/users", { params: query });
   },
   get: (id: number) => api.get(`/users/${id}`),
-  create: (data: any) => api.post("/users", data),
-  update: (id: number, data: any) => api.patch(`/users/${id}`, data),
+  create: (data: CreateUserInput | Record<string, unknown>) => api.post("/users", data),
+  update: (id: number, data: UpdateUserInput) => api.patch(`/users/${id}`, data),
   updatePassword: (id: number, data: { password: string }) =>
     api.patch(`/users/${id}/password`, data),
   remove: (id: number) => api.delete(`/users/${id}`),
@@ -33,8 +69,8 @@ export const usersApi = {
 export const materialsApi = {
   list: (page = 1, pageSize = 50) => api.get("/materials", { params: { page, pageSize } }),
   get: (id: number) => api.get(`/materials/${id}`),
-  create: (data: any) => api.post("/materials", data),
-  update: (id: number, data: any) => api.patch(`/materials/${id}`, data),
+  create: (data: CreateMaterialInput) => api.post("/materials", data),
+  update: (id: number, data: UpdateMaterialInput) => api.patch(`/materials/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/materials/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   impact: (id: number) => api.get(`/materials/${id}/impact`, { cache: false }),
@@ -43,8 +79,8 @@ export const materialsApi = {
 export const partsApi = {
   list: (page = 1, pageSize = 50) => api.get("/parts", { params: { page, pageSize } }),
   get: (id: number) => api.get(`/parts/${id}`),
-  create: (data: any) => api.post("/parts", data),
-  update: (id: number, data: any) => api.patch(`/parts/${id}`, data),
+  create: (data: CreatePartInput) => api.post("/parts", data),
+  update: (id: number, data: UpdatePartInput) => api.patch(`/parts/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/parts/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   impact: (id: number) => api.get(`/parts/${id}/impact`, { cache: false }),
@@ -53,59 +89,59 @@ export const partsApi = {
 export const productsApi = {
   list: (page = 1, pageSize = 50) => api.get("/products", { params: { page, pageSize } }),
   get: (id: number) => api.get(`/products/${id}`),
-  create: (data: any) => api.post("/products", data),
-  update: (id: number, data: any) => api.patch(`/products/${id}`, data),
+  create: (data: CreateProductInput) => api.post("/products", data),
+  update: (id: number, data: UpdateProductInput) => api.patch(`/products/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/products/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   impact: (id: number) => api.get(`/products/${id}/impact`, { cache: false }),
 };
 
 export const mapsApi = {
-  full: (params?: any) => api.get("/maps/full", { params }),
+  full: (params?: { competitionId?: number }) => api.get("/maps/full", { params }),
   nodes: {
     list: (page = 1, pageSize = 100, competitionId?: number) => {
-      const params: any = { page, pageSize };
+      const params: Record<string, unknown> = { page, pageSize };
       if (competitionId != null) params.competitionId = competitionId;
       return api.get("/map-nodes", { params });
     },
-    create: (data: any) => api.post("/map-nodes", data),
-    update: (id: number, data: any) => api.patch(`/map-nodes/${id}`, data),
+    create: (data: CreateMapNodeInput) => api.post("/map-nodes", data),
+    update: (id: number, data: UpdateMapNodeInput) => api.patch(`/map-nodes/${id}`, data),
     remove: (id: number, competitionId?: number | null) =>
       api.delete(`/map-nodes/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
     impact: (id: number) => api.get(`/map-nodes/${id}/impact`, { cache: false }),
   },
   edges: {
     list: (page = 1, pageSize = 200, competitionId?: number) => {
-      const params: any = { page, pageSize };
+      const params: Record<string, unknown> = { page, pageSize };
       if (competitionId != null) params.competitionId = competitionId;
       return api.get("/map-edges", { params });
     },
-    create: (data: any) => api.post("/map-edges", data),
-    update: (id: number, data: any) => api.patch(`/map-edges/${id}`, data),
+    create: (data: CreateMapEdgeInput) => api.post("/map-edges", data),
+    update: (id: number, data: UpdateMapEdgeInput) => api.patch(`/map-edges/${id}`, data),
     remove: (id: number, competitionId?: number | null) =>
       api.delete(`/map-edges/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
     impact: (id: number) => api.get(`/map-edges/${id}/impact`, { cache: false }),
   },
   nodeTypes: {
     list: (competitionId?: number) => {
-      const params: any = {};
+      const params: Record<string, unknown> = {};
       if (competitionId != null) params.competitionId = competitionId;
       return api.get("/map-node-types", { params });
     },
-    create: (data: any) => api.post("/map-node-types", data),
-    update: (id: number, data: any) => api.patch(`/map-node-types/${id}`, data),
+    create: (data: CreateMapNodeTypeInput) => api.post("/map-node-types", data),
+    update: (id: number, data: UpdateMapNodeTypeInput) => api.patch(`/map-node-types/${id}`, data),
     remove: (id: number, competitionId?: number | null) =>
       api.delete(`/map-node-types/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
     impact: (id: number) => api.get(`/map-node-types/${id}/impact`, { cache: false }),
   },
   pathTypes: {
     list: (competitionId?: number) => {
-      const params: any = {};
+      const params: Record<string, unknown> = {};
       if (competitionId != null) params.competitionId = competitionId;
       return api.get("/path-types", { params });
     },
-    create: (data: any) => api.post("/path-types", data),
-    update: (id: number, data: any) => api.patch(`/path-types/${id}`, data),
+    create: (data: CreatePathTypeInput) => api.post("/path-types", data),
+    update: (id: number, data: UpdatePathTypeInput) => api.patch(`/path-types/${id}`, data),
     remove: (id: number, competitionId?: number | null) =>
       api.delete(`/path-types/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
     impact: (id: number) => api.get(`/path-types/${id}/impact`, { cache: false }),
@@ -140,7 +176,7 @@ export const mapsApi = {
       transform: { x: number; y: number; scale: number },
       competitionId?: number,
     ) => {
-      const data: any = { ...transform };
+      const data: { x: number; y: number; scale: number; competitionId?: number } = { ...transform };
       if (competitionId != null) data.competitionId = competitionId;
       return api.patch("/files/map-background/transform", data);
     },
@@ -148,20 +184,22 @@ export const mapsApi = {
 };
 
 export const infrastructuresApi = {
-  list: (params?: any) => api.get("/infrastructures", { params: params || {} }),
+  list: (params?: { competitionId?: number; page?: number; pageSize?: number }) =>
+    api.get("/infrastructures", { params: params || {} }),
   get: (id: number) => api.get(`/infrastructures/${id}`),
-  create: (data: any) => api.post("/infrastructures", data),
-  update: (id: number, data: any) => api.patch(`/infrastructures/${id}`, data),
+  create: (data: CreateInfrastructureInput) => api.post("/infrastructures", data),
+  update: (id: number, data: UpdateInfrastructureInput) => api.patch(`/infrastructures/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/infrastructures/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   impact: (id: number) => api.get(`/infrastructures/${id}/impact`, { cache: false }),
 };
 
 export const fuelsApi = {
-  list: (params?: any) => api.get("/fuels", { params: params || {} }),
+  list: (params?: { competitionId?: number; page?: number; pageSize?: number }) =>
+    api.get("/fuels", { params: params || {} }),
   get: (id: number) => api.get(`/fuels/${id}`),
-  create: (data: any) => api.post("/fuels", data),
-  update: (id: number, data: any) => api.patch(`/fuels/${id}`, data),
+  create: (data: CreateFuelInput) => api.post("/fuels", data),
+  update: (id: number, data: UpdateFuelInput) => api.patch(`/fuels/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/fuels/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   impact: (id: number) => api.get(`/fuels/${id}/impact`, { cache: false }),
@@ -170,12 +208,12 @@ export const fuelsApi = {
 export const industryTypesApi = {
   list: () => api.get("/industry-types"),
   get: (id: number) => api.get(`/industry-types/${id}`),
-  create: (data: any) => api.post("/industry-types", data),
-  update: (id: number, data: any) => api.patch(`/industry-types/${id}`, data),
+  create: (data: CreateIndustryTypeInput) => api.post("/industry-types", data),
+  update: (id: number, data: UpdateIndustryTypeInput) => api.patch(`/industry-types/${id}`, data),
   remove: (id: number) => api.delete(`/industry-types/${id}`),
   listFields: (id: number) => api.get(`/industry-types/${id}/fields`),
-  createField: (id: number, data: any) => api.post(`/industry-types/${id}/fields`, data),
-  updateField: (fieldId: number, data: any) => api.patch(`/industry-types/fields/${fieldId}`, data),
+  createField: (id: number, data: CreateIndustryFieldInput) => api.post(`/industry-types/${id}/fields`, data),
+  updateField: (fieldId: number, data: UpdateIndustryFieldInput) => api.patch(`/industry-types/fields/${fieldId}`, data),
   removeField: (fieldId: number) => api.delete(`/industry-types/fields/${fieldId}`),
 };
 
@@ -187,14 +225,15 @@ export const companyFieldsApi = {
       opts?.includeHidden ? { params: { includeHidden: true } } : undefined,
     ),
   // 批量写入某公司产业字段值
-  set: (companyId: number, data: any) => api.put(`/company-fields/${companyId}`, data),
+  set: (companyId: number, data: { industryTypeId?: number; fields: { industryFieldId: number; value: string }[] }) =>
+    api.put(`/company-fields/${companyId}`, data),
 };
 
 export const contractTypesApi = {
   list: (enabledOnly = false) => api.get("/contract-types", { params: { enabledOnly } }),
   get: (id: number) => api.get(`/contract-types/${id}`),
-  create: (data: any) => api.post("/contract-types", data),
-  update: (id: number, data: any) => api.patch(`/contract-types/${id}`, data),
+  create: (data: CreateContractTypeInput) => api.post("/contract-types", data),
+  update: (id: number, data: UpdateContractTypeInput) => api.patch(`/contract-types/${id}`, data),
   remove: (id: number) => api.delete(`/contract-types/${id}`),
 };
 
@@ -202,8 +241,8 @@ export const contractsApi = {
   list: (params?: { competitionId?: number; status?: string; page?: number; pageSize?: number }) =>
     api.get("/contracts", { params: params || {} }),
   get: (id: number) => api.get(`/contracts/${id}`),
-  create: (data: any) => api.post("/contracts", data),
-  execute: (id: number, data?: any) => api.post(`/contracts/${id}/execute`, data || {}),
+  create: (data: CreateContractInput) => api.post("/contracts", data),
+  execute: (id: number, data?: Record<string, unknown>) => api.post(`/contracts/${id}/execute`, data || {}),
   // 分步补全合同编号：传入 { [role]: 编号 }，仅更新指定参与方
   updatePartyNumbers: (id: number, partyNumbers: Record<string, string>) =>
     api.patch(`/contracts/${id}/party-numbers`, { partyNumbers }),
@@ -219,14 +258,14 @@ export const companiesApi = {
   list: (params?: { competitionId?: number; regionId?: number }) =>
     api.get("/companies", { params: params || {} }),
   get: (id: number) => api.get(`/companies/${id}`),
-  update: (id: number, data: any) => api.patch(`/companies/${id}`, data),
+  update: (id: number, data: UpdateCompanyInput) => api.patch(`/companies/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/companies/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   impact: (id: number) => api.get(`/companies/${id}/impact`, { cache: false }),
 };
 
 export const regionsApi = {
-  create: (data: any) => api.post("/regions", data),
+  create: (data: CreateRegionInput) => api.post("/regions", data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/regions/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   // 地图区域总览：区域来自地图节点去重，返回 [{ region, companies, cards }]（读，绕过集合缓存）
@@ -236,7 +275,7 @@ export const regionsApi = {
       cache: false,
     }),
   // 按区域名保存总览卡片配置（find-or-create，覆盖写）
-  saveOverviewCardsByName: (name: string, cards: any[], competitionId?: number) =>
+  saveOverviewCardsByName: (name: string, cards: { id?: string; displayName: string; companyId: number; industryFieldId: number }[], competitionId?: number) =>
     api.put(
       `/regions/by-name/${encodeURIComponent(name)}/overview-cards`,
       { cards },
@@ -352,8 +391,8 @@ export const stockApi = {
     if (competitionId != null) params.competitionId = competitionId;
     return api.get("/stocks/pb-sources", { params, cache: false });
   },
-  create: (data: any) => api.post("/stocks", data),
-  update: (id: number, data: any) => api.patch(`/stocks/${id}`, data),
+  create: (data: CreateStockInput) => api.post("/stocks", data),
+  update: (id: number, data: UpdateStockInput) => api.patch(`/stocks/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/stocks/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
 
@@ -364,8 +403,8 @@ export const stockApi = {
   },
   getAccount: (id: number) => api.get(`/stocks/accounts/${id}`),
   accountHoldings: (id: number) => api.get(`/stocks/accounts/${id}/holdings`),
-  createAccount: (data: any) => api.post("/stocks/accounts", data),
-  updateAccount: (id: number, data: any) => api.patch(`/stocks/accounts/${id}`, data),
+  createAccount: (data: CreateStockFundsAccountInput) => api.post("/stocks/accounts", data),
+  updateAccount: (id: number, data: UpdateStockFundsAccountInput) => api.patch(`/stocks/accounts/${id}`, data),
   removeAccount: (id: number) => api.delete(`/stocks/accounts/${id}`),
 
   // 订单
@@ -375,7 +414,7 @@ export const stockApi = {
     if (fundsAccountId != null) params.fundsAccountId = fundsAccountId;
     return api.get("/stocks/orders/list", { params });
   },
-  placeOrder: (data: any) => api.post("/stocks/orders", data),
+  placeOrder: (data: CreateStockOrderInput) => api.post("/stocks/orders", data),
   cancelOrder: (id: number) => api.delete(`/stocks/orders/${id}`),
 
   // 持仓
