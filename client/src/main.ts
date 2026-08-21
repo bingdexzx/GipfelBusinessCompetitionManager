@@ -38,4 +38,24 @@ app.config.globalProperties.$formatTime = (val: string | Date | undefined | null
   return d.toISOString().replace("T", " ").substring(0, 19);
 };
 
+// 全局错误兜底：捕获渲染/生命周期/侦听器中未被组件级 ErrorBoundary 接住的异常，
+// 统一打到控制台，便于定位根因（如「创建数据后空白」类崩溃），避免静默白屏。
+app.config.errorHandler = (err, instance, info) => {
+  // eslint-disable-next-line no-console
+  console.error(
+    "[全局错误] 未捕获的渲染/逻辑异常：",
+    err,
+    "\n组件实例：",
+    instance,
+    "\n错误位置(info)：",
+    info,
+  );
+};
+
+// 未处理的 Promise 异常（如实时同步/缓存回填中的 reject）同样打到控制台，便于排查。
+window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
+  // eslint-disable-next-line no-console
+  console.error("[未处理的 Promise 异常]", e.reason);
+});
+
 app.mount("#app");

@@ -6,7 +6,11 @@
       <TopBar />
       <div class="app-content">
         <div class="route-wrap">
-          <router-view :key="route.fullPath" />
+          <!-- 页面级错误边界：单个路由页面渲染异常时仅隔离该页面，
+               侧边栏/顶栏与其它界面保持可用，避免整应用白屏（此前「创建一个数据后所有界面空白」的根因）。 -->
+          <ErrorBoundary :key="route.fullPath">
+            <router-view :key="route.fullPath" />
+          </ErrorBoundary>
         </div>
       </div>
     </div>
@@ -18,6 +22,7 @@ import { useRoute, useRouter } from "vue-router";
 import { onMounted, onBeforeUnmount, watch } from "vue";
 import Sidebar from "./Sidebar.vue";
 import TopBar from "./TopBar.vue";
+import ErrorBoundary from "@/components/common/ErrorBoundary.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useConfigStore } from "@/stores/config";
 import { useCompetitionStore } from "@/stores/competition";
