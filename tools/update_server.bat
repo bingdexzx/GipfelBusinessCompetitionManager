@@ -1,5 +1,23 @@
 @echo off
 setlocal enabledelayedexpansion
+
+REM ============================================================
+REM  输出同时上屏并写入日志，便于出错后回看（PowerShell Tee-Object）。
+REM  若系统无 powershell，则退化为仅上屏、不写日志（脚本依然可用）。
+REM ============================================================
+if not defined _TEED (
+  set "_TEED=1"
+  set "_BAT=%~f0"
+  set "_LOG=%~dp0update_server.log"
+  where powershell >nul 2>&1
+  if not errorlevel 1 (
+    powershell -NoProfile -Command "cmd /c $env:_BAT 2>&1 | Tee-Object -FilePath $env:_LOG"
+  ) else (
+    call "%~f0"
+  )
+  goto :eof
+)
+
 cd /d "%~dp0.."
 
 REM ============================================================
@@ -42,7 +60,7 @@ echo ============================================================
 echo [2/8] Stopping server (pm2 stop gipfel-server) ...
 echo ============================================================
 if "!PM2_OK!"=="1" (
-    pm2 stop gipfel-server >nul 2>&1
+    pm2 stop gipfel-server
     echo       Stopped.
 )
 
@@ -108,11 +126,11 @@ echo ============================================================
 echo [8/8] Restarting server (PM2) ...
 echo ============================================================
 if "!PM2_OK!"=="1" (
-    pm2 restart gipfel-server >nul 2>&1
+    pm2 restart gipfel-server
     if errorlevel 1 (
         pm2 start dist\main.js --name gipfel-server
     )
-    pm2 save >nul 2>&1
+    pm2 save
     echo       Server restarted via PM2.
 ) else (
     echo       PM2 not installed. Start manually: cd server ^&^& npm run start:prod
@@ -123,6 +141,7 @@ echo ============================================================
 echo [OK] Update finished. Health check:
 echo      curl http://localhost:3000/api/ping
 echo ============================================================
+echo 本次运行日志已保存至：tools\update_server.log
 echo Press any key to close this window.
 pause >nul
 exit /b 0
@@ -133,5 +152,7 @@ echo ============================================================
 echo [ABORT] Update aborted. If the server was stopped, restart:
 echo         pm2 restart gipfel-server
 echo ============================================================
+echo 错误详情见日志：tools\update_server.log（与脚本同目录）
+echo Press any key to close this window.
 pause
 exit /b 1
