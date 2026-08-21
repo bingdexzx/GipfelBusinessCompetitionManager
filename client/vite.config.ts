@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import { resolve } from 'path'
+import pkg from './package.json'
 
 export default defineConfig({
   plugins: [
@@ -53,5 +54,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+  },
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
   },
 })

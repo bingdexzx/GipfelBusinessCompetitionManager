@@ -22,7 +22,8 @@ import { storeToRefs } from "pinia";
 import { useAnnouncementStore } from "@/stores/announcement";
 
 const store = useAnnouncementStore();
-const { visible, current } = storeToRefs(store);
+const { visible } = storeToRefs(store);
+const current = store.current;
 
 /** 用户点击「不再显示」：标记已读并关闭。 */
 function onConfirm() {
