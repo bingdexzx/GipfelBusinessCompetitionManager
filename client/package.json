@@ -81,9 +81,11 @@
             "arm64"
           ]
         }
-      ]
+      ],
+      "icon": "build/icon.icns"
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "AppImage",
