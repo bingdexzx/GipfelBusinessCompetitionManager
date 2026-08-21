@@ -1,5 +1,24 @@
 import { IsString, IsOptional, IsInt, IsIn, IsObject } from "class-validator";
 import { ContractStatus } from "@prisma/client";
+import { z } from "zod";
+
+// —— parties 结构校验（Zod）——
+const PartySchema = z.object({
+  role: z.string().min(1),
+  companyId: z.number().int().positive().optional(),
+  partyNumber: z.string().optional(),
+});
+
+const PartiesSchema = z.array(PartySchema);
+
+export function validateParties(data: unknown): { ok: boolean; error?: string } {
+  const result = PartiesSchema.safeParse(data);
+  if (result.success) return { ok: true };
+  return {
+    ok: false,
+    error: result.error.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; '),
+  };
+}
 
 // 合同实例 DTO（创建即存草稿，编号分步补全）。
 // parties: JSON [{role:"A",companyId:5,isHost:false,contractNumber:"HT-001"}, ...]

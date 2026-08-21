@@ -8,7 +8,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { ContractEngineService } from "./contract-engine.service";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { CompanyFieldsService } from "../company-fields/company-fields.service";
-import { CreateContractDto, ExecuteContractDto } from "./dto/contract.dto";
+import { CreateContractDto, ExecuteContractDto, validateParties } from "./dto/contract.dto";
 import { hasPermission } from "../../permissions/catalog";
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
@@ -66,13 +66,30 @@ export class ContractService {
       return buildIncrementalResult(changed, allCurrentIds, previousIds);
     }
 
+    // 判断是否需要公司范围过滤（需解析 JSON parties 字段，无法下推到数据库 where）
+    const needsScopeFilter = this.needsScopeFilter(user);
+    if (!needsScopeFilter) {
+      // 无范围限制：直接使用数据库级分页（skip/take），避免全量查询
+      const [rows, total] = await Promise.all([
+        this.prisma.contract.findMany({
+          where,
+          include: { contractType: true },
+          orderBy: { createdAt: "desc" },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        this.prisma.contract.count({ where }),
+      ]);
+      const enriched = await this.enrichPartyCompanies(rows);
+      return { items: enriched, total, page, pageSize };
+    }
+
+    // 有范围限制：需解析 JSON parties 做内存过滤，无法下推到数据库
     let items = await this.prisma.contract.findMany({
       where,
       include: { contractType: true },
       orderBy: { createdAt: "desc" },
     });
-
-    // 公司范围过滤：仅 `contract:audit` 且无 `contract:execute` 的账号，只能看范围内公司的合同
     items = this.filterByScope(items, user);
 
     const total = items.length;
@@ -388,6 +405,21 @@ export class ContractService {
       children.push({ label: "合同字段效果", count: effectCount });
     }
     return { name: item.name, children };
+  }
+
+  /** 判断是否需要公司范围过滤（需解析 JSON parties 字段，无法下推到数据库 where） */
+  private needsScopeFilter(user?: any): boolean {
+    if (!user) return false;
+    const canAudit = hasPermission(user.role, user.permissions, "contract:audit");
+    const canExecute = hasPermission(user.role, user.permissions, "contract:execute");
+    const canManage = hasPermission(user.role, user.permissions, "contract:manage");
+    const canView = hasPermission(user.role, user.permissions, "contract:view");
+    if (canAudit && !canExecute) return true;
+    if (canView && !canAudit && !canExecute && !canManage) {
+      const scopes: number[] = user.contractViewCompanyScopes || [];
+      return scopes.length > 0;
+    }
+    return false;
   }
 
   /** 公司范围过滤（复用于全量/增量分支） */

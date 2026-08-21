@@ -28,6 +28,10 @@ import {
 } from "../../common/engine-ops";
 import {
   type FieldEffectOp,
+  applyFieldEffect,
+  combineValues,
+  compareField,
+  parseJsonValue,
 } from "./engine/effects";
 import {
   createCheckResult,
@@ -479,6 +483,44 @@ async function computeProductParts(
 }
 
 /**
+ * 通用名称键清单 → 科技节点聚合：给定 {"名称": 数量} 字典，按比赛查询每个条目的
+ * 科技需求（techRequirements → techNode.name），收集科技节点名称去重后返回字符串数组。
+ * 覆盖零件/产品清单的科技节点聚合场景。
+ */
+async function computeNameListTechNodes(
+  raw: any,
+  competitionId: number | undefined,
+  prisma: any,
+  model: string,
+  label: string,
+): Promise<string[]> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const names = Object.keys(raw).filter((n) => Number(raw[n]) > 0);
+  if (!names.length) return [];
+  if (!competitionId) {
+    throw new BadRequestException(`计算${label}所需科技节点缺少比赛上下文（competitionId）`);
+  }
+  const records: any[] = await (prisma as any)[model].findMany({
+    where: { competitionId, name: { in: names } },
+    select: {
+      techRequirements: { select: { techNode: { select: { name: true } } } },
+    },
+  });
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const record of records) {
+    for (const tr of record.techRequirements || []) {
+      const tn = tr?.techNode?.name;
+      if (tn && !seen.has(tn)) {
+        seen.add(tn);
+        result.push(tn);
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * 零件清单所需科技节点：给定 {"零件名称": 数量} 字典，按比赛查询每个零件的
  * 科技需求（PartTechRequirement.techNode），收集这些科技节点的名称，
  * 去重后返回字符串数组（保持首次出现顺序）。
@@ -491,30 +533,7 @@ async function computePartTechNodes(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<string[]> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  const names = Object.keys(raw).filter((n) => Number(raw[n]) > 0);
-  if (!names.length) return [];
-  if (!competitionId) {
-    throw new BadRequestException("计算零件所需科技节点缺少比赛上下文（competitionId）");
-  }
-  const parts: any[] = await prisma.part.findMany({
-    where: { competitionId, name: { in: names } },
-    select: {
-      techRequirements: { select: { techNode: { select: { name: true } } } },
-    },
-  });
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const part of parts) {
-    for (const tr of part.techRequirements || []) {
-      const tn = tr?.techNode?.name;
-      if (tn && !seen.has(tn)) {
-        seen.add(tn);
-        result.push(tn);
-      }
-    }
-  }
-  return result;
+  return computeNameListTechNodes(raw, competitionId, prisma, "part", "零件");
 }
 
 /**
@@ -528,30 +547,41 @@ async function computeProductTechNodes(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<string[]> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  const names = Object.keys(raw).filter((n) => Number(raw[n]) > 0);
-  if (!names.length) return [];
+  return computeNameListTechNodes(raw, competitionId, prisma, "product", "产品");
+}
+
+/**
+ * 通用名称键清单聚合：给定 {"名称": 数量} 字典，按比赛查询指定 Prisma 模型的指定数值字段，
+ * 返回 Σ(字段值 × 数量) 的浮点数。
+ * 覆盖基建/载具/燃料/仓库等所有「名称键 × 数量 × 单值」的聚合场景。
+ */
+async function computeNamedFieldValueAggregate(
+  raw: any,
+  competitionId: number | undefined,
+  prisma: any,
+  model: string,
+  field: string,
+  label: string,
+): Promise<number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
+  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
+  if (!entries.length) return 0;
   if (!competitionId) {
-    throw new BadRequestException("计算产品所需科技节点缺少比赛上下文（competitionId）");
+    throw new BadRequestException(`计算${label}缺少比赛上下文（competitionId）`);
   }
-  const products: any[] = await prisma.product.findMany({
+  const names = entries.map(([name]) => name);
+  const records: any[] = await (prisma as any)[model].findMany({
     where: { competitionId, name: { in: names } },
-    select: {
-      techRequirements: { select: { techNode: { select: { name: true } } } },
-    },
+    select: { name: true, [field]: true },
   });
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const prod of products) {
-    for (const tr of prod.techRequirements || []) {
-      const tn = tr?.techNode?.name;
-      if (tn && !seen.has(tn)) {
-        seen.add(tn);
-        result.push(tn);
-      }
-    }
+  const valueByName = new Map(
+    records.map((x) => [x.name as string, Number(x[field]) || 0]),
+  );
+  let total = 0;
+  for (const [name, q] of entries) {
+    total += (valueByName.get(name) ?? 0) * Number(q);
   }
-  return result;
+  return total;
 }
 
 /**
@@ -568,25 +598,7 @@ async function computeInfraTotal(
   prisma: any,
   field: string,
 ): Promise<number> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
-  if (!entries.length) return 0;
-  if (!competitionId) {
-    throw new BadRequestException("计算基建清单聚合缺少比赛上下文（competitionId）");
-  }
-  const names = entries.map(([name]) => name);
-  const infrastructures: any[] = await prisma.infrastructure.findMany({
-    where: { competitionId, name: { in: names } },
-    select: { name: true, [field]: true },
-  });
-  const valueByName = new Map(
-    infrastructures.map((x) => [x.name as string, Number(x[field]) || 0]),
-  );
-  let total = 0;
-  for (const [name, q] of entries) {
-    total += (valueByName.get(name) ?? 0) * Number(q);
-  }
-  return total;
+  return computeNamedFieldValueAggregate(raw, competitionId, prisma, "infrastructure", field, "基建清单聚合");
 }
 
 /**
@@ -601,25 +613,7 @@ async function computeVehicleTotalPrice(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<number> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
-  if (!entries.length) return 0;
-  if (!competitionId) {
-    throw new BadRequestException("计算载具清单总价格缺少比赛上下文（competitionId）");
-  }
-  const names = entries.map(([name]) => name);
-  const vehicles: any[] = await prisma.vehicle.findMany({
-    where: { competitionId, name: { in: names } },
-    select: { name: true, price: true },
-  });
-  const priceByName = new Map(
-    vehicles.map((x) => [x.name as string, Number(x.price) || 0]),
-  );
-  let total = 0;
-  for (const [name, q] of entries) {
-    total += (priceByName.get(name) ?? 0) * Number(q);
-  }
-  return total;
+  return computeNamedFieldValueAggregate(raw, competitionId, prisma, "vehicle", "price", "载具清单总价格");
 }
 
 /**
@@ -634,25 +628,7 @@ async function computeVehicleTotalCargo(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<number> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
-  if (!entries.length) return 0;
-  if (!competitionId) {
-    throw new BadRequestException("计算载具清单总载货量缺少比赛上下文（competitionId）");
-  }
-  const names = entries.map(([name]) => name);
-  const vehicles: any[] = await prisma.vehicle.findMany({
-    where: { competitionId, name: { in: names } },
-    select: { name: true, maxCargo: true },
-  });
-  const cargoByName = new Map(
-    vehicles.map((x) => [x.name as string, Number(x.maxCargo) || 0]),
-  );
-  let total = 0;
-  for (const [name, q] of entries) {
-    total += (cargoByName.get(name) ?? 0) * Number(q);
-  }
-  return total;
+  return computeNamedFieldValueAggregate(raw, competitionId, prisma, "vehicle", "maxCargo", "载具清单总载货量");
 }
 
 /**
@@ -667,25 +643,7 @@ async function computeVehicleTotalFuelPerKm(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<number> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
-  if (!entries.length) return 0;
-  if (!competitionId) {
-    throw new BadRequestException("计算载具清单总每公里油耗缺少比赛上下文（competitionId）");
-  }
-  const names = entries.map(([name]) => name);
-  const vehicles: any[] = await prisma.vehicle.findMany({
-    where: { competitionId, name: { in: names } },
-    select: { name: true, fuelConsumptionPerKm: true },
-  });
-  const fuelByName = new Map(
-    vehicles.map((x) => [x.name as string, Number(x.fuelConsumptionPerKm) || 0]),
-  );
-  let total = 0;
-  for (const [name, q] of entries) {
-    total += (fuelByName.get(name) ?? 0) * Number(q);
-  }
-  return total;
+  return computeNamedFieldValueAggregate(raw, competitionId, prisma, "vehicle", "fuelConsumptionPerKm", "载具清单总每公里油耗");
 }
 
 /**
@@ -700,25 +658,7 @@ async function computeVehicleTotalCarbon(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<number> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
-  if (!entries.length) return 0;
-  if (!competitionId) {
-    throw new BadRequestException("计算载具清单总碳排数缺少比赛上下文（competitionId）");
-  }
-  const names = entries.map(([name]) => name);
-  const vehicles: any[] = await prisma.vehicle.findMany({
-    where: { competitionId, name: { in: names } },
-    select: { name: true, carbonEmission: true },
-  });
-  const carbonByName = new Map(
-    vehicles.map((x) => [x.name as string, Number(x.carbonEmission) || 0]),
-  );
-  let total = 0;
-  for (const [name, q] of entries) {
-    total += (carbonByName.get(name) ?? 0) * Number(q);
-  }
-  return total;
+  return computeNamedFieldValueAggregate(raw, competitionId, prisma, "vehicle", "carbonEmission", "载具清单总碳排数");
 }
 
 /**
@@ -733,25 +673,7 @@ async function computeFuelTotalPrice(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<number> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
-  if (!entries.length) return 0;
-  if (!competitionId) {
-    throw new BadRequestException("计算燃料清单总价格缺少比赛上下文（competitionId）");
-  }
-  const names = entries.map(([name]) => name);
-  const fuels: any[] = await prisma.fuel.findMany({
-    where: { competitionId, name: { in: names } },
-    select: { name: true, pricePerLiter: true },
-  });
-  const priceByName = new Map(
-    fuels.map((x) => [x.name as string, Number(x.pricePerLiter) || 0]),
-  );
-  let total = 0;
-  for (const [name, q] of entries) {
-    total += (priceByName.get(name) ?? 0) * Number(q);
-  }
-  return total;
+  return computeNamedFieldValueAggregate(raw, competitionId, prisma, "fuel", "pricePerLiter", "燃料清单总价格");
 }
 
 /**
@@ -802,25 +724,7 @@ async function computeWarehouseTotalPrice(
   competitionId: number | undefined,
   prisma: any,
 ): Promise<number> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return 0;
-  const entries = Object.entries(raw).filter(([, q]) => Number(q) > 0);
-  if (!entries.length) return 0;
-  if (!competitionId) {
-    throw new BadRequestException("计算仓库清单总价格缺少比赛上下文（competitionId）");
-  }
-  const names = entries.map(([name]) => name);
-  const warehouses: any[] = await prisma.warehouse.findMany({
-    where: { competitionId, name: { in: names } },
-    select: { name: true, price: true },
-  });
-  const priceByName = new Map(
-    warehouses.map((x) => [x.name as string, Number(x.price) || 0]),
-  );
-  let total = 0;
-  for (const [name, q] of entries) {
-    total += (priceByName.get(name) ?? 0) * Number(q);
-  }
-  return total;
+  return computeNamedFieldValueAggregate(raw, competitionId, prisma, "warehouse", "price", "仓库清单总价格");
 }
 
 /**
@@ -1261,274 +1165,6 @@ export function applyOp(op: string, args: any[], scope?: Record<string, any>): a
       throw new BadRequestException(`未知运算: ${op}`);
   }
 }
-export function applyFieldEffect(
-  currentRaw: string | null | undefined,
-  fieldType: string,
-  config: any,
-  op: "ADD" | "SUB" | "SET",
-  newValue: any,
-): { store: string; before: any; after: any } {
-  const isList = fieldType === "LIST";
-  const isDict = fieldType === "DICTIONARY";
-  const itemType = config?.itemType || config?.valueType || "STRING";
-
-  const parseCurrent = (): any => {
-    if (isList) {
-      if (Array.isArray(currentRaw)) return currentRaw;
-      if (typeof currentRaw === "string" && currentRaw) {
-        try {
-          const p = JSON.parse(currentRaw);
-          return Array.isArray(p) ? p : [];
-        } catch {
-          return [];
-        }
-      }
-      return [];
-    }
-    if (isDict) {
-      if (currentRaw && typeof currentRaw === "object" && !Array.isArray(currentRaw))
-        return currentRaw;
-      if (typeof currentRaw === "string" && currentRaw) {
-        try {
-          const p = JSON.parse(currentRaw);
-          return p && typeof p === "object" && !Array.isArray(p) ? p : {};
-        } catch {
-          return {};
-        }
-      }
-      return {};
-    }
-    return parseStoredFieldValue(currentRaw, fieldType);
-  };
-
-  const before = parseCurrent();
-  let after: any;
-
-  if (isList) {
-    const base: any[] = Array.isArray(before) ? before : [];
-    const items: any[] = Array.isArray(newValue)
-      ? newValue
-      : newValue === undefined || newValue === null
-        ? []
-        : [newValue];
-    if (op === "SET") after = items;
-    else if (op === "SUB") after = base.filter((i) => !items.some((x) => deepEqual(x, i)));
-    // ADD 时去重，与 applyOp 的 LIST_ADD 行为一致
-    else after = [...base, ...items.filter((item) => !base.some((b) => deepEqual(b, item)))]
-    after = after.map((it) => castScalar(itemType, it));
-  } else if (isDict) {
-    const base: any = before && typeof before === "object" && !Array.isArray(before) ? before : {};
-    const obj: any =
-      newValue && typeof newValue === "object" && !Array.isArray(newValue)
-        ? newValue
-        : typeof newValue === "string" && newValue
-          ? { [newValue]: true }
-          : {};
-    if (op === "SET") after = obj;
-    else if (op === "SUB") {
-      const removeKeys = Array.isArray(newValue)
-        ? newValue.map(String)
-        : newValue && typeof newValue === "object"
-          ? Object.keys(newValue)
-          : [String(newValue)];
-      after = { ...base };
-      for (const k of removeKeys) delete after[k];
-    } else after = { ...base, ...obj };
-    const valueType = config?.valueType || "STRING";
-    after = Object.fromEntries(
-      Object.entries(after).map(([k, v]) => [k, castScalar(valueType, v)]),
-    );
-  } else {
-    const ft = (fieldType || "STRING").toUpperCase();
-    if (ft === "STRING" || ft === "BOOLEAN") {
-      // 字符串 / 布尔字段（如「所在地」存地图节点名）：保留原始标量，不做数字强制。
-      // ADD/SUB 对字符串 / 布尔无定义，统一退化为 SET（直接取新值）。
-      after = castScalar(ft, newValue);
-    } else {
-      const nBefore = toNumber(before);
-      const nVal = toNumber(newValue);
-      if (op === "SET") after = nVal;
-      else if (op === "SUB") after = nBefore - nVal;
-      else after = nBefore + nVal;
-    }
-  }
-
-  return { store: JSON.stringify(after), before, after };
-}
-
-/** 解析 ContractFieldEffect 中存储的 JSON 值（增量/基线）。 */
-function parseJsonValue(raw: string | null | undefined): any {
-  if (raw == null) return raw;
-  if (typeof raw !== "string") return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-}
-
-/**
- * 组合效果的两个数值来源（value + value2）。
- * - 标量字段：按 valueOp 做 加/减/乘（数字运算）。
- * - 列表字段：ADD/串联 → 拼接；SUB → 移除 value2 中元素；MUL 对集合无定义，退化为仅用 value。
- * - 字典字段：ADD/合并；SUB → 删键；MUL 退化为仅用 value（忽略 value2）。
- * 仅当 eff.value2 存在时调用，否则直接使用 value。
- */
-function combineValues(v1: any, v2: any, vop: "ADD" | "SUB" | "MUL", fieldType: string): any {
-  const isList = fieldType === "LIST";
-  const isDict = fieldType === "DICTIONARY";
-  if (isList) {
-    const a = Array.isArray(v1) ? v1 : v1 == null ? [] : [v1];
-    const b = Array.isArray(v2) ? v2 : v2 == null ? [] : [v2];
-    if (vop === "SUB") return a.filter((i) => !b.some((x) => deepEqual(x, i)));
-    return [...a, ...b];
-  }
-  if (isDict) {
-    const a = v1 && typeof v1 === "object" && !Array.isArray(v1) ? v1 : {};
-    const b = v2 && typeof v2 === "object" && !Array.isArray(v2) ? v2 : {};
-    if (vop === "SUB") {
-      const r = { ...a };
-      for (const k of Object.keys(b)) delete r[k];
-      return r;
-    }
-    return { ...a, ...b };
-  }
-  const ft = (fieldType || "STRING").toUpperCase();
-  if (ft === "STRING") return v1 == null ? "" : v1;
-  if (ft === "BOOLEAN") return v1 === true || v1 === "true" || v1 === 1 || v1 === "1";
-  const a = toNumber(v1);
-  const b = toNumber(v2);
-  if (vop === "MUL") return a * b;
-  if (vop === "SUB") return a - b;
-  return a + b;
-}
-
-/** 对公司产业字段（列表/字典/数字）做前置比较，返回是否通过及前后值。 */
-export function compareField(
-  currentRaw: string | null | undefined,
-  fieldType: string,
-  config: any,
-  op: CompareOp,
-  expected: any,
-): { passed: boolean; actual: any; expected: any; detail: string } {
-  const isList = fieldType === "LIST";
-  const isDict = fieldType === "DICTIONARY";
-  const parseCurrent = (): any => {
-    if (isList) {
-      if (Array.isArray(currentRaw)) return currentRaw;
-      if (typeof currentRaw === "string" && currentRaw) {
-        try {
-          const p = JSON.parse(currentRaw);
-          return Array.isArray(p) ? p : [];
-        } catch {
-          return [];
-        }
-      }
-      return [];
-    }
-    if (isDict) {
-      if (currentRaw && typeof currentRaw === "object" && !Array.isArray(currentRaw))
-        return currentRaw;
-      if (typeof currentRaw === "string" && currentRaw) {
-        try {
-          const p = JSON.parse(currentRaw);
-          return p && typeof p === "object" && !Array.isArray(p) ? p : {};
-        } catch {
-          return {};
-        }
-      }
-      return {};
-    }
-    return toNumber(currentRaw);
-  };
-  const actual = parseCurrent();
-  const length = isList ? (actual as any[]).length : Object.keys(actual as any).length;
-
-  switch (op) {
-    case "CONTAINS": {
-      const ok = isList
-        ? (actual as any[]).some((i) => deepEqual(i, expected))
-        : Object.keys(actual as any).includes(expected as any) ||
-          Object.values(actual as any).some((v) => deepEqual(v, expected));
-      return {
-        passed: ok,
-        actual,
-        expected,
-        detail: `字段包含 ${JSON.stringify(expected)}: ${ok ? "是" : "否"}`,
-      };
-    }
-    case "HAS_KEY": {
-      const ok = isDict && Object.prototype.hasOwnProperty.call(actual, expected);
-      return {
-        passed: ok,
-        actual,
-        expected,
-        detail: `字典含键 ${expected}: ${ok ? "是" : "否"}`,
-      };
-    }
-    case "LEN_EQ":
-      return {
-        passed: length === toNumber(expected),
-        actual: length,
-        expected: toNumber(expected),
-        detail: `长度=${length} == ${toNumber(expected)}`,
-      };
-    case "LEN_GTE":
-      return {
-        passed: length >= toNumber(expected),
-        actual: length,
-        expected: toNumber(expected),
-        detail: `长度=${length} >= ${toNumber(expected)}`,
-      };
-    case "LEN_LTE":
-      return {
-        passed: length <= toNumber(expected),
-        actual: length,
-        expected: toNumber(expected),
-        detail: `长度=${length} <= ${toNumber(expected)}`,
-      };
-    case "EQ":
-      return { passed: deepEqual(actual, expected), actual, expected, detail: `结构相等比较` };
-    default: {
-      // 标量 STRING 字段：使用字典序比较，而非数值比较
-      if (!isList && !isDict && (fieldType || "").toUpperCase() === "STRING") {
-        const a = String(actual ?? "");
-        const b = String(expected ?? "");
-        const ok = (() => {
-          switch (op) {
-            case "GT": return a > b;
-            case "LT": return a < b;
-            case "LTE": return a <= b;
-            case "GTE":
-            default: return a >= b;
-          }
-        })();
-        return { passed: ok, actual: a, expected: b, detail: `"${a}" ${op} "${b}"` };
-      }
-      // LIST/DICTIONARY：按长度比较
-      const ok = (() => {
-        switch (op) {
-          case "GT":
-            return length > toNumber(expected);
-          case "LT":
-            return length < toNumber(expected);
-          case "LTE":
-            return length <= toNumber(expected);
-          case "GTE":
-          default:
-            return length >= toNumber(expected);
-        }
-      })();
-      return {
-        passed: ok,
-        actual: length,
-        expected: toNumber(expected),
-        detail: `长度${op} ${toNumber(expected)}`,
-      };
-    }
-  }
-}
-
 @Injectable()
 export class ContractEngineService {
   constructor(
@@ -1546,7 +1182,7 @@ export class ContractEngineService {
     parties: string;
     inputs: string;
     contractType: { effects: string; conditions?: string };
-  }): Promise<{ log: any[]; result: any }> {
+  }, txClient?: any): Promise<{ log: any[]; result: any }> {
     const effects = this.safeParse(contract.contractType.effects, "contractType.effects") as any[];
     const conditions: ConditionSpec[] = this.safeParse(
       contract.contractType.conditions || "[]",
@@ -1561,11 +1197,11 @@ export class ContractEngineService {
       (contract as any).contractType?.inputSchema || "[]",
       "contractType.inputSchema",
     );
-    const infraFilterErr = this.validateInfraListFilters(inputSchema, inputs);
+    const infraFilterErr = this.validateListFilters(inputSchema, inputs, "infrastructureList", "allowedInfrastructures", "基建");
     if (infraFilterErr) {
       throw new BadRequestException(`基建清单范围校验未通过:\n${infraFilterErr}`);
     }
-    const vehFilterErr = this.validateVehicleListFilters(inputSchema, inputs);
+    const vehFilterErr = this.validateListFilters(inputSchema, inputs, "vehicleList", "allowedVehicles", "载具");
     if (vehFilterErr) {
       throw new BadRequestException(`载具清单范围校验未通过:\n${vehFilterErr}`);
     }
@@ -1649,7 +1285,7 @@ export class ContractEngineService {
     const resolveValue = (spec: ValueSpec, sc?: Record<string, any>): Promise<any> =>
       evalValueSpec(spec, inputs, this.prisma, sc ?? scope, ctx);
 
-    await this.prisma.$transaction(async (tx) => {
+    const runInTx = async (tx: any) => {
       // 前置检查：先核验公司状态，任一不过则中止（事务回滚，不落账）
       if (conditions.length) {
         const checks = await this.runConditions(
@@ -1700,7 +1336,7 @@ export class ContractEngineService {
               `合同不包含参与方角色「${eff.party}」，无法定位目标公司（请核对合同类型的参与方配置）`,
             );
           }
-          const field = await this.resolveIndustryField(tx, party.companyId!, eff.fieldKey);
+          const field = await this.resolveIndustryField(tx, party.companyId!, eff.fieldKey, (ctx as any).__fieldCache);
           let newValue = await resolveValue(eff.value, sc);
           // 效果双值组合：把第二个自动数值来源 value2 按 valueOp 合并到写入量。
           if (eff.value2) {
@@ -1786,7 +1422,15 @@ export class ContractEngineService {
       if (effectRows.length) {
         await (tx as any).contractFieldEffect.createMany({ data: effectRows });
       }
-    });
+    };
+
+    if (txClient) {
+      await runInTx(txClient);
+    } else {
+      await this.prisma.$transaction(async (tx) => {
+        await runInTx(tx);
+      });
+    }
 
     return { log, result };
   }
@@ -1801,8 +1445,8 @@ export class ContractEngineService {
    *
    * 调用方须在本合同记录被删除（级联清空 ContractFieldEffect）之前调用本方法。
    */
-  async revertContract(contract: { id: number; executedAt?: Date | null | undefined }): Promise<void> {
-    const prisma = this.prisma as any;
+  async revertContract(contract: { id: number; executedAt?: Date | null | undefined }, txClient?: any): Promise<void> {
+    const prisma = txClient || (this.prisma as any);
     const deletedRows: any[] = await prisma.contractFieldEffect.findMany({
       where: { contractId: contract.id },
     });
@@ -1817,8 +1461,35 @@ export class ContractEngineService {
       });
     }
 
+    // 批量查询：收集所有受影响字段 ID，一次性查出 IndustryField 定义和剩余效果记录，避免 N+1
+    const affectedFieldIds = [...new Set([...fieldMap.values()].map((f) => f.industryFieldId))];
+    const affectedPairs = [...fieldMap.values()].map((f) => ({ companyId: f.companyId, industryFieldId: f.industryFieldId }));
+
+    const allFields: any[] = await prisma.industryField.findMany({
+      where: { id: { in: affectedFieldIds } },
+    });
+    const fieldById = new Map<number, any>(allFields.map((f: any) => [f.id, f]));
+
+    const allRemaining: any[] = await prisma.contractFieldEffect.findMany({
+      where: {
+        OR: affectedPairs.map((p) => ({
+          companyId: p.companyId,
+          industryFieldId: p.industryFieldId,
+        })),
+        contractId: { not: contract.id },
+      },
+      orderBy: [{ contract: { executedAt: "asc" } }, { id: "asc" }],
+      include: { contract: { select: { executedAt: true, createdAt: true } } },
+    });
+    const remainingByKey = new Map<string, any[]>();
+    for (const r of allRemaining) {
+      const key = `${r.companyId}:${r.industryFieldId}`;
+      if (!remainingByKey.has(key)) remainingByKey.set(key, []);
+      remainingByKey.get(key)!.push(r);
+    }
+
     for (const { companyId, industryFieldId } of fieldMap.values()) {
-      const field = await prisma.industryField.findUnique({ where: { id: industryFieldId } });
+      const field = fieldById.get(industryFieldId);
       if (!field) continue;
       const fieldType = field.fieldType;
       const config = parseFieldConfig(field.config);
@@ -1826,11 +1497,7 @@ export class ContractEngineService {
       const deletedRowsForField = deletedRows.filter(
         (r) => r.companyId === companyId && r.industryFieldId === industryFieldId,
       );
-      const remaining: any[] = await prisma.contractFieldEffect.findMany({
-        where: { companyId, industryFieldId, contractId: { not: contract.id } },
-        orderBy: [{ contract: { executedAt: "asc" } }, { id: "asc" }],
-        include: { contract: { select: { executedAt: true, createdAt: true } } },
-      });
+      const remaining = remainingByKey.get(`${companyId}:${industryFieldId}`) || [];
 
       // 基线 = 全部效果（含被删合同）中最早者的 beforeRaw
       // executedAt 为 null 时使用 createdAt 作为排序依据（避免 null 映射为 1970-01-01 导致排序错误）
@@ -1860,8 +1527,32 @@ export class ContractEngineService {
   /**
    * 按公司所属产业类型 + fieldKey 定位产业字段定义。
    * 公司未设置产业类型、或该产业下没有此字段时抛错（合同不应静默跳过字段操作）。
+   * 当 fieldCache 可用时，利用缓存中已预加载的 industryTypeId 跳过公司查询。
    */
-  private async resolveIndustryField(p: any, companyId: number, fieldKey: string) {
+  private async resolveIndustryField(p: any, companyId: number, fieldKey: string, fieldCache?: Map<string, { industryTypeId: number; companyName: string }>) {
+    // 快速路径：__fieldCache 已预加载参与方公司信息，从中提取 industryTypeId 避免查询 company
+    if (fieldCache) {
+      // 先尝试精确 key；不存在时取该公司任意字段条目（industryTypeId 对同一公司恒定）
+      const entry = fieldCache.get(`${companyId}:${fieldKey}`) || (() => {
+        for (const [k, v] of fieldCache) { if (k.startsWith(`${companyId}:`) && v.industryTypeId) return v; }
+        return undefined;
+      })();
+      if (entry && entry.industryTypeId) {
+        const field = await p.industryField.findUnique({
+          where: {
+            industryTypeId_fieldKey: {
+              industryTypeId: entry.industryTypeId,
+              fieldKey,
+            },
+          } as any,
+        });
+        if (!field)
+          throw new BadRequestException(
+            `公司「${entry.companyName}」所属产业下不存在字段「${fieldKey}」`,
+          );
+        return field;
+      }
+    }
     const company = await p.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException(`公司不存在(#${companyId})`);
     if (!company.industryTypeId)
@@ -2209,7 +1900,7 @@ export class ContractEngineService {
       undefined,
       ctx,
     );
-    const infraFilterErr = this.validateInfraListFilters(inputSchema, inputs);
+    const infraFilterErr = this.validateListFilters(inputSchema, inputs, "infrastructureList", "allowedInfrastructures", "基建");
     if (infraFilterErr) {
       checks.push({
         kind: "INFRA_LIST_FILTER",
@@ -2235,23 +1926,26 @@ export class ContractEngineService {
   }
 
   /**
-   * 基建清单「基建列表」引擎校验：若合同类型某基建清单输入源在 inputSchema 中配置了
-   * allowedInfrastructures（限定可见基建名数组，非空），则用户填写的基建清单字典
-   * {基建名: 数量} 中，凡名称不在允许列表内的基建一律视为违规。
-   * 返回中文错误信息（含违规基建名 + 允许清单），无违规返回 null。
-   * - 仅对 type === "infrastructureList" 且 allowedInfrastructures 为非空数组的字段生效。
+   * 清单输入源「允许列表」引擎校验：若合同类型某清单输入源在 inputSchema 中配置了
+   * allowedField（限定可见条目名数组，非空），则用户填写的清单字典
+   * {名称: 数量} 中，凡名称不在允许列表内的一律视为违规。
+   * 返回中文错误信息（含违规名 + 允许清单），无违规返回 null。
+   * - 仅对 type === filterType 且 allowedField 为非空数组的字段生效。
    * - inputs[field.key] 非对象 / 空字典：跳过（无违规）。
-   * - 向后兼容：旧合同类型（无 allowedInfrastructures 或空数组）完全不受影响。
+   * - 向后兼容：旧合同类型（无 allowedField 或空数组）完全不受影响。
    */
-  private validateInfraListFilters(
+  private validateListFilters(
     inputSchema: any,
     inputs: Record<string, any>,
+    filterType: string,
+    allowedField: string,
+    entityLabel: string,
   ): string | null {
     if (!Array.isArray(inputSchema)) return null;
     const violations: string[] = [];
     for (const f of inputSchema) {
-      if (!f || f.type !== "infrastructureList") continue;
-      const allowed = f.allowedInfrastructures;
+      if (!f || f.type !== filterType) continue;
+      const allowed = f[allowedField];
       if (!Array.isArray(allowed) || allowed.length === 0) continue;
       const allowedSet = new Set(allowed.map((x: any) => String(x)));
       const raw = inputs?.[f.key];
@@ -2262,43 +1956,7 @@ export class ContractEngineService {
       }
       if (forbidden.length) {
         violations.push(
-          `基建清单「${f.label || f.key}」包含未授权的基建：${forbidden.join("、")}（仅允许：${allowed.join("、")}）`,
-        );
-      }
-    }
-    return violations.length ? violations.join("\n") : null;
-  }
-
-  /**
-   * 载具清单「载具列表」引擎校验：逻辑与 validateInfraListFilters 完全对称，
-   * 仅将 type / 允许字段 / 实体名改为 vehicleList / allowedVehicles / 载具。
-   * 若合同类型某载具清单输入源在 inputSchema 中配置了 allowedVehicles（限定可见载具名数组，非空），
-   * 则用户填写的载具清单字典 {载具名: 数量} 中，凡名称不在允许列表内的载具一律视为违规。
-   * 返回中文错误信息（含违规载具名 + 允许清单），无违规返回 null。
-   * - 仅对 type === "vehicleList" 且 allowedVehicles 为非空数组的字段生效。
-   * - inputs[field.key] 非对象 / 空字典：跳过（无违规）。
-   * - 向后兼容：旧合同类型（无 allowedVehicles 或空数组）完全不受影响。
-   */
-  private validateVehicleListFilters(
-    inputSchema: any,
-    inputs: Record<string, any>,
-  ): string | null {
-    if (!Array.isArray(inputSchema)) return null;
-    const violations: string[] = [];
-    for (const f of inputSchema) {
-      if (!f || f.type !== "vehicleList") continue;
-      const allowed = f.allowedVehicles;
-      if (!Array.isArray(allowed) || allowed.length === 0) continue;
-      const allowedSet = new Set(allowed.map((x: any) => String(x)));
-      const raw = inputs?.[f.key];
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      const forbidden: string[] = [];
-      for (const name of Object.keys(raw)) {
-        if (!allowedSet.has(name)) forbidden.push(name);
-      }
-      if (forbidden.length) {
-        violations.push(
-          `载具清单「${f.label || f.key}」包含未授权的载具：${forbidden.join("、")}（仅允许：${allowed.join("、")}）`,
+          `${entityLabel}清单「${f.label || f.key}」包含未授权的${entityLabel}：${forbidden.join("、")}（仅允许：${allowed.join("、")}）`,
         );
       }
     }
