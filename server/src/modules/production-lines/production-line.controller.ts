@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { ProductionLineService } from "./production-line.service";
 import { CreateProductionLineDto, UpdateProductionLineDto } from "./dto/production-line.dto";
+import { parsePagination } from "../../common/pagination";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { Ownership } from "../../common/guards/ownership.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
@@ -26,14 +27,20 @@ export class ProductionLineController {
 
   @Get()
   findAll(
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
     @Query("competitionId") competitionId?: string,
     @Query("updatedAfter") updatedAfter?: string,
     @Query("requireExistingIds") requireExistingIds?: string,
   ) {
+    const { page: p, pageSize: ps } = parsePagination({ page, pageSize });
     return this.service.findAll(
       competitionId ? parseInt(competitionId) : undefined,
       updatedAfter,
-     requireExistingIds === "true");
+     requireExistingIds === "true",
+     undefined,
+     p,
+     ps);
   }
 
   @Get(":id")

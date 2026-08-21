@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { MaterialService } from "./material.service";
 import { CreateMaterialDto, UpdateMaterialDto } from "./dto/material.dto";
+import { parsePagination } from "../../common/pagination";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { Ownership } from "../../common/guards/ownership.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
@@ -32,9 +33,10 @@ export class MaterialController {
     @Query("updatedAfter") updatedAfter?: string,
     @Query("requireExistingIds") requireExistingIds?: string,
   ) {
+    const { page: p, pageSize: ps } = parsePagination({ page, pageSize });
     return this.service.findAll(
-      parseInt(page || "1"),
-      parseInt(pageSize || "50"),
+      p,
+      ps,
       competitionId ? parseInt(competitionId) : undefined,
       updatedAfter,
      requireExistingIds === "true");

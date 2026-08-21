@@ -61,7 +61,7 @@ export abstract class BaseCrudService {
     const { where: finalWhere, incremental } = applyUpdatedAfter(where, updatedAfter);
 
     if (incremental) {
-      const items = await model.findMany({ where: finalWhere, orderBy });
+      const items = await model.findMany({ where: finalWhere, orderBy, take: 5000 });
       const allCurrentIds = requireExistingIds
         ? (await model.findMany({ where, select: { id: true } })).map((r: any) => r.id)
         : [];

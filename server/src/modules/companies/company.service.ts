@@ -16,6 +16,8 @@ export class CompanyService {
     scopes?: number[] | null,
     requireExistingIds = false,
     previousIds?: number[],
+    page = 1,
+    pageSize = 50,
   ) {
     const baseWhere: any = competitionId ? { competitionId } : {};
     if (regionId !== undefined) baseWhere.regionId = regionId;
@@ -33,11 +35,18 @@ export class CompanyService {
         : [];
       return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
-    return this.prisma.company.findMany({
-      where,
-      include: { industryType: true, _count: true },
-      orderBy: { updatedAt: "desc" },
-    });
+    const skip = (page - 1) * pageSize;
+    const [items, total] = await Promise.all([
+      this.prisma.company.findMany({
+        where,
+        skip,
+        take: pageSize,
+        include: { industryType: true, _count: true },
+        orderBy: { updatedAt: "desc" },
+      }),
+      this.prisma.company.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
   }
 
   async findOne(id: number, scopes?: number[] | null) {

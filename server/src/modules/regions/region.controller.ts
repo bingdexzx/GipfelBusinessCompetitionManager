@@ -13,6 +13,7 @@ import {
 } from "@nestjs/common";
 import { RegionService } from "./region.service";
 import { CreateRegionDto, UpdateRegionDto, SaveOverviewCardsDto } from "./dto/region.dto";
+import { parsePagination } from "../../common/pagination";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { Ownership } from "../../common/guards/ownership.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
@@ -27,14 +28,20 @@ export class RegionController {
 
   @Get()
   findAll(
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
     @Query("competitionId") competitionId?: string,
     @Query("updatedAfter") updatedAfter?: string,
     @Query("requireExistingIds") requireExistingIds?: string,
   ) {
+    const { page: p, pageSize: ps } = parsePagination({ page, pageSize });
     return this.service.findAll(
       competitionId ? parseInt(competitionId) : undefined,
       updatedAfter,
-     requireExistingIds === "true");
+     requireExistingIds === "true",
+     undefined,
+     p,
+     ps);
   }
 
   // 地图区域总览：区域来自地图节点去重，必须在 :id 路由之前注册

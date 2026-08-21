@@ -28,7 +28,7 @@ export class RegionService {
     private companyFields: CompanyFieldsService,
   ) {}
 
-  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false, previousIds?: number[]) {
+  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false, previousIds?: number[], page = 1, pageSize = 50) {
     const baseWhere: any = competitionId ? { competitionId } : {};
     const { where, incremental } = applyUpdatedAfter(baseWhere, updatedAfter);
     if (incremental) {
@@ -38,10 +38,12 @@ export class RegionService {
         : [];
       return buildIncrementalResult(items, allCurrentIds, previousIds);
     }
-    return this.prisma.region.findMany({
-      where,
-      orderBy: { updatedAt: "desc" },
-    });
+    const skip = (page - 1) * pageSize;
+    const [items, total] = await Promise.all([
+      this.prisma.region.findMany({ where, skip, take: pageSize, orderBy: { updatedAt: "desc" } }),
+      this.prisma.region.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
   }
 
   async findOne(id: number) {

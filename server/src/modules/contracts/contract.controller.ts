@@ -19,6 +19,7 @@ import {
   UpdateContractStatusDto,
   UpdatePartyNumbersDto,
 } from "./dto/contract.dto";
+import { parsePagination } from "../../common/pagination";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Ownership } from "../../common/guards/ownership.guard";
@@ -44,11 +45,12 @@ export class ContractController {
     @Query("requireExistingIds") requireExistingIds?: string,
     @Req() req?: any,
   ) {
+    const { page: p, pageSize: ps } = parsePagination({ page, pageSize });
     return this.service.findAll(
       competitionId ? parseInt(competitionId) : undefined,
       status,
-      parseInt(page || "1"),
-      parseInt(pageSize || "50"),
+      p,
+      ps,
       req?.user,
       updatedAfter,
      requireExistingIds === "true");

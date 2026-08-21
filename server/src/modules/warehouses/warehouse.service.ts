@@ -11,11 +11,10 @@ export class WarehouseService extends BaseCrudService {
     super(prisma);
   }
 
-  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false) {
-    // 仓库无分页，使用极大 pageSize 获取全部数据，返回原始数组保持 API 兼容
+  async findAll(competitionId?: number, updatedAfter?: string, requireExistingIds = false, page = 1, pageSize = 50) {
     const result = await this.findAllGeneric(this.prisma.warehouse, {
-      page: 1,
-      pageSize: 10000,
+      page,
+      pageSize,
       competitionId,
       updatedAfter,
       requireExistingIds,

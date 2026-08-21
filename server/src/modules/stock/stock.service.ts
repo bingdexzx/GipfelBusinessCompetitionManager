@@ -601,6 +601,7 @@ export class StockService {
     const account = await this.findOneFundsAccount(user, accountId);
     const holdings = await this.prisma.stockHolding.findMany({
       where: { fundsAccountId: accountId, competitionId: account.competitionId ?? undefined },
+      take: 500,
       include: { stock: { select: { id: true, code: true, name: true, currentPrice: true } } },
     });
     return holdings.map((h) => ({
@@ -703,14 +704,14 @@ export class StockService {
     if (fundsAccountId) {
       const where: Record<string, unknown> = { competitionId, fundsAccountId };
       if (stockId) where.stockId = stockId;
-      return this.prisma.stockOrder.findMany({ where, orderBy: { createdAt: "desc" }, include: { stock: { select: { code: true, name: true } } } });
+      return this.prisma.stockOrder.findMany({ where, orderBy: { createdAt: "desc" }, take: 500, include: { stock: { select: { code: true, name: true } } } });
     }
     // 否则按用户可操作的账户范围过滤
     const operable = await this.getOperableAccountIds(user, competitionId);
     const where: Record<string, unknown> = { competitionId };
     if (stockId) where.stockId = stockId;
     if (operable) where.fundsAccountId = { in: operable };
-    return this.prisma.stockOrder.findMany({ where, orderBy: { createdAt: "desc" }, include: { stock: { select: { code: true, name: true } } } });
+    return this.prisma.stockOrder.findMany({ where, orderBy: { createdAt: "desc" }, take: 500, include: { stock: { select: { code: true, name: true } } } });
   }
 
   async placeOrder(user: ReqUser, dto: CreateOrderDto) {
@@ -789,6 +790,7 @@ export class StockService {
     if (operable && !accountId) where.fundsAccountId = { in: operable };
     const holdings = await this.prisma.stockHolding.findMany({
       where,
+      take: 500,
       include: { stock: { select: { id: true, code: true, name: true, currentPrice: true } } },
     });
     return holdings.map((h) => ({

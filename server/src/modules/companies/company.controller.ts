@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { CompanyService } from "./company.service";
 import { CreateCompanyDto, UpdateCompanyDto } from "./dto/company.dto";
+import { parsePagination } from "../../common/pagination";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { Ownership } from "../../common/guards/ownership.guard";
 import { PermissionsGuard } from "../../permissions/permissions.guard";
@@ -28,12 +29,15 @@ export class CompanyController {
 
   @Get()
   findAll(
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
     @Query("competitionId") competitionId?: string,
     @Query("updatedAfter") updatedAfter?: string,
     @Query("requireExistingIds") requireExistingIds?: string,
     @Query("regionId") regionId?: string,
     @CurrentUser() user?: { role?: string; permissions?: string[]; companyScopes?: number[]; viewCompanyScopes?: number[] },
   ) {
+    const { page: p, pageSize: ps } = parsePagination({ page, pageSize });
     // 非超管/管理者/区域发布者：按 viewCompanyScopes 过滤可见公司列表（空范围=不限制）
     const scopes = user
       ? companyListScopes(user.role, user.permissions, user.viewCompanyScopes)
@@ -43,7 +47,10 @@ export class CompanyController {
       updatedAfter,
       regionId !== undefined && regionId !== "" ? parseInt(regionId) : undefined,
       scopes ?? undefined,
-     requireExistingIds === "true");
+     requireExistingIds === "true",
+     undefined,
+     p,
+     ps);
   }
 
   @Get(":id")

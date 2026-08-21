@@ -14,6 +14,7 @@ import {
 import { StockService } from "./stock.service";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { ReqUser } from "./stock.service";
+import { parsePagination } from "../../common/pagination";
 import {
   CreateStockDto,
   UpdateStockDto,
@@ -43,10 +44,11 @@ export class StockController {
     @Query("updatedAfter") updatedAfter?: string,
     @Query("requireExistingIds") requireExistingIds?: string,
   ) {
+    const { page: p, pageSize: ps } = parsePagination({ page, pageSize });
     const cid = competitionId ? parseInt(competitionId) : user.competitionId ?? undefined;
     return this.service.findAllStocks(
-      parseInt(page || "1"),
-      parseInt(pageSize || "50"),
+      p,
+      ps,
       cid,
       updatedAfter,
       requireExistingIds === "true",

@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { UsersService } from "./users.service";
 import { CreateUserDto, UpdateUserDto, UpdatePasswordDto } from "./dto/user.dto";
+import { parsePagination } from "../common/pagination";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { Ownership } from "../common/guards/ownership.guard";
 import { PermissionsGuard } from "../permissions/permissions.guard";
@@ -33,13 +34,14 @@ export class UsersController {
     @Query("updatedAfter") updatedAfter?: string,
     @Query("requireExistingIds") requireExistingIds?: string,
   ) {
+    const { page: p, pageSize: ps } = parsePagination({ page, pageSize });
     let cid: number | null | undefined;
     if (competitionId === undefined) cid = undefined;
     else if (competitionId === "null" || competitionId === "") cid = null;
     else cid = parseInt(competitionId, 10);
     return this.usersService.findAll(
-      parseInt(page || "1"),
-      parseInt(pageSize || "20"),
+      p,
+      ps,
       cid,
       updatedAfter,
      requireExistingIds === "true");

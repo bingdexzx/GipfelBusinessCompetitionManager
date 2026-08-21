@@ -193,6 +193,7 @@ export class MessageService {
       where: { userId: user.id },
       include: { message: true },
       orderBy: { createdAt: "desc" },
+      take: 500,
     });
     const senderIds = [...new Set(rows.map((r) => r.message.senderId))];
     const senders = await this.prisma.user.findMany({
@@ -215,6 +216,7 @@ export class MessageService {
       where: { senderId: actor.id },
       include: { _count: { select: { recipients: true } } },
       orderBy: { createdAt: "desc" },
+      take: 500,
     });
     const senderName = (actor as any)?.displayName || (actor as any)?.username || `用户${actor.id}`;
     return msgs.map((m) => ({ ...m, images: this.parseImages(m.images), senderName }));
