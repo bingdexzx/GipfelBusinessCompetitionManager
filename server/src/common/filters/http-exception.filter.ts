@@ -23,7 +23,55 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = "服务器内部错误";
 
-    if (exception instanceof HttpException) {
+    // ===== Prisma ORM 业务错误（全局兜底）：避免被判定为 500 系统崩溃，前端误以为整个系统挂了 =====
+    // PrismaClientKnownRequestError 不是 HttpException 子类，需在此单独分支。
+    // 使用鸭子类型 + 构造函数名双重判定，避免依赖 @prisma/client 的内部 runtime 导入路径（版本间易变）。
+    const prismaErr =
+      exception &&
+      typeof exception === "object" &&
+      "code" in (exception as Record<string, unknown>) &&
+      typeof (exception as Record<string, unknown>).code === "string" &&
+      /^P\d{4}$/.test((exception as Record<string, string>).code) &&
+      (exception.constructor?.name === "PrismaClientKnownRequestError" ||
+        exception.constructor?.name === "PrismaClientValidationError")
+        ? (exception as Record<string, any>)
+        : null;
+    if (prismaErr) {
+      const code = prismaErr.code as string;
+      const meta = (prismaErr.meta as Record<string, any>) || {};
+      const targetFields = Array.isArray(meta.target)
+        ? (meta.target as string[]).join(", ")
+        : "";
+      switch (code) {
+        case "P2002": // Unique constraint failed（如同比赛下已存在同名地图节点/原料/生产线…）
+          status = HttpStatus.CONFLICT; // 409 Conflict
+          // 常见复合唯一键：(competitionId, name) => 对用户的友好提示就是「名称已存在」
+          if (targetFields.includes("name")) {
+            message = "操作失败：同比赛下该名称已存在，请换一个名称";
+          } else if (targetFields) {
+            message = `操作失败：存在重复数据（${targetFields}）`;
+          } else {
+            message = "操作失败：已存在相同记录";
+          }
+          break;
+        case "P2003": // Foreign key constraint failed（外键引用的关联记录不存在）
+          status = HttpStatus.CONFLICT;
+          message = "操作失败：关联的引用数据不存在或无效";
+          break;
+        case "P2014": // Required relation violation（有外键依赖，无法修改/删除父记录）
+          status = HttpStatus.CONFLICT;
+          message = "操作失败：该记录存在关联数据依赖，无法修改或删除";
+          break;
+        case "P2025": // Record not found（CRUD 中操作的记录不存在）
+          status = HttpStatus.NOT_FOUND;
+          message = "操作失败：记录不存在或已被删除";
+          break;
+        default:
+          // 其余 Prisma 错误统一降级为 400 业务错误，避免 500 前端误判系统崩溃
+          status = HttpStatus.BAD_REQUEST;
+          message = "操作失败，请检查输入";
+      }
+    } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
       const rawMsg = typeof res === "string" ? res : (res as any).message || exception.message;
