@@ -136,7 +136,7 @@
 
           <el-divider>我的持仓</el-divider>
           <div v-if="holdings.length" class="holding-list">
-            <div v-for="(row, i) in holdings" :key="row.stock?.id ?? row.id ?? i" class="holding-row">
+            <div v-for="(row, i) in holdings" :key="row.stock?.id ?? i" class="holding-row">
               <span class="holding-cell holding-name">{{ row.stock?.name || row.stock?.code || '—' }}</span>
               <span class="holding-cell holding-shares">{{ fmt(row.shares) }}股</span>
               <span class="holding-cell holding-value">¥{{ fmt(row.marketValue) }}</span>
