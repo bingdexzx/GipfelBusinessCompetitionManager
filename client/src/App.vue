@@ -1,5 +1,7 @@
 <template>
-  <router-view />
+  <router-view v-slot="{ Component, route }">
+    <component :is="Component" :key="route.fullPath" />
+  </router-view>
   <AnnouncementDialog />
   <VersionUpdateDialog />
   <MessageToastHost />

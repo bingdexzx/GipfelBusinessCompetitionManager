@@ -8,7 +8,7 @@
         <router-view v-slot="{ Component }">
           <transition name="fade-slide" mode="out-in">
             <div :key="route.fullPath" class="route-wrap">
-              <component :is="Component" />
+              <component :is="Component" :key="route.fullPath" />
             </div>
           </transition>
         </router-view>
