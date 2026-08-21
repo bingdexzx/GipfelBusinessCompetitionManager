@@ -5,13 +5,9 @@
     <div class="app-main">
       <TopBar />
       <div class="app-content">
-        <router-view v-slot="{ Component }">
-          <transition name="fade-slide" mode="out-in">
-            <div class="route-wrap">
-              <component :is="Component" :key="route.fullPath" />
-            </div>
-          </transition>
-        </router-view>
+        <div class="route-wrap">
+          <router-view :key="route.fullPath" />
+        </div>
       </div>
     </div>
   </div>
