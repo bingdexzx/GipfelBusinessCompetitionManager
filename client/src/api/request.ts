@@ -246,6 +246,28 @@ function isMapFullUrl(url: string): boolean {
   return (url || "").split("?")[0].replace(/\/$/, "").endsWith("/maps/full");
 }
 
+/**
+ * 列表响应统一「降维」为裸数组：
+ *  - 裸数组原样返回；
+ *  - 分页对象 { items, total, ... } 取 items 展开为数组；
+ *  - 复合地图 /maps/full、公司产业字段 /company-fields/:id、详情对象（含 id 但非数组）保持原样。
+ *  保证下游列表组件写 `Array.isArray(res) ? res : []` 时不再把分页对象误判为空，
+ *  同时不影响需要消费 total/page 等字段的调用方（若有此类场景，用参数 opt.normalize=false 跳过降维）。
+ */
+function normalizeListResponse(url: string, v: unknown): unknown {
+  // 明确不做降维的特殊形态 URL
+  if (isMapFullUrl(url) || isCompanyFieldsUrl(url)) return v;
+  // 裸数组：直接返回（行业类型 / 比赛列表 / 合同类型等返回裸数组的接口）
+  if (Array.isArray(v)) return v;
+  // 非对象 / 为空：原样
+  if (!v || typeof v !== "object") return v;
+  const rec = v as Record<string, unknown>;
+  // 分页对象：必须有 items 数组 + total 字段；避免把 { data: [...] }、详情 { id, name } 等误判
+  if (Array.isArray(rec.items) && "total" in rec) return rec.items;
+  // 其余（详情、派生对象等）：原样返回
+  return v;
+}
+
 const MAP_SUB_RESOURCES = ["mapNode", "mapEdge", "mapNodeType", "pathType"] as const;
 
 function mapSyncKey(competitionId: string | number | undefined): string {
@@ -569,7 +591,8 @@ async function cachedGetImpl(url: string, config: AxiosRequestConfig): Promise<u
 async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
   if (!_cacheable(config)) {
     // 显式退出缓存的请求视为用户主动操作，仍正常弹错提示。
-    return (api as any).get(url, config);
+    const raw = await (api as any).get(url, config);
+    return normalizeListResponse(url, raw) as T;
   }
   // 走本地全量副本 / 增量同步的 GET 均为「后台数据同步」，失败应静默降级
   // （缓存层已做离线/基线回退），不应向用户弹「权限不足」等提示，
@@ -577,14 +600,16 @@ async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig)
   const silentConfig = { ...config, silent: true };
   const key = _reqKey("GET", url, silentConfig);
   const pending = _getInflight.get(key);
-  if (pending) return pending as Promise<T>;
+  if (pending) {
+    return pending.then((v) => normalizeListResponse(url, v)) as Promise<T>;
+  }
 
   // O3：窗口内且无该资源实时事件 → 直接返回内存副本，不打网络（含后台增量请求）。
   const resource = _resourceOf(url);
   const m = _memo.get(key);
   const lastEvt = _lastEventAt.get(resource) ?? -Infinity;
   if (m && Date.now() - m.time < STALE_WINDOW_MS && lastEvt <= m.time) {
-    return m.value as T;
+    return normalizeListResponse(url, m.value) as T;
   }
 
   // F2 修复：记录请求发起时刻（而非完成时刻），确保事件晚于发起时刻时 memo 失效
@@ -592,9 +617,10 @@ async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig)
   const p = cachedGetImpl(url, silentConfig).finally(() => _getInflight.delete(key));
   _getInflight.set(key, p);
   const result = await p;
-  // 使用 startedAt 而非 Date.now()，消除时序竞态窗口
+  // 使用 startedAt 而非 Date.now()，消除时序竞态窗口；memo 存原始结构（保留分页 total 等）
   _memo.set(key, { time: startedAt, value: result });
-  return result as T;
+  // 对外返回：列表统一降维为裸数组，兼容下游 `Array.isArray(res)` 写法
+  return normalizeListResponse(url, result) as T;
 }
 
 function _mutating(
