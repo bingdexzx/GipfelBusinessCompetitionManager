@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install shared dependencies
+        working-directory: shared/engine-dsl
+        run: npm ci
+
+      - name: Build shared package
+        working-directory: shared/engine-dsl
+        run: npm run build
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Lint server
+        working-directory: server
+        run: npm run lint:check || true
+
+      - name: Build server
+        working-directory: server
+        run: npm run build
+
+      - name: Test server
+        working-directory: server
+        run: npm test
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Type check client
+        working-directory: client
+        run: npx vue-tsc --noEmit
+
+      - name: Build client
+        working-directory: client
+        run: npm run build

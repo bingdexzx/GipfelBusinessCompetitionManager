@@ -1,5 +1,25 @@
 import 'dotenv/config';
 import 'tsconfig-paths/register';
+import { z } from "zod";
+
+// ========== 环境变量启动校验（fail-fast） ==========
+const envSchema = z.object({
+  JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
+  DATABASE_URL: z.string().min(1).optional(),
+  PORT: z.string().regex(/^\d+$/).optional(),
+  CORS_ORIGIN: z.string().optional(),
+  SEED_ADMIN_PASSWORD: z.string().optional(),
+  LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).optional(),
+  LOG_DIR: z.string().optional(),
+});
+
+const parsed = envSchema.safeParse(process.env);
+if (!parsed.success) {
+  console.error("环境变量校验失败:");
+  console.error(parsed.error.issues.map(i => `  ${i.path.join('.')}: ${i.message}`).join('\n'));
+  process.exit(1);
+}
+
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { Request, Response, NextFunction } from "express";
