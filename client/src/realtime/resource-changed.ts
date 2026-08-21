@@ -7,11 +7,11 @@
 //      直接派发 window 事件通知组件层自动重拉。组件重拉走 cachedApi → 增量模式，仅取回变更行。
 // 使用原生 CustomEvent 而非第三方事件总线，零额外依赖。
 
-import { onRealtime } from "./socket";
+import { onRealtime, getSocketInstance } from "./socket";
 import { removeFullItemByResource, SEG_TO_RESOURCE } from "@/api/cache";
 import { reconcileAllIncremental, bumpResourceEvent } from "@/api/request";
 
-let _bound = false;
+let _boundSocket: unknown = null; // 跟踪已绑定的 socket 实例，避免 socket 重建后漏绑
 let _lastSeq = 0; // 记录最后收到的事件序号（用于重连补发）
 
 // O4：实时重拉去抖 —— 同一资源在短时间内的多次事件合并为一次 window 广播，
@@ -36,10 +36,11 @@ export function getLastSeq(): number {
   return _lastSeq;
 }
 
-/** 注册全局「资源变更」监听（幂等，多次调用只生效一次）。建议在实时连接建立后调用。 */
+/** 注册全局「资源变更」监听（幂等，多次调用只在 socket 实例变化时重新注册）。建议在实时连接建立后调用。 */
 export function bindResourceChanged() {
-  if (_bound) return;
-  _bound = true;
+  const currentRef = getSocketInstance();
+  if (_boundSocket === currentRef && _boundSocket !== null) return;
+  _boundSocket = currentRef;
   onRealtime(
     "resource:changed",
     (payload: {

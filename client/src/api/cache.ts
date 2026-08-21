@@ -359,11 +359,16 @@ export async function listMapSyncKeys(): Promise<{ syncKey: string; competitionI
  * META|fullSyncAt|<resource>|* 三类键。写操作（POST/PUT/PATCH/DELETE）成功后调用，
  * 使下一次读取走「全量同步」，保证数据最新。
  *
+ * 精确化：当能确定本次写操作所属的 competitionId 时，仅失效该 competition 的缓存条目，
+ * 避免清除其他 competition 的本地副本（过度失效导致不必要的全量重拉）。
+ *   - 嵌套 URL（/competitions/<id>/...）：competitionId 从路径提取，体现在 collectionKey 的 _p= 前缀中。
+ *   - 顶层 URL（/materials）：competitionId 从 responseData.competitionId 提取，体现在 collectionKey 的 competitionId= 参数中。
+ *
  * 例外：公司产业字段（company-fields）是「每公司一份」的派生集合，副本键形如
  * companyField|companyId=123。写某企业字段时仅失效该企业副本，避免按资源前缀全清
  * 误伤其他企业的本地全量副本（过度失效）。
  */
-export async function invalidateResource(url: string): Promise<void> {
+export async function invalidateResource(url: string, responseData?: unknown): Promise<void> {
   const rawPath = (url.split("?")[0]) || "";
   const seg = (rawPath.split("/").filter(Boolean)[0]) || "";
   const resource = SEG_TO_RESOURCE[seg] || seg;
@@ -383,6 +388,35 @@ export async function invalidateResource(url: string): Promise<void> {
       await deleteExact(exactKeys);
       return;
     }
+  }
+
+  // 精确失效：从嵌套 URL 路径提取 competitionId，仅清除该比赛的缓存条目。
+  // 嵌套 URL 格式：/<resource>/<competitionId>/...，collectionKey 中体现为 _p=<competitionId>/...
+  // 例：/competitions/123/fiscal-years → 清除 FULL|fiscal-year|_p=123/（而非全部 fiscal-year）
+  const nestedMatch = rawPath.match(/^\/[^/]+\/(\d+)\/[^/]+/);
+  if (nestedMatch) {
+    const nestedId = nestedMatch[1];
+    const nestedPrefixes = [
+      `${FULL_PREFIX}${resource}|_p=${nestedId}/`,
+      `${BASELINE_PREFIX}${resource}|_p=${nestedId}/`,
+      `${FULLSYNC_PREFIX}${resource}|_p=${nestedId}/`,
+    ];
+    await deleteByPrefixes(nestedPrefixes);
+    return;
+  }
+
+  // 精确失效：从响应体提取 competitionId，仅清除该比赛的缓存条目。
+  // 顶层 URL 格式：/materials 等，competitionId 在响应体中，collectionKey 中体现为 competitionId=<id>
+  const resCid = (responseData as Record<string, unknown> | undefined)?.competitionId;
+  if (resCid != null) {
+    const scopedSuffix = `|competitionId=${resCid}`;
+    const scopedPrefixes = [
+      `${FULL_PREFIX}${resource}${scopedSuffix}`,
+      `${BASELINE_PREFIX}${resource}${scopedSuffix}`,
+      `${FULLSYNC_PREFIX}${resource}${scopedSuffix}`,
+    ];
+    await deleteExactByPrefixes(scopedPrefixes);
+    return;
   }
 
   const prefixes = [
@@ -407,6 +441,36 @@ async function deleteExact(keys: string[]): Promise<void> {
         if (cursor) {
           const k = cursor.key as string;
           if (keySet.has(k)) store.delete(k);
+          cursor.continue();
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/**
+ * 删除以给定前缀精确匹配的键（前缀本身也要精确匹配，不做子串扫描）。
+ * 用于 competitionId 参数化的精确失效：如 FULL|material|competitionId=1 仅删除该精确键，
+ * 不误删 FULL|material|competitionId=12（前缀扫描 deleteByPrefixes 会误删）。
+ */
+async function deleteExactByPrefixes(prefixes: string[]): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          const k = cursor.key as string;
+          if (prefixes.some((p) => k === p || k.startsWith(p + "&") || k.startsWith(p + "|"))) {
+            store.delete(k);
+          }
           cursor.continue();
         }
       };

@@ -84,7 +84,7 @@ api.interceptors.response.use(
         ElMessage.error(getErrorMessage(error));
       } else {
         removeAccountItem("token");
-        clearCurrentAccountCache();
+        clearCurrentAccountCache().catch(() => {}); // fire-and-forget：同步标记已清除，异步清理 IndexedDB
         _resetMemo();
         window.location.hash = "#/login";
         // 优先采用后端明确提示：被新设备登录顶掉时后端返回「您的账号已在其他设备登录，请重新登录」；
@@ -170,6 +170,13 @@ function _resourceOf(url: string): string {
 export function bumpResourceEvent(resource: string): void {
   if (!resource) return;
   _lastEventAt.set(resource, Date.now());
+  // 防止无界增长：条目超过 100 时清理 1 小时前的旧条目
+  if (_lastEventAt.size > 100) {
+    const cutoff = Date.now() - 3600_000;
+    for (const [k, v] of _lastEventAt) {
+      if (v < cutoff) _lastEventAt.delete(k);
+    }
+  }
 }
 
 /** 写操作 / 登录失效后清空内存 memo，避免返回被写失效前的陈旧数据。 */
@@ -602,9 +609,10 @@ function _mutating(
       : (api as any)[method](url, data, config);
   // 写操作完成后（无论成败）清空内存 memo，避免 O3 窗口返回陈旧数据；
   // 写成功时额外失效本地全量副本，保证后续读取走全量同步拿到最新。
+  // 传递响应数据使 invalidateResource 能按 competitionId 精确失效，避免误清其他比赛的缓存。
   Promise.resolve(res).then(
-    () => {
-      invalidateResource(url);
+    (data) => {
+      invalidateResource(url, data);
       _resetMemo();
     },
     () => {

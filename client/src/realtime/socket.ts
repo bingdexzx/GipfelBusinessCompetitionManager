@@ -78,6 +78,11 @@ export function unsubscribeCompetition(competitionId: number) {
   socket?.emit("unsubscribe", { competitionId });
 }
 
+/** 获取当前 socket 实例引用（供外部判断 socket 是否已重建）。 */
+export function getSocketInstance(): Socket | null {
+  return socket;
+}
+
 /** 注册实时事件监听（连接前注册同样有效，socket.io 内部会缓冲） */
 export function onRealtime(event: string, handler: (payload: any) => void) {
   if (!socket) connectRealtime();
