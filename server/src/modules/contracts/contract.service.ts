@@ -216,12 +216,34 @@ export class ContractService {
     const inputs = dto?.inputs !== undefined ? this.toStored(dto.inputs) : contract.inputs;
     const contractForEngine = { ...contract, inputs };
 
-    const { log, result } = await this.engine.execute(contractForEngine);
+    let log: any[];
+    let result: any;
+    let updated: any;
+
+    // 引擎字段写入 + 合同状态更新必须在同一事务内，避免引擎落账后状态更新失败导致可重复执行
+    await this.prisma.$transaction(async (tx) => {
+      const engineResult = await this.engine.execute(contractForEngine, tx);
+      log = engineResult.log;
+      result = engineResult.result;
+
+      updated = await tx.contract.update({
+        where: { id },
+        data: {
+          inputs,
+          status: "EXECUTED",
+          signedAt: contract.signedAt ?? new Date(),
+          executedAt: new Date(),
+          executionLog: JSON.stringify(log),
+          executionResult: JSON.stringify(result),
+        },
+        include: { contractType: true },
+      });
+    });
 
     // 合同执行改写基础产业字段后，须级联重算计算字段（此前直写绕过 CompanyFieldsService
     // 导致计算值陈旧），并广播 company-field:changed 让三端（公司详情 / 仪表盘 / 区域总览）刷新。
     const affectedCompanies = new Set<number>();
-    for (const key of Object.keys(result.fields || {})) {
+    for (const key of Object.keys(result!.fields || {})) {
       const cid = parseInt(key.split(":")[0], 10);
       if (Number.isFinite(cid)) affectedCompanies.add(cid);
     }
@@ -229,32 +251,20 @@ export class ContractService {
       await this.companyFields.recomputeCalculatedFieldsForCompany(companyId);
     }
 
-    const updated = await this.prisma.contract.update({
-      where: { id },
-      data: {
-        inputs,
-        status: "EXECUTED",
-        signedAt: contract.signedAt ?? new Date(),
-        executedAt: new Date(),
-        executionLog: JSON.stringify(log),
-        executionResult: JSON.stringify(result),
-      },
-      include: { contractType: true },
-    });
     // 强时效：合同执行后实时广播，相关前端即刻刷新
-    this.realtime.broadcastToCompetition(updated.competitionId, "contract:changed", {
-      id: updated.id,
-      status: updated.status,
-      competitionId: updated.competitionId,
+    this.realtime.broadcastToCompetition(updated!.competitionId, "contract:changed", {
+      id: updated!.id,
+      status: updated!.status,
+      competitionId: updated!.competitionId,
     });
     // 同步广播计算字段刷新（与 contract:changed 一并发出，保证携带重算后的最新值）。
     for (const companyId of affectedCompanies) {
-      this.realtime.broadcastToCompetition(updated.competitionId, "company-field:changed", {
+      this.realtime.broadcastToCompetition(updated!.competitionId, "company-field:changed", {
         companyId,
-        competitionId: updated.competitionId,
+        competitionId: updated!.competitionId,
       });
     }
-    return updated;
+    return updated!;
   }
 
   /**
@@ -375,13 +385,19 @@ export class ContractService {
       return this.prisma.contract.delete({ where: { id } });
     }
     // 复原该合同对产业字段的修改（不影响后续合同）；删合同后级联清空其字段改写记录。
-    await this.engine.revertContract(item);
-    // 复原基础字段后须级联重算计算字段（避免计算值停留在被删合同改写后的陈旧态），
-    // 并广播 company-field:changed 让前端刷新。
     const parties = this.parseJson(item.parties, "parties");
     const affected = (parties || []).filter(
       (p: any) => !p.isHost && typeof p.companyId === "number",
     );
+
+    // 字段复原 + 合同删除必须在同一事务内，避免复原成功但删除失败导致合同残留
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      await this.engine.revertContract(item, tx);
+      return tx.contract.delete({ where: { id } });
+    });
+
+    // 复原基础字段后须级联重算计算字段（避免计算值停留在被删合同改写后的陈旧态），
+    // 并广播 company-field:changed 让前端刷新。
     for (const p of affected) {
       await this.companyFields.recomputeCalculatedFieldsForCompany(p.companyId);
       this.realtime.broadcastToCompetition(item.competitionId, "company-field:changed", {
@@ -389,7 +405,7 @@ export class ContractService {
         competitionId: item.competitionId,
       });
     }
-    return this.prisma.contract.delete({ where: { id } });
+    return deleted;
   }
 
   /**

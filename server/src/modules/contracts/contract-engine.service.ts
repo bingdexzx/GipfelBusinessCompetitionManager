@@ -1911,7 +1911,7 @@ export class ContractEngineService {
         customError: true,
       });
     }
-    const vehFilterErr = this.validateVehicleListFilters(inputSchema, inputs);
+    const vehFilterErr = this.validateListFilters(inputSchema, inputs, "vehicleList", "allowedVehicles", "载具");
     if (vehFilterErr) {
       checks.push({
         kind: "VEHICLE_LIST_FILTER",
