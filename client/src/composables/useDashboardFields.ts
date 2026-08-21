@@ -100,29 +100,32 @@ export function useDashboardFields() {
         try {
           const compRes: any = await companiesApi.list({ competitionId: compId });
           const companies: any[] = extractItems(compRes)?.items ?? compRes?.data ?? [];
-          for (const comp of companies) {
-            try {
-              const fRes: any = await companyFieldsApi.get(comp.id);
-              const flds: any[] = fRes?.fields || [];
-              for (const f of flds) {
-                if (f.visible === false) continue; // 隐藏字段不出现在仪表盘字段选择中
-                const ref: FieldRef = {
-                  source: "company",
-                  companyId: comp.id,
-                  fieldId: f.id,
-                  fieldKey: f.fieldKey,
-                };
-                result.push({
-                  ref,
-                  key: refKey(ref),
-                  label: `${comp.name} / ${f.name}`,
-                  group: "公司",
-                  fieldType: f.fieldType,
-                  value: f.value,
-                });
-              }
-            } catch {
-              /* 单个公司读取失败忽略 */
+          // 并行拉取所有公司字段，避免 N+1 串行请求
+          const fieldResults = await Promise.allSettled(
+            companies.map((comp: any) => companyFieldsApi.get(comp.id)),
+          );
+          for (let i = 0; i < companies.length; i++) {
+            const comp = companies[i];
+            const fieldResult = fieldResults[i];
+            if (fieldResult.status !== "fulfilled") continue;
+            const fRes: any = fieldResult.value;
+            const flds: any[] = fRes?.fields || [];
+            for (const f of flds) {
+              if (f.visible === false) continue; // 隐藏字段不出现在仪表盘字段选择中
+              const ref: FieldRef = {
+                source: "company",
+                companyId: comp.id,
+                fieldId: f.id,
+                fieldKey: f.fieldKey,
+              };
+              result.push({
+                ref,
+                key: refKey(ref),
+                label: `${comp.name} / ${f.name}`,
+                group: "公司",
+                fieldType: f.fieldType,
+                value: f.value,
+              });
             }
           }
         } catch {
