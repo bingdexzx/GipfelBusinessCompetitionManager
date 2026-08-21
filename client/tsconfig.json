@@ -10,6 +10,7 @@
     "esModuleInterop": true,
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
+    "ignoreDeprecations": "5.0",
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
