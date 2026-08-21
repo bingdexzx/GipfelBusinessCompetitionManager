@@ -43,30 +43,46 @@ export const useAuthStore = defineStore("auth", () => {
   const isSuperAdmin = computed(() => user.value?.role === "SUPER_ADMIN");
 
   /** 权限判断：SUPER_ADMIN 隐式拥有全部权限；其余按各自 permissions 列表校验。
-   *  同域蕴含（与后端 hasPermission 一致）：读（view）可由该域任意能力满足，
-   *  即持有 domain:edit / domain:manage 等也视为拥有 domain:view，避免给读接口加 view 守卫后
-   *  既有 edit/manage 授权失效。 */
+   *  使用后端 actionRank 目录实现通用等级蕴含（与后端 hasPermission 一致）：
+   *  同域内，持有 rank >= 所需 rank 的能力即视为满足。 */
   function can(perm: string): boolean {
     if (user.value?.role === "SUPER_ADMIN") return true;
     const owned = user.value?.permissions ?? [];
     if (owned.includes(perm)) return true;
+
     const colon = perm.lastIndexOf(":");
-    if (colon !== -1) {
-      const domain = perm.slice(0, colon);
-      const action = perm.slice(colon + 1);
-      if (action === "view") {
-        // 读是某域内最弱能力：持有该域任意能力即视为可读
-        // 用 lastIndexOf 精确匹配域前缀，与后端 hasPermission 一致，避免 startsWith 误匹配嵌套域
-        if (owned.some((p) => {
-          if (p === domain) return true;
+    if (colon === -1) return false;
+    const domain = perm.slice(0, colon);
+    const action = perm.slice(colon + 1);
+
+    // 使用 catalog actionRank 进行通用等级蕴含比较
+    const catalog = permissionCatalog.value;
+    if (catalog?.actionRank) {
+      const requiredRank = catalog.actionRank[action];
+      if (requiredRank != null) {
+        // 检查用户是否持有同域内 rank >= required 的任意能力
+        return owned.some((p) => {
           const lastColon = p.lastIndexOf(":");
-          return lastColon > 0 && p.slice(0, lastColon) === domain;
-        })) return true;
-      } else if (action === "edit") {
-        // 编辑可由管理满足（与后端 hasPermission 一致）
-        if (owned.includes(`${domain}:manage`)) return true;
+          if (lastColon <= 0) return false;
+          const pDomain = p.slice(0, lastColon);
+          if (pDomain !== domain) return false;
+          const pAction = p.slice(lastColon + 1);
+          const pRank = catalog.actionRank[pAction];
+          return pRank != null && pRank >= requiredRank;
+        });
       }
     }
+
+    // 回退：catalog 尚未加载时的旧逻辑
+    if (action === "view") {
+      return owned.some((p) => {
+        const lastColon = p.lastIndexOf(":");
+        return lastColon > 0 && p.slice(0, lastColon) === domain;
+      });
+    } else if (action === "edit") {
+      return owned.includes(`${domain}:manage`);
+    }
+
     return false;
   }
 
