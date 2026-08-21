@@ -85,28 +85,31 @@ const form = reactive({ name: "", industryTypeId: null as number | null });
 // data:region:edit）且配置了 viewCompanyScopes 的账号，公司管理界面只展示其可见范围内的公司；
 // 超管 / 管理者 / 区域总览发布者展示全部。前端兜底，防止机器级全量缓存跨账号复用导致越权可见。
 function filterByScope(list: any[]): any[] {
+  if (!Array.isArray(list)) return [];
   const scopes = authStore.user?.viewCompanyScopes;
   const restricted =
-    !!scopes && scopes.length > 0 &&
+    Array.isArray(scopes) && scopes.length > 0 &&
     authStore.can("company:view") &&
     !authStore.can("company:manage") &&
     !authStore.can("data:region:edit");
   if (!restricted) return list;
   const allow = new Set(scopes);
-  return Array.isArray(list) ? list.filter((x) => allow.has(x.id)) : list;
+  return list.filter((x) => allow.has(x?.id));
 }
 
 async function loadCompanies() {
   if (!compStore.competitionId) {
+    companies.value = [];
     dataLoading.value = false;
     return;
   }
   dataLoading.value = true;
   try {
     const c = await api.get("/companies", { params: { competitionId: compStore.competitionId } });
-    companies.value = filterByScope(c);
+    companies.value = filterByScope(Array.isArray(c) ? c : []);
   } catch (e) {
     console.error("Failed to load companies:", e);
+    companies.value = [];
   } finally {
     dataLoading.value = false;
   }
@@ -115,9 +118,10 @@ async function loadCompanies() {
 async function loadIndustryTypes() {
   try {
     const c = await api.get("/industry-types");
-    allIndustryTypes.value = c || [];
+    allIndustryTypes.value = Array.isArray(c) ? c : [];
   } catch (e) {
     console.error("加载行业类型失败:", e);
+    allIndustryTypes.value = [];
   }
 }
 

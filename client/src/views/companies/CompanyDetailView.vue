@@ -4,7 +4,7 @@
       <el-button @click="router.push('/companies')">返回</el-button>
       <h2>{{ company?.name || "加载中..." }}</h2>
       <el-tag v-if="company?.industryType" type="info" size="small">
-        {{ company.industryType.name }}
+        {{ company.industryType?.name }}
       </el-tag>
     </div>
 
@@ -107,9 +107,10 @@ const fieldValuesLoading = ref(false);
 function dictRows(row: any): { key: string; label: string }[] {
   const cfg = row.config || {};
   const labels = new Map<string, string>();
-  for (const e of cfg.entries || []) labels.set(e.key, e.label || e.key);
+  const entries = Array.isArray(cfg.entries) ? cfg.entries : [];
+  for (const e of entries) labels.set(e?.key, e?.label || e?.key);
   const keys = new Set<string>();
-  for (const e of cfg.entries || []) if (e && e.key) keys.add(e.key);
+  for (const e of entries) if (e && e.key) keys.add(e.key);
   if (row.editValue && typeof row.editValue === "object" && !Array.isArray(row.editValue))
     for (const k of Object.keys(row.editValue)) keys.add(k);
   return [...keys].map((k) => ({ key: k, label: labels.get(k) || k }));
@@ -138,7 +139,8 @@ function normalizeEditValue(field: any, rawValue: any): any {
     // 已存在的存值（如合同写入的 {"1":10}）也不会丢失，可在界面只读展示。
     const keys = new Set<string>();
     const defaults: Record<string, any> = {};
-    for (const e of cfg.entries || []) {
+    const entries = Array.isArray(cfg.entries) ? cfg.entries : [];
+    for (const e of entries) {
       if (e && e.key) {
         keys.add(e.key);
         defaults[e.key] = e.defaultValue;
@@ -176,7 +178,7 @@ async function loadFieldValues() {
   fieldValuesLoading.value = true;
   try {
     const res: any = await companyFieldsApi.get(companyId);
-    const fields: any[] = res?.fields || [];
+    const fields: any[] = Array.isArray(res?.fields) ? res.fields : [];
     fieldEditors.value = fields.map((f: any) => ({
       industryFieldId: f.id,
       name: f.name,
@@ -188,6 +190,7 @@ async function loadFieldValues() {
     }));
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "加载字段失败");
+    fieldEditors.value = [];
   } finally {
     fieldValuesLoading.value = false;
   }
