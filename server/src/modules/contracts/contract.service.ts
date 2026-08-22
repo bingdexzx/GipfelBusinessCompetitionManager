@@ -199,6 +199,11 @@ export class ContractService {
     if (contract.status === "EXECUTED") {
       throw new BadRequestException("合同已执行，不可重复执行");
     }
+    // DRAFT/PENDING_EXEC 合同尚未落账，可直接执行；但 TERMINATED 合同已终止并（被 setStatus）
+    // 解除字段效果，若允许再次执行会重新落账导致产业字段值翻倍、账实不一致，故禁止。
+    if (contract.status === "TERMINATED") {
+      throw new BadRequestException("合同已终止，不可再次执行");
+    }
 
     // 执行方范围校验：比赛级/超管兜底可执任意合同；仅 contract:audit 限最后一方公司
     this.assertExecuteScope(user, contract);

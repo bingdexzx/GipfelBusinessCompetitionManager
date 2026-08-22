@@ -311,7 +311,9 @@ function permSummary(row: UserItem) {
 async function loadSystemUsers() {
   try {
     const res = await usersApi.list({ competitionId: "null" });
-    systemUsers.value = res.items;
+    // 后端返回 { items, total } 分页对象，但 cachedApi 已把列表响应降维为裸数组，
+    // 故 res 可能是数组；统一兼容两种形态。
+    systemUsers.value = Array.isArray(res) ? res : res?.items ?? [];
   } catch (e) {
     console.error("加载系统账号失败:", e);
   }
@@ -324,7 +326,7 @@ async function loadCompetitionUsers() {
   }
   try {
     const res = await usersApi.list({ competitionId: competitionId.value });
-    competitionUsers.value = res.items;
+    competitionUsers.value = Array.isArray(res) ? res : res?.items ?? [];
   } catch (e) {
     console.error("加载比赛账号失败:", e);
   }

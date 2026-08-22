@@ -655,7 +655,8 @@ export class StockService {
         competitionId,
       },
     });
-    this.realtime.emitResourceChanged("stocks", account.id, competitionId, "created");
+    // 注意：StockFundsAccount 的变更由 Prisma 中间件自动广播 stock-accounts，无需手动 emit；
+    // 手写 "stocks" 会与中间件重复广播，并错误地触发股票列表视图刷新（违背 S6 细分资源目标）。
     return account;
   }
 
@@ -679,7 +680,6 @@ export class StockService {
       }
     }
     const updated = await this.prisma.stockFundsAccount.update({ where: { id }, data });
-    this.realtime.emitResourceChanged("stocks", updated.id, updated.competitionId ?? null, "updated");
     return updated;
   }
 
@@ -693,7 +693,6 @@ export class StockService {
     if (holdingCount > 0) throw new BadRequestException("该账户仍有持仓，无法删除");
     if (orderCount > 0) throw new BadRequestException("该账户仍有挂单，无法删除");
     await this.prisma.stockFundsAccount.delete({ where: { id } });
-    this.realtime.emitResourceChanged("stocks", id, account.competitionId ?? null, "deleted");
     return { message: "已删除" };
   }
 
@@ -764,7 +763,7 @@ export class StockService {
         competitionId,
       },
     });
-    this.realtime.emitResourceChanged("stocks", order.id, competitionId, "created");
+    // 注意：StockOrder 的变更由 Prisma 中间件自动广播 stock-orders，无需手动 emit（同上）。
     return order;
   }
 
@@ -777,7 +776,6 @@ export class StockService {
     if (!this.isHighManager(user)) this.assertAccountOperable(account, user);
     if (order.status !== "PENDING") throw new BadRequestException("仅可撤销挂单");
     const updated = await this.prisma.stockOrder.update({ where: { id }, data: { status: "CANCELLED" } });
-    this.realtime.emitResourceChanged("stocks", id, order.competitionId ?? null, "updated");
     return updated;
   }
 

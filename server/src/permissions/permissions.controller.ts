@@ -12,8 +12,10 @@ import { ROLE_TEMPLATES, SUPER_ADMIN_ONLY_PERMISSIONS } from "./role-templates";
 /**
  * 权限目录端点
  * 登录即可访问，无需业务权限。
+ * 注意：全局已 setGlobalPrefix("api")，此处只需写 "permissions"，
+ * 最终路由为 /api/permissions/catalog，避免双重 /api 前缀导致 404。
  */
-@Controller("api/permissions")
+@Controller("permissions")
 export class PermissionsController {
   /**
    * 获取权限目录

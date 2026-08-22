@@ -142,7 +142,7 @@ export const useAuthStore = defineStore("auth", () => {
   async function fetchPermissionCatalog() {
     if (permissionCatalog.value) return; // 已缓存
     try {
-      const res = await api.get("/api/permissions/catalog", { silent: true });
+      const res = await api.get("/permissions/catalog", { silent: true });
       permissionCatalog.value = res as PermissionCatalog;
     } catch (e) {
       logger.error("Failed to fetch permission catalog:", e);
