@@ -58,16 +58,21 @@ export function bindResourceChanged() {
         _lastSeq = payload.seq;
       }
 
-      // 删除：精确移除本地副本中的该条目（无需重拉整表）
+      // 后端广播的 resource 可能是复数（经 Prisma 中间件自动发，如 materials/contracts/stocks）
+      // 或单数（各 service 手写，如 region/consumer-demand）。前端本地全量副本键与 memo 键统一用
+      // SEG_TO_RESOURCE 映射后的「单数」（material/contract/stock），故删除与 memo 失效必须用归一的单数；
+      // 而组件层 useResourceChanged 订阅传的是复数（materials），故派发给组件层的 window 事件保留
+      // 后端原值，确保严格相等匹配。
+      const singular = SEG_TO_RESOURCE[payload.resource] || payload.resource;
+      // 删除：精确移除本地副本中的该条目（用单数前缀，命中 FULL|material| 等）
       if (payload.action === "deleted" && payload.id != null) {
-        void removeFullItemByResource(payload.resource, payload.id);
+        void removeFullItemByResource(singular, payload.id);
       }
       // O3：标记该资源「最近有变更」，使内存新鲜度窗口 memo 立即失效、触发刷新
-      // 同时 bump 原始名和映射名（如 "stocks" → "stock"），确保 memo 键匹配
-      bumpResourceEvent(payload.resource);
-      const mappedResource = SEG_TO_RESOURCE[payload.resource];
-      if (mappedResource) bumpResourceEvent(mappedResource);
+      // （用单数，命中 _resourceOf 计算的 memo 键）
+      bumpResourceEvent(singular);
       // O4：同一资源短时间内的多次事件合并为一次广播，避免批量变更触发一连串组件重拉
+      // 派发保留后端原值，匹配组件 useResourceChanged 订阅的复数 resource
       scheduleResourceReload(payload.resource, {
         resource: payload.resource,
         id: payload.id ?? null,
@@ -127,13 +132,12 @@ export function bindResourceChanged() {
           if (data.seq && data.seq > _lastSeq) {
             _lastSeq = data.seq;
           }
-          // 触发资源变更处理
+          // 触发资源变更处理（与 connect 后的实时事件一致：删除/失效用单数，派发保留原值）
+          const singular = SEG_TO_RESOURCE[data.resource] || data.resource;
           if (data.action === "deleted" && data.id != null) {
-            void removeFullItemByResource(data.resource, data.id);
+            void removeFullItemByResource(singular, data.id);
           }
-          bumpResourceEvent(data.resource);
-          const mappedResource = SEG_TO_RESOURCE[data.resource];
-          if (mappedResource) bumpResourceEvent(mappedResource);
+          bumpResourceEvent(singular);
           scheduleResourceReload(data.resource, {
             resource: data.resource,
             id: data.id ?? null,
