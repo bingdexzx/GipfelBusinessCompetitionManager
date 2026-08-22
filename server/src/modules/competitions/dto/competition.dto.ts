@@ -23,7 +23,7 @@ export class UpdateCompetitionDto {
 
 export class CreateFiscalYearDto {
   @IsInt()
-  @Min(1)
+  @Min(0)
   @Max(99)
   year!: number;
 }
