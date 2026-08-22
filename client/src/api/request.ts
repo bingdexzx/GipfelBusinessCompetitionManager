@@ -302,7 +302,13 @@ function reconstruct(items: unknown[], shape: "array" | "paged", params: Record<
 /** 全量同步：循环分页拉取，直到取满 total，避免单集合超过 LARGE_PAGE_SIZE 时本地副本被截断。
  *  返回合并后的响应（items 为全量，total 为真实总数），供 storeAndReturn 写入本地全量副本。 */
 async function fetchFullSync(url: string, config: AxiosRequestConfig, params: Record<string, unknown>): Promise<unknown> {
-  const syncParams: Record<string, unknown> = { ...params, page: 1, pageSize: LARGE_PAGE_SIZE };
+  // 全量同步必须剥离增量专用参数（updatedAfter / requireExistingIds）：
+  // 否则服务端会因收到 updatedAfter 走增量分支、仅返回 delta，被 storeAndReturn 误当全量副本
+  // 覆盖写，导致「创建数据后本地显示暂无数据」/ 列表被清空。
+  const fullParams: Record<string, unknown> = { ...params };
+  delete fullParams.updatedAfter;
+  delete fullParams.requireExistingIds;
+  const syncParams: Record<string, unknown> = { ...fullParams, page: 1, pageSize: LARGE_PAGE_SIZE };
   const first: unknown = await (api as any).get(url, { ...config, params: syncParams });
   // 裸数组接口（competitions / companies / industry-types / warehouses / production-lines 等）：
   // 服务端忽略分页参数、一次返回全量数组。直接原样返回，避免被下方分页分支误裹成
