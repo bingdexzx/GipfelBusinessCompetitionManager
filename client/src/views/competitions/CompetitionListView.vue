@@ -349,7 +349,7 @@ async function startNextFiscalYear() {
     (m: number, f: any) => Math.max(m, f.year ?? 0),
     0,
   );
-  const nextYear = fiscalYears.value.length ? maxYear + 1 : 0;
+  const nextYear = fiscalYears.value.length ? maxYear + 1 : 1;
   await ElMessageBox.confirm(`确定开始第 ${nextYear} 财年？`, { type: "info" });
   try {
     await api.post(`/competitions/${selectedComp.value.id}/fiscal-years`, { year: nextYear });
