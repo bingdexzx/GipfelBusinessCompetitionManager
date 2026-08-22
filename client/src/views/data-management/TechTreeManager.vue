@@ -17,7 +17,7 @@
     </div>
 
     <div v-if="viewMode === 'tree'" class="tt-tree-container">
-      <div ref="panWrap" class="tt-pan-wrap">
+      <div ref="panWrapRef" class="tt-pan-wrap">
         <div ref="chartRef" class="tt-chart"></div>
       </div>
       <div v-if="selectedNode" class="tt-tree-info">
