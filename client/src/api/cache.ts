@@ -219,9 +219,12 @@ export async function patchFullItems(
   if (deletedIds && Array.isArray(deletedIds) && deletedIds.length > 0) {
     const deleteSet = new Set(deletedIds);
     result = result.filter((it) => it && !deleteSet.has(it.id));
-  } 
-  // 向后兼容：existingIds（旧协议：服务器返回所有现有ID）
-  else if (existingIds && Array.isArray(existingIds)) {
+  }
+  // 向后兼容：existingIds（旧协议：服务器返回所有现有ID）。
+  // 关键修复：未请求 requireExistingIds 时，服务端下发的是 existingIds:[]（空数组，表示「未计算」，
+  // 并非「全部删除」）。若对空数组执行过滤会把本地全量副本清空，导致列表「暂无数据」。
+  // 因此仅当 existingIds 为非空数组（服务端确实回传了「当前全部 id」）时才据其剔除本地多余条目。
+  else if (existingIds && Array.isArray(existingIds) && existingIds.length > 0) {
     const existSet = new Set(existingIds as number[]);
     result = result.filter((it) => it && existSet.has(it.id));
   }
