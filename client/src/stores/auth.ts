@@ -194,6 +194,10 @@ export const useAuthStore = defineStore("auth", () => {
     // 仅移除账号命名空间下的 token（保留该账号其余已持久化数据，下次登录可恢复）；
     // activeUserId 指针保留，由 token 是否存在决定登录态（见 competition.loadFromStorage 守卫）。
     removeAccountItem("token");
+    // 清除当前选中的比赛：登录态切换（登出 / 被顶号）后不应残留上一个账号/上一次会话选中的比赛，
+    // 否则 competition.loadFromStorage 会以残留的比赛 id 拉取财年，触发归属校验（越权）返回空，
+    // 表现为「登录后左上角财年显示错误 / 未开启财年」。下次登录由 applyOwnCompetition 按归属比赛重新锁定。
+    removeAccountItem("currentCompetition");
   }
 
   // 监听「被顶号 / 登录过期」事件（请求拦截器在收到 401 时派发），

@@ -58,7 +58,10 @@ export const useCompetitionStore = defineStore("competition", () => {
   // 幂等：已锁定到同一比赛时直接返回，避免重复请求 / 重订阅。
   async function applyOwnCompetition(ownId: number | null | undefined) {
     if (ownId == null) return;
-    if (selected.value?.id === ownId) return;
+    // 已锁定到同一比赛且财年已成功加载（非加载中、非空），避免重复请求 / 重订阅。
+    // 注意：若财年仍为 null（首次加载失败 / 上一会话残留被归属校验拦截返回空），
+    // 即便 id 相同也要重新 selectCompetition 以触发 loadFiscalYear，避免左上角卡在「未开启财年」。
+    if (selected.value?.id === ownId && !fiscalYearLoading.value && currentFiscalYear.value !== null) return;
     // 先用最少信息（仅 id）立即锁定，消除「fetch 完成前仍用 localStorage 残留旧比赛发请求」的竞态窗口，
     // 避免归属账号在自动锁定生效前短暂以旧比赛 id 请求而 403。selectCompetition 拿到详情后会补全。
     selected.value = { id: ownId };
