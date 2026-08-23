@@ -221,7 +221,7 @@
         <el-form-item v-if="accountForm.manualCash" label="初始现金(元)">
           <el-input-number v-model="accountForm.cashBalance" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
-        <el-alert v-if="accountForm.ownerType === 'USER'" type="info" :closable="false" title="个人账户初始资金固定为 100 万元，创建后不可修改。" />
+        <el-alert v-if="accountForm.ownerType === 'USER'" type="info" :closable="false" title="个人账户初始资金固定为 100 万元。" />
         <el-alert v-if="accountForm.bindFieldId" type="info" :closable="false" title="已绑定产业字段，资金余额将自动同步字段值，交易时直接加减该字段。" />
       </el-form>
       <template #footer>
