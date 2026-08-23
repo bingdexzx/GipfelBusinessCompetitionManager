@@ -952,6 +952,8 @@ function scheduleAccountReload() {
 useResourceChanged("company-field", scheduleAccountReload);
 // 股价 / 持仓 / 总资产随推进轮次与撮合变动，账户总览须实时刷新
 useResourceChanged("stocks", scheduleAccountReload);
+// 下单 / 撤单瞬间（stock-orders 资源）立即刷新总览，确保冻结 / 回滚现金即时可见
+useResourceChanged("stock-orders", scheduleAccountReload);
 
 onMounted(reloadAll);
 onBeforeUnmount(() => {
