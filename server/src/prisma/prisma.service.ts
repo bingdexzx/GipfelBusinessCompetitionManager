@@ -52,6 +52,7 @@ function emitResourceChange(
   result: unknown,
   before: unknown,
   id: unknown,
+  args?: any,
 ) {
   if (!model) return;
   const resource = MODEL_TO_RESOURCE[model];
@@ -66,7 +67,11 @@ function emitResourceChange(
   };
   let competitionId: number | null;
   if (action === "bulk") {
-    competitionId = null;
+    // 批量操作尽量按 where/data 中的 competitionId 隔离到同比赛房间，
+    // 避免向全场广播（跨比赛数据泄露）。确实无 competitionId 时回退全体广播（null）。
+    const fromWhere = pickCompetitionId(args?.where);
+    const fromData = pickCompetitionId(args?.data);
+    competitionId = (fromWhere ?? fromData ?? null) as number | null;
   } else {
     const fromBefore = pickCompetitionId(before);
     const fromResult = pickCompetitionId(result);
@@ -158,11 +163,11 @@ const auditExtension = {
         case "createMany":
         case "updateMany":
           payload.data = sanitize((args as any)?.data ?? null);
-          emitResourceChange(model, "bulk", null, before, null);
+          emitResourceChange(model, "bulk", null, before, null, args);
           break;
         case "deleteMany":
           payload.where = sanitize(where ?? null);
-          emitResourceChange(model, "bulk", null, before, null);
+          emitResourceChange(model, "bulk", null, before, null, args);
           break;
       }
 

@@ -35,6 +35,16 @@ export const MODEL_TO_RESOURCE: Record<string, string> = {
   StockOrder: "stock-orders",
   StockHolding: "stock-holdings",
   StockCandle: "stock-candles",
+  FiscalYear: "fiscal-years",
+  CompanyFieldValue: "company-field-values",
+  ContractFieldEffect: "contract-field-effects",
+  Message: "messages",
+  MessageRecipient: "message-recipients",
+  PartMaterial: "part-materials",
+  PartTechRequirement: "part-tech-requirements",
+  ProductPart: "product-parts",
+  TechPrerequisite: "tech-prerequisites",
+  VehiclePathType: "vehicle-path-types",
 };
 
 /** 全局豁免实体（不按比赛隔离，向全体广播） */
@@ -90,6 +100,11 @@ export class RealtimeService {
   /** 获取下一个事件序号 */
   private nextSeq(): number {
     return ++this.seq;
+  }
+
+  /** 返回当前序号基线（用于 sync:replay 告知前端是否发生过重启回退）。 */
+  currentSeq(): number {
+    return this.seq;
   }
 
   /** 记录事件到环形缓冲（用于重连补发） */

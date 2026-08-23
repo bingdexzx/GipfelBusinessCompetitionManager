@@ -193,10 +193,14 @@ export class RealtimeGateway implements OnGatewayInit {
     // Validate lastSeq
     const lastSeq = Math.max(0, Math.min(payload.lastSeq, Number.MAX_SAFE_INTEGER));
     const events = this.realtime.getEventsAfter(lastSeq);
+    // 附带服务端当前 seq 基线，供前端判断「服务端是否重启过」：
+    // 若 serverSeq < lastSeq，说明序号已回退（重启归零），前端应重置基线并依赖全量对账，
+    // 而非信任 replay 增量（否则重启期间的事件会永久丢失）。
+    const serverSeq = this.realtime.currentSeq();
     if (events.length > 0) {
-      client.emit("sync:replay:result", { events });
+      client.emit("sync:replay:result", { events, serverSeq });
     } else {
-      client.emit("sync:replay:result", { events: [] });
+      client.emit("sync:replay:result", { events: [], serverSeq });
     }
   }
 }
