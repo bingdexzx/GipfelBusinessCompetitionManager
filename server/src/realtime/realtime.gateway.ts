@@ -176,7 +176,7 @@ export class RealtimeGateway implements OnGatewayInit {
   @SubscribeMessage("sync:replay")
   handleSyncReplay(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { lastSeq?: number },
+    @MessageBody() payload: { lastSeq?: number; competitionId?: number },
   ) {
     // Rate limit: max 5 replays per minute per client
     const now = Date.now();
@@ -192,7 +192,24 @@ export class RealtimeGateway implements OnGatewayInit {
     if (!payload || typeof payload.lastSeq !== "number") return;
     // Validate lastSeq
     const lastSeq = Math.max(0, Math.min(payload.lastSeq, Number.MAX_SAFE_INTEGER));
-    const events = this.realtime.getEventsAfter(lastSeq);
+
+    // 按比赛隔离补发：非 SUPER_ADMIN 强制只看自身所属比赛，忽略客户端传入的 competitionId，
+    // 防止越权拉取其他比赛的遗漏事件（跨租户泄露）。
+    const role = (client.data as any)?.role;
+    const ownCid = (client.data as any)?.competitionId;
+    let scopeCid: number | null;
+    if (role === "SUPER_ADMIN") {
+      // 超管可指定 competitionId（不传则视为全比赛）；仍受房间订阅约束已由 handleSubscribe 保证。
+      scopeCid = typeof payload.competitionId === "number" ? payload.competitionId : ownCid;
+    } else {
+      scopeCid = ownCid;
+    }
+
+    const allEvents = this.realtime.getEventsAfter(lastSeq);
+    const events =
+      scopeCid == null
+        ? allEvents
+        : allEvents.filter((e) => (e.data as any)?.competitionId === scopeCid);
     // 附带服务端当前 seq 基线，供前端判断「服务端是否重启过」：
     // 若 serverSeq < lastSeq，说明序号已回退（重启归零），前端应重置基线并依赖全量对账，
     // 而非信任 replay 增量（否则重启期间的事件会永久丢失）。

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import type { Prisma } from "@prisma/client";
 import {
   CreateStockDto,
   UpdateStockDto,
@@ -551,19 +552,12 @@ export class StockService {
     const where: Record<string, unknown> = { competitionId, name: { not: "AI做市商" } };
     if (operable) where.id = { in: operable };
     const accounts = await this.prisma.stockFundsAccount.findMany({ where, orderBy: { name: "asc" } });
-    // 为绑定了字段的账户附加字段余额，并同步 cashBalance
+    // 为绑定了字段的账户附加实时字段余额 fieldBalance（只读，不在列表接口内写回 cashBalance，
+    // 避免列表查询产生 N+1 写副作用；cashBalance 的修正统一由 advanceRound 推进轮次处理）。
     const result: any[] = [];
     for (const acc of accounts) {
       if (acc.bindFieldId && acc.companyId) {
         const fieldBalance = await this.resolveFieldValueOrDefault(acc.companyId, acc.bindFieldId);
-        // 同步 cashBalance，避免其他接口读到旧值
-        if (fieldBalance != null && fieldBalance !== acc.cashBalance) {
-          await this.prisma.stockFundsAccount.update({
-            where: { id: acc.id },
-            data: { cashBalance: fieldBalance },
-          });
-          acc.cashBalance = fieldBalance;
-        }
         result.push({ ...acc, fieldBalance });
       } else {
         result.push({ ...acc, fieldBalance: null });
@@ -889,7 +883,9 @@ export class StockService {
     mmOverride?: MarketMakerConfigDto,
     consecutiveUp = 0,
     consecutiveDown = 0,
+    tx?: Prisma.TransactionClient,
   ): Promise<{ count: number; intervened: boolean }> {
+    const db = tx ?? this.prisma;
     const enabled = mmOverride?.enabled ?? true;
     if (!enabled) return { count: 0, intervened: false };
 
@@ -908,11 +904,11 @@ export class StockService {
     if (basePrice <= 0) return { count: 0, intervened: false };
 
     // 查找或创建做市商资金账户
-    let mmAccount = await this.prisma.stockFundsAccount.findFirst({
+    let mmAccount = await db.stockFundsAccount.findFirst({
       where: { competitionId, name: "AI做市商" },
     });
     if (!mmAccount) {
-      mmAccount = await this.prisma.stockFundsAccount.create({
+      mmAccount = await db.stockFundsAccount.create({
         data: {
           name: "AI做市商",
           ownerType: "COMPANY",
@@ -925,7 +921,7 @@ export class StockService {
     // 做市商订单「仅当轮有效」：挂新单前先取消上一轮未成交的做市商订单。
     // 否则未成交订单永久累积，股价波动后历史高价卖单/低价买单会抬高最低卖价、压低最高买价，
     // 导致撮合循环「最高买 < 最低卖」直接 break、所有订单无法成交。
-    await this.prisma.stockOrder.updateMany({
+    await db.stockOrder.updateMany({
       where: { stockId: stock.id, competitionId, status: "PENDING", fundsAccountId: mmAccount.id },
       data: { status: "CANCELLED" },
     });
@@ -967,19 +963,19 @@ export class StockService {
       });
       // 同时直接写入持仓（保证本轮卖单有库存）
       // 注意：这样做是为了避免"先有鸡还是先有蛋"的问题
-      await this.prisma.stockHolding.upsert({
+      await db.stockHolding.upsert({
         where: { fundsAccountId_stockId: { fundsAccountId: mmAccount.id, stockId: stock.id } },
         create: {
           fundsAccountId: mmAccount.id,
           stockId: stock.id,
           shares: totalSellQty,
-          costPrice: basePrice,
+          costPrice:   basePrice,
           competitionId,
         },
         update: { shares: { increment: needShares } },
       });
       // 扣减做市商现金
-      await this.prisma.stockFundsAccount.update({
+      await db.stockFundsAccount.update({
         where: { id: mmAccount.id },
         data: { cashBalance: { decrement: Math.round(basePrice * needShares * 100) / 100 } },
       });
@@ -1042,7 +1038,7 @@ export class StockService {
     }
 
     if (orders.length > 0) {
-      await this.prisma.stockOrder.createMany({ data: orders });
+      await db.stockOrder.createMany({ data: orders });
     }
     return { count: orders.length, intervened: needIntervene };
   }
@@ -1103,11 +1099,12 @@ export class StockService {
             break;
           }
         }
-        // AI 做市商：在撮合前自动生成买卖挂单，提供流动性
-        const mm = await this.generateMarketMakerOrders(stock, competitionId, stockConfig, mmConfig, up, down);
-        totalMmOrders += mm.count;
-        const r = await this.advanceOneStock(stock, competitionId, fieldMap, stockConfig, up, down, mm.intervened);
-        if (r) results.push(r);
+        // AI 做市商：生成挂单已在 advanceOneStock 的事务内完成（建仓/扣款/挂单与撮合同一事务）
+        const r = await this.advanceOneStock(stock, competitionId, fieldMap,  stockConfig, up, down, mmConfig);
+        if (r) {
+          results.push(r);
+          totalMmOrders += r.mmOrderCount ?? 0;
+        }
       }
       const advanced = results.filter((x) => !x.skipped).length;
       // 统一发送一次 bulk 广播（替代原先每只股票 5 条事件，避免事件风暴）
@@ -1135,20 +1132,29 @@ export class StockService {
     stockConfig: StockConfig,
     consecutiveUp = 0,
     consecutiveDown = 0,
-    mmIntervened = false,
+    mmConfig?: MarketMakerConfigDto,
   ) {
-    // 获取所有 PENDING 订单（不限轮次），未成交的订单会保留到下一轮继续撮合
-    const orders = await this.prisma.stockOrder.findMany({
-      where: { stockId: stock.id, competitionId, status: "PENDING" },
-      orderBy: { createdAt: "asc" },
-      include: { fundsAccount: true },
-    });
-    // S6：无任何订单 → 不推进、价格不动、不生成 K 线
-    if (orders.length === 0) {
-      return { stockId: stock.id, code: stock.code, round: stock.round, skipped: true };
-    }
+    // 读取订单需要在事务内（需看到本事务内生成的做市商订单）；建仓/扣款/挂单与撮合统一进同一事务
+    // 在事务内生成做市商挂单（建仓/扣款/挂单）并与撮合统一进同一事务，避免异常时账实不一致
 
-    // 撮合：用全部订单（含 AI 做市商）。做市商订单按「金额对称」挂单（买单金额 = 卖单金额），
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 在事务内生成做市商挂单（建仓/扣款/挂单）
+      const mm = await this.generateMarketMakerOrders(stock, competitionId, stockConfig, mmConfig, consecutiveUp, consecutiveDown, tx);
+      const mmIntervened = mm.intervened;
+
+      // 读取本事务内刚生成的 PENDING 订单（含做市商订单）
+      const orders = await tx.stockOrder.findMany({
+        where: { stockId: stock.id, competitionId, status: "PENDING" },
+        orderBy: { createdAt: "asc" },
+        include: { fundsAccount: true },
+      });
+      // S6：无任何订单 → 不推进、价格不动、不生成 K 线
+      if (orders.length === 0) {
+        return { stockId: stock.id, code: stock.code, round: stock.round, skipped: true };
+      }
+
+      // 撮合：用全部订单（含 AI 做市商）。做市商订单按「金额对称」挂单（买单金额 = 卖单金额），
     // 对买卖压力中性——既不引导价格方向，又提供价格缓冲。净买压力由成交量（股）计算，不再用金额比。
     const match = computeMatch(
       orders.map((o) => ({ side: o.side as "BUY" | "SELL", price: o.price, quantity: o.quantity })),
@@ -1208,7 +1214,7 @@ export class StockService {
       }
     }
     const accountIds = Array.from(cashMap.keys());
-    const existingHoldings = await this.prisma.stockHolding.findMany({
+    const existingHoldings = await tx.stockHolding.findMany({
       where: { stockId: stock.id, fundsAccountId: { in: accountIds } },
     });
     for (const h of existingHoldings) {
@@ -1274,10 +1280,9 @@ export class StockService {
       if (sellRem.get(sell.id)! <= EPS) si++;
     }
 
-    const candle = buildCandle(stock.currentPrice, price.final, stock.round + 1, price.theoretical);
+    const candle = buildCandle(stock.currentPrice, price.final, stock.round + 1, price.theoretical, cfg.limitPct);
     const newRound = stock.round + 1;
 
-    await this.prisma.$transaction(async (tx) => {
       // 现金（绑定字段的账户更新字段值，否则更新账户余额）
       for (const [accId, cash] of cashMap) {
         const acc = orders.find((o) => o.fundsAccountId === accId)?.fundsAccount;
@@ -1325,13 +1330,10 @@ export class StockService {
       await tx.stockCandle.create({ data: { ...candle, stockId: stock.id, competitionId } });
       // 股票价 / 轮次
       await tx.stock.update({ where: { id: stock.id }, data: { currentPrice: price.final, round: newRound } });
-    });
 
-    // 广播由 advanceRound 统一处理，此处不再逐条 emit
-
-    return {
-      stockId: stock.id,
-      code: stock.code,
+      return {
+        stockId: stock.id,
+        code: stock.code,
       round: newRound,
       skipped: false,
       matched: match.matched,
@@ -1346,7 +1348,12 @@ export class StockService {
       buyAmount: match.totalBuyAmount,
       sellAmount: match.totalSellAmount,
       mmIntervened,
+      mmOrderCount: mm.count,
       candle,
-    };
+      };
+    });
+
+    // 广播由 advanceRound 统一处理，此处不再逐条 emit
+    return result;
   }
 }

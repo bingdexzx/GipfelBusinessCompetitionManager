@@ -1967,7 +1967,11 @@ function handleBgDragEnd(e: any) {
   const x = node.x();
   const y = node.y();
   if (!bgTransform.value) {
-    bgTransform.value = { x, y, scale: 1 };
+    // 防御路径：以 cover 比例初始化（与进入编辑态/重置保持一致），避免图片突然缩到原始像素尺寸而错位。
+    const r = getAutoRect();
+    const iw = backgroundImage.value?.naturalWidth || 800;
+    const cover = r.w / iw;
+    bgTransform.value = { x, y, scale: cover };
   } else {
     bgTransform.value = { ...bgTransform.value, x, y };
   }

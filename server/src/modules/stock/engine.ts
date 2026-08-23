@@ -231,10 +231,10 @@ function candleNoise(seedA: number, seedB: number): number {
  *     （避免最高价恒=开盘、最低价恒=收盘）。
  * 所有价位均限幅在 [开盘×0.9, 开盘×1.1] 内，涨跌幅仍由 (收盘-开盘)/开盘 计算。
  */
-export function buildCandle(open: number, close: number, round: number, theoretical?: number) {
-  const upper = round2(open * 1.1); // 涨停价
-  const lower = round2(open * 0.9); // 跌停价
-  const range = upper - lower; // 限幅区间宽度（约 20% 开盘价）
+export function buildCandle(open: number, close: number, round: number, theoretical?: number, limitPct = 0.1) {
+  const upper = round2(open * (1 + limitPct)); // 涨停价
+  const lower = round2(open * (1 - limitPct)); // 跌停价
+  const range = upper - lower; // 限幅区间宽度
 
   // 实体边界
   const bodyHigh = Math.max(open, close);

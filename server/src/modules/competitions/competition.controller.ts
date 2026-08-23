@@ -74,7 +74,11 @@ export class CompetitionController {
   // ===== 财年 =====
   @Get(":id/fiscal-years")
   @UseGuards(JwtAuthGuard)
-  getFiscalYears(@Param("id", ParseIntPipe) id: number) {
+  getFiscalYears(@CurrentUser() user: any, @Param("id", ParseIntPipe) id: number) {
+    // 非超管只能查看自身所属比赛的财年，防止越权读取其他比赛配置。
+    if (user.role !== "SUPER_ADMIN" && user.competitionId !== id) {
+      return [];
+    }
     return this.service.getFiscalYears(id);
   }
 

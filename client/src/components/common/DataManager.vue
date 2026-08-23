@@ -59,7 +59,7 @@
       width="560px"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px">
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px" @submit.prevent>
         <el-form-item
           v-for="field in formFields"
           :key="field.prop"

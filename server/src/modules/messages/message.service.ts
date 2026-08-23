@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import * as fs from "fs";
 import * as path from "path";
+import { randomUUID } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { CreateMessageDto, MessageImageDto } from "./dto/message.dto";
@@ -72,7 +73,7 @@ export class MessageService {
     if (!file || !file.buffer) throw new BadRequestException("未收到文件");
     const ext = assertImageMime(file.mimetype);
     fs.mkdirSync(MSG_UPLOAD_DIR, { recursive: true });
-    const safeName = `msg-${actor.id}-${Date.now()}-${Math.floor(Math.random() * 1e6)}${ext}`;
+    const safeName = `msg-${actor.id}-${Date.now()}-${randomUUID().slice(0, 12)}${ext}`;
     fs.writeFileSync(path.join(MSG_UPLOAD_DIR, safeName), file.buffer);
     readImageDimensions(file.buffer, file.mimetype); // 尺寸解析失败不阻塞
     return { url: `/uploads/message-images/${safeName}`, filename: safeName };

@@ -353,22 +353,13 @@ export const COMPARE_OP_LABEL: Record<string, string> = {
   ELEMENT_EQ: "元素相等",
 };
 
-/** 检查类型中文标签 */
+/** 检查类型中文标签（与 ConditionKind 严格一一对应，避免暴露未实现的检查类型） */
 export const COND_KIND_LABEL: Record<string, string> = {
   VALUE_COMPARE: "数值比较",
   FIELD_COMPARE: "字段比较",
   INDUSTRY_IS: "产业类型核对",
   DICT_COMPARE: "字典比较",
   LIST_COMPARE: "列表比较",
-  ACCOUNT_COMPARE: "账户比较",
-  INVENTORY_GTE: "库存下限",
-  ASSET_OWNED: "资产持有",
-  VEHICLE_COUNT: "载具数量",
-  VEHICLE_LOCATION: "载具位置",
-  TECH_COMPLETED: "科技完成",
-  INFRA_ACTIVE: "基建启用",
-  INFRA_LIST_FILTER: "基建范围校验",
-  VEHICLE_LIST_FILTER: "载具范围校验",
 };
 
 // ========== JSON Schema ==========

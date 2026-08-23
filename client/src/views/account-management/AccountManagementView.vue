@@ -76,7 +76,7 @@
 
     <!-- 新建 / 编辑账号 -->
     <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px" @closed="resetForm">
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="100px">
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="100px" @submit.prevent>
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" :disabled="isEdit" />
         </el-form-item>

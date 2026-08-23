@@ -402,9 +402,15 @@ export class ContractService {
     });
 
     // 复原基础字段后须级联重算计算字段（避免计算值停留在被删合同改写后的陈旧态），
-    // 并广播 company-field:changed 让前端刷新。
+    // 重算在删除事务提交后进行，能读到已删除的最新状态；逐公司独立处理，单公司重算异常不影响
+    // 其他公司与本次删除结果，并重算失败时仍广播刷新以便前端感知。
     for (const p of affected) {
-      await this.companyFields.recomputeCalculatedFieldsForCompany(p.companyId);
+      try {
+        await this.companyFields.recomputeCalculatedFieldsForCompany(p.companyId);
+      } catch (err: any) {
+        // 重算已在 company-fields 内部兜底告警；此处再记录一次，便于追溯被删合同 ID。
+        console.warn(`合同 ${id} 删除后公司 #${p.companyId} 计算字段重算失败：${err?.message || err}`);
+      }
       this.realtime.broadcastToCompetition(item.competitionId, "company-field:changed", {
         companyId: p.companyId,
         competitionId: item.competitionId,

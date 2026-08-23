@@ -161,11 +161,12 @@ export function bindResourceChanged() {
 
   // 断线重连成功后：先请求补发遗漏事件，再对账
   onRealtime("connect", () => {
-    // 请求补发遗漏事件
+    // 请求补发遗漏事件（使用 socket.ts 的单例引用，避免依赖未定义的 window.__gipfel_socket）。
+    // 后端 handleSyncReplay 接收的字段名为 lastSeq，此处保持一致。
     if (_lastSeq > 0) {
-      const socket = (window as any).__gipfel_socket;
-      if (socket && socket.connected) {
-        socket.emit("sync:replay", { afterSeq: _lastSeq });
+      const sock = getSocketInstance();
+      if (sock && sock.connected) {
+        sock.emit("sync:replay", { lastSeq: _lastSeq });
       }
     }
     // 对账：清理「断线 / 实时事件丢失期间」被删除的条目
