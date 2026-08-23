@@ -627,6 +627,7 @@ export class StockService {
       userId = userId ?? user.id;
       companyId = null;
       bindFieldId = null; // 个人账户不绑定字段
+      cashBalance = 1000000; // 个人账户初始资金固定为 100 万，忽略传入值
       // 低级管理只能建自己的用户账户
       if (!this.isHighManager(user) && userId !== user.id) {
         throw new ForbiddenException("只能为自己创建用户资金账户");

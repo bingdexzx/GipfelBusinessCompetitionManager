@@ -218,9 +218,10 @@
         <el-form-item v-if="accountForm.ownerType === 'USER'" label="归属用户">
           <span class="muted">{{ authStore.user?.displayName || authStore.user?.username || "我自己" }}</span>
         </el-form-item>
-        <el-form-item v-if="accountForm.ownerType === 'USER' || accountForm.manualCash" label="初始现金(元)">
+        <el-form-item v-if="accountForm.manualCash" label="初始现金(元)">
           <el-input-number v-model="accountForm.cashBalance" :min="0" :precision="2" style="width: 100%" />
         </el-form-item>
+        <el-alert v-if="accountForm.ownerType === 'USER'" type="info" :closable="false" title="个人账户初始资金固定为 100 万元，创建后不可修改。" />
         <el-alert v-if="accountForm.bindFieldId" type="info" :closable="false" title="已绑定产业字段，资金余额将自动同步字段值，交易时直接加减该字段。" />
       </el-form>
       <template #footer>
@@ -572,8 +573,8 @@ function onAccountTypeChange() {
   accountForm.value.companyId = null;
   accountForm.value.bindFieldId = null;
   accountForm.value._bindFieldValue = null;
-  // 个人账户显示手工初始现金；公司账户默认隐藏（现金须由绑定字段驱动）
-  accountForm.value.manualCash = accountForm.value.ownerType !== "COMPANY";
+  // 个人账户初始资金固定 100 万，不显示手工现金框；公司账户默认隐藏（现金须由绑定字段驱动）
+  accountForm.value.manualCash = false;
 }
 function onAccountCompanyChange() {
   accountForm.value.bindFieldId = null;
@@ -710,9 +711,12 @@ async function removeStock(row: any) {
 }
 
 function openAccountDialog(row?: any) {
-  accountForm.value = row
-    ? { ...row, cashBalance: row.cashBalance, bindFieldId: row.bindFieldId || null, _bindFieldValue: null, manualCash: row.bindFieldId ? false : true }
-    : { id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null, _bindFieldValue: null, manualCash: false };
+  const base = row
+    ? { ...row, cashBalance: row.cashBalance, bindFieldId: row.bindFieldId || null, _bindFieldValue: null }
+    : { id: null, name: "", ownerType: "USER", companyId: null, userId: null, cashBalance: 1000000, bindFieldId: null, _bindFieldValue: null };
+  // 个人账户初始资金固定 100 万，不显示手工现金框；公司账户仅「不绑定字段」时手动
+  base.manualCash = base.ownerType === "COMPANY" && !base.bindFieldId;
+  accountForm.value = base;
   // 加载公司字段数据
   if (!pbCompanies.value.length) loadPbSources();
   accountDialogVisible.value = true;
@@ -723,8 +727,9 @@ async function saveAccount() {
   try {
     if (f.id) {
       const payload: any = { name: f.name, bindFieldId: f.bindFieldId || null };
-      // 绑定产业字段后，现金余额由字段值驱动，无需（也不应）回写 cashBalance
-      if (!f.bindFieldId) payload.cashBalance = f.cashBalance;
+      // 绑定产业字段后，现金余额由字段值驱动，无需（也不应）回写 cashBalance；
+      // 个人账户初始资金固定 100 万，也不回写 cashBalance
+      if (!f.bindFieldId && f.ownerType === "COMPANY") payload.cashBalance = f.cashBalance;
       await stockApi.updateAccount(f.id, payload);
     } else {
       const payload: any = { name: f.name, ownerType: f.ownerType, competitionId: compStore.competitionId };
@@ -734,8 +739,8 @@ async function saveAccount() {
         payload.bindFieldId = f.bindFieldId || null;
         if (!f.bindFieldId) payload.cashBalance = f.cashBalance;
       } else {
+        // 个人账户初始资金固定 100 万，由后端强制，前端不传 cashBalance
         payload.userId = authStore.user?.id;
-        payload.cashBalance = f.cashBalance;
       }
       await stockApi.createAccount(payload);
     }
