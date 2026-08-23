@@ -691,8 +691,8 @@ async function saveStock() {
     ElMessage.success("已保存");
     stockDialogVisible.value = false;
     await reloadStocks();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 async function removeStock(row: any) {
@@ -705,8 +705,8 @@ async function removeStock(row: any) {
     await stockApi.remove(row.id, compStore.competitionId);
     ElMessage.success("已删除");
     await reloadStocks();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -747,8 +747,8 @@ async function saveAccount() {
     ElMessage.success("已保存");
     accountDialogVisible.value = false;
     await reloadAccounts();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 async function removeAccount(row: any) {
@@ -761,8 +761,8 @@ async function removeAccount(row: any) {
     await stockApi.removeAccount(row.id);
     ElMessage.success("已删除");
     await reloadAccounts();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -813,8 +813,8 @@ async function confirmAdvance() {
     if (advanceResults.value.length) diagVisible.value = true;
     await reloadStocks();
     await reloadAccounts(); // 字段联动账户余额随交易更新，需刷新现金显示
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "推进失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
