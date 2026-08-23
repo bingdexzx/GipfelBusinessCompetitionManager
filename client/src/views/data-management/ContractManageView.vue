@@ -525,6 +525,7 @@ import { contractTypesApi, contractsApi, mapsApi, companyFieldsApi, industryType
 import { evalFormCondition, type FormConditionCtx } from "@/contracts/graph-model";
 import api from "@/api/request";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { formatTime } from "@/utils/format";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
@@ -937,19 +938,13 @@ function statusLabel(s: string) {
 function statusType(s: string) {
   return ({ DRAFT: "info", PENDING_EXEC: "warning", EXECUTED: "success", TERMINATED: "danger" } as any)[s] || "info";
 }
-// 与全局 $formatTime 等价：ISO 截断到秒（脚本内不便直接访问 globalProperties）
-function fmtTime(val: string | Date | null | undefined): string {
-  if (!val) return "-";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return "-";
-  return d.toISOString().replace("T", " ").substring(0, 19);
-}
+// fmtTime 统一引用 utils/format 的 formatTime（单一真源）
 // 状态列悬停提示：草稿说明下一步，已执行/已终止展示执行时间
 function statusHint(row: any): string {
   if (row.status === "DRAFT") return "草稿：填写完整参与方合同编号后可执行";
   if (row.status === "PENDING_EXEC") return "待执行：所有参与方编号已齐备，等待最后一方参与公司管理员执行";
-  if (row.status === "EXECUTED") return `执行时间：${fmtTime(row.executedAt)}`;
-  if (row.status === "TERMINATED") return `执行时间：${fmtTime(row.executedAt)}；已终止`;
+  if (row.status === "EXECUTED") return `执行时间：${formatTime(row.executedAt)}`;
+  if (row.status === "TERMINATED") return `执行时间：${formatTime(row.executedAt)}；已终止`;
   return "";
 }
 // 检查类型原始枚举 → 中文显示名（避免界面直接出现 VALUE_COMPARE 等原始 kind）
@@ -1019,7 +1014,7 @@ function executeBtnState(row: any): { disabled: boolean; title: string } {
       disabled: true,
       title:
         row.status === "EXECUTED"
-          ? `合同已执行${row.executedAt ? `（${fmtTime(row.executedAt)}）` : ""}，不可重复执行`
+          ? `合同已执行${row.executedAt ? `（${formatTime(row.executedAt)}）` : ""}，不可重复执行`
           : "合同已终止",
     };
   }

@@ -496,23 +496,6 @@ export class ContractService {
   }
 
   /**
-   * 公司范围校验：仅拥有 `contract:audit` 而无 `contract:execute` 的账号，
-   * 只能审核 companyScopes 范围内公司的合同；空范围 = 看不到任何合同（无法审核）。
-   * 其余（超管 / contract:execute）不受限。
-   */
-  private assertAuditScope(user: any, contract: { parties: string }): void {
-    if (!user) return;
-    const canExecute = hasPermission(user.role, user.permissions, "contract:execute");
-    if (canExecute) return;
-    const canAudit = hasPermission(user.role, user.permissions, "contract:audit");
-    if (!canAudit) return;
-    const scopes: number[] = user.companyScopes || [];
-    if (!this.contractInScopes(contract, scopes)) {
-      throw new ForbiddenException("无权审核其他公司的合同");
-    }
-  }
-
-  /**
    * 执行方范围校验（会签模型核心）：
    * - `contract:execute`/`contract:manage`/超管 直接放行（兜底：可执任意合同的最后一步，便于运维/演示）；
    * - 仅 `contract:audit` 公司级管理员：必须是「最后一个参与方公司」在其 companyScopes 内，

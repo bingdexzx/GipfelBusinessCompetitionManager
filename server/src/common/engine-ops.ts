@@ -29,106 +29,6 @@ export function isTruthy(v: unknown): boolean {
   return Boolean(v);
 }
 
-// ========== OP 运算名 ==========
-
-/** OP 运算名（列表 / 字典 / 通用）。 */
-export const OP_NAMES = [
-  // 列表
-  "LIST_APPEND",
-  "LIST_CONCAT",
-  "LIST_LEN",
-  "LIST_CONTAINS",
-  "LIST_INDEX_OF",
-  "LIST_UNIQUE",
-  "LIST_FLATTEN",
-  "LIST_SUM_OF",
-  "LIST_JOIN",
-  "LIST_SLICE",
-  "LIST_REVERSE",
-  "LIST_SORT",
-  "LIST_RANGE",
-  "LIST_ADD",
-  "LIST_SUB",
-  // 字典
-  "DICT_GET",
-  "DICT_KEYS",
-  "DICT_VALUES",
-  "DICT_ENTRIES",
-  "DICT_HAS_KEY",
-  "DICT_MERGE",
-  "DICT_FROM_PAIRS",
-  "DICT_FROM_KEYS",
-  "DICT_INVERT",
-  "DICT_ADD",
-  "DICT_SUB",
-  "DICT_APPEND",
-  "DICT_SUM",
-  // 通用
-  "LEN",
-  "CONTAINS",
-  "SUM_OF",
-] as const;
-export type OpName = (typeof OP_NAMES)[number];
-
-// ========== OP_ARG_SPECS（运算节点参数规格） ==========
-
-/**
- * 运算节点参数规格：每个 op 定义其参数数量与每个参数的类型标签。
- * 用于可视化编辑器渲染端口与校验。
- */
-export const OP_ARG_SPECS: Record<string, { count: number; labels: string[]; types: string[] }> = {
-  // 列表
-  LIST_APPEND: { count: 2, labels: ["列表", "元素"], types: ["list", "any"] },
-  LIST_CONCAT: { count: 2, labels: ["列表A", "列表B"], types: ["list", "list"] },
-  LIST_LEN: { count: 1, labels: ["列表"], types: ["list"] },
-  LIST_CONTAINS: { count: 2, labels: ["列表", "元素"], types: ["list", "any"] },
-  LIST_INDEX_OF: { count: 2, labels: ["列表", "元素"], types: ["list", "any"] },
-  LIST_UNIQUE: { count: 1, labels: ["列表"], types: ["list"] },
-  LIST_FLATTEN: { count: 1, labels: ["列表"], types: ["list"] },
-  LIST_SUM_OF: { count: 1, labels: ["列表"], types: ["list"] },
-  LIST_JOIN: { count: 2, labels: ["列表", "分隔符"], types: ["list", "string"] },
-  LIST_SLICE: { count: 3, labels: ["列表", "起始", "结束"], types: ["list", "number", "number"] },
-  LIST_REVERSE: { count: 1, labels: ["列表"], types: ["list"] },
-  LIST_SORT: { count: 1, labels: ["列表"], types: ["list"] },
-  LIST_RANGE: { count: 3, labels: ["起始", "结束", "步长"], types: ["number", "number", "number"] },
-  LIST_ADD: { count: 2, labels: ["列表A", "列表B"], types: ["list", "list"] },
-  LIST_SUB: { count: 2, labels: ["列表A", "列表B"], types: ["list", "list"] },
-  // 字典
-  DICT_GET: { count: 3, labels: ["字典", "键", "默认值"], types: ["dict", "any", "any"] },
-  DICT_KEYS: { count: 1, labels: ["字典"], types: ["dict"] },
-  DICT_VALUES: { count: 1, labels: ["字典"], types: ["dict"] },
-  DICT_ENTRIES: { count: 1, labels: ["字典"], types: ["dict"] },
-  DICT_HAS_KEY: { count: 2, labels: ["字典", "键"], types: ["dict", "any"] },
-  DICT_MERGE: { count: 2, labels: ["字典A", "字典B"], types: ["dict", "dict"] },
-  DICT_FROM_PAIRS: { count: 1, labels: ["键值对列表"], types: ["list"] },
-  DICT_FROM_KEYS: { count: 2, labels: ["键列表", "值"], types: ["list", "any"] },
-  DICT_INVERT: { count: 1, labels: ["字典"], types: ["dict"] },
-  DICT_ADD: { count: 2, labels: ["字典A", "字典B"], types: ["dict", "dict"] },
-  DICT_SUB: { count: 2, labels: ["字典A", "字典B"], types: ["dict", "dict"] },
-  DICT_APPEND: { count: 3, labels: ["字典", "键", "值"], types: ["dict", "any", "any"] },
-  DICT_SUM: { count: 1, labels: ["字典"], types: ["dict"] },
-  // 通用
-  LEN: { count: 1, labels: ["值"], types: ["any"] },
-  CONTAINS: { count: 2, labels: ["集合", "元素"], types: ["any", "any"] },
-  SUM_OF: { count: 1, labels: ["列表"], types: ["list"] },
-  // 算术
-  ADD: { count: 2, labels: ["加数", "被加数"], types: ["number", "number"] },
-  SUB: { count: 2, labels: ["被减数", "减数"], types: ["number", "number"] },
-  MUL: { count: 2, labels: ["乘数", "被乘数"], types: ["number", "number"] },
-  DIV: { count: 2, labels: ["被除数", "除数"], types: ["number", "number"] },
-  EXP: { count: 1, labels: ["指数"], types: ["number"] },
-  LOG: { count: 2, labels: ["真数", "底数"], types: ["number", "number"] },
-  MIN: { count: 2, labels: ["值A", "值B"], types: ["number", "number"] },
-  MAX: { count: 2, labels: ["值A", "值B"], types: ["number", "number"] },
-  // 比较
-  CMP_EQ: { count: 2, labels: ["值A", "值B"], types: ["any", "any"] },
-  CMP_NE: { count: 2, labels: ["值A", "值B"], types: ["any", "any"] },
-  CMP_GT: { count: 2, labels: ["值A", "值B"], types: ["number", "number"] },
-  CMP_LT: { count: 2, labels: ["值A", "值B"], types: ["number", "number"] },
-  CMP_GTE: { count: 2, labels: ["值A", "值B"], types: ["number", "number"] },
-  CMP_LTE: { count: 2, labels: ["值A", "值B"], types: ["number", "number"] },
-};
-
 // ========== EXPR_HELPERS（表达式作用域辅助函数） ==========
 
 /**
@@ -193,7 +93,7 @@ export const EXPR_HELPERS: Record<string, (...a: any[]) => any> = {
 /**
  * 列表/字典/通用运算（运算节点的"编程语言能力"后端落地）。
  * 每个 arg 都是已求值的原始值（数组/对象/标量），无需再递归。
- * 名字与 OP_NAMES 对应；未知 op 抛 BadRequestException。
+ * 未知 op 抛 BadRequestException。
  */
 export function applyOp(op: string, args: any[], scope?: Record<string, any>): any {
   const a = args;

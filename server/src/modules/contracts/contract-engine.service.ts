@@ -10,8 +10,6 @@ import {
   isTruthy,
   toNumberArray,
   deepEqual,
-  castScalar,
-  safeParse,
   ENTITY_MODEL,
   compareOp,
   COMPARE_OP_LABEL,
@@ -23,8 +21,6 @@ import {
 } from "./engine/values";
 import {
   EXPR_HELPERS,
-  OP_NAMES,
-  type OpName,
 } from "../../common/engine-ops";
 import {
   type FieldEffectOp,
@@ -34,11 +30,6 @@ import {
   parseJsonValue,
 } from "./engine/effects";
 import {
-  createCheckResult,
-  createSkippedCheckResult,
-  createPassedCheckResult,
-  createFailedCheckResult,
-  getCheckErrorMessage,
   condKindLabel,
   type ConditionSpec,
   type CheckResult,

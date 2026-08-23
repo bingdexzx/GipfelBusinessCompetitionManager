@@ -121,15 +121,6 @@ export class ContractTypeService {
     return this.prisma.contractType.delete({ where: { id } });
   }
 
-  private validateJson(value: any, label: string) {
-    const str = typeof value === "string" ? value : JSON.stringify(value ?? null);
-    try {
-      JSON.parse(str);
-    } catch (e) {
-      throw new BadRequestException(`${label} 不是合法 JSON: ${(e as Error).message}`);
-    }
-  }
-
   /**
    * 三层校验：服务端写入时校验
    * 使用 json-schema.ts 的校验函数对 JSON字段进行结构校验

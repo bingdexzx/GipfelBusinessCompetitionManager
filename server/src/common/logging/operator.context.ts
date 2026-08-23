@@ -20,10 +20,6 @@ export interface RequestContext {
 
 const requestContextStorage = new AsyncLocalStorage<RequestContext>();
 
-export function getRequestContext(): RequestContext | undefined {
-  return requestContextStorage.getStore();
-}
-
 /** 当前请求的操作员；非请求上下文（如启动初始化）返回 null。 */
 export function getOperator(): OperatorInfo | null {
   return requestContextStorage.getStore()?.operator ?? null;

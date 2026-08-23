@@ -17,12 +17,4 @@ import { registerCustomWidget } from "./types";
 
 // —— 在此追加你自己的控件 ——
 // import MyWidget from "./widgets/MyWidget.vue";
-// registerCustomWidget({
-//   type: "my-widget",
-//   label: "我的控件",
-//   component: MyWidget,
-//   defaultSize: { w: 220, h: 160 },
-//   bindable: false,            // 是否允许在编辑对话框绑定「可查看字段」
-//   description: "一句话说明（可选，显示在编辑对话框）",
-//   defaultConfig: { /* 创建时写入 config.custom 的默认值 */ },
-// });
+// registerCustomWidget({ type: "my-widget", label: "我的控件", component: MyWidget });

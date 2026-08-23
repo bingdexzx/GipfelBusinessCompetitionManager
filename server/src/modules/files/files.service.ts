@@ -8,6 +8,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeService } from "../../realtime/realtime.service";
 import * as fs from "fs";
 import * as path from "path";
+import { assertImageMime } from "../../common/image-mime";
 
 /** 已上传文件的最小结构（避免依赖 @types/multer）。 */
 interface UploadedFile {
@@ -34,15 +35,6 @@ export interface BackgroundMeta {
 
 // 与 main.ts 中静态服务目录保持一致：进程工作目录下的 uploads/map-backgrounds
 const UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "map-backgrounds");
-
-// 仅允许常见图片格式，规避非图片/可执行文件上传风险。
-const ALLOWED_MIME: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-  "image/bmp": ".bmp",
-};
 
 /** 各 MIME 类型对应的 magic bytes（文件头前缀）。 */
 const MAGIC_BYTES: Record<string, Buffer> = {
@@ -188,10 +180,7 @@ export class FilesService {
     requested?: number,
   ): Promise<BackgroundMeta> {
     if (!file || !file.buffer) throw new BadRequestException("未收到文件");
-    const ext = ALLOWED_MIME[file.mimetype];
-    if (!ext) {
-      throw new BadRequestException("仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）");
-    }
+    const ext = assertImageMime(file.mimetype);
 
     if (!this.validateMagicBytes(file.buffer, file.mimetype)) {
       throw new BadRequestException("文件内容与声称的格式不一致");

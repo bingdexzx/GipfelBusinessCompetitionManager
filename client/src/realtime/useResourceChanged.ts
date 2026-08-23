@@ -93,21 +93,3 @@ export function useResourceChanged(
   window.addEventListener("resource-changed", handler);
   onUnmounted(() => window.removeEventListener("resource-changed", handler));
 }
-
-/**
- * 订阅对账完成事件
- * @param onReconciled 对账完成时的回调
- */
-export function useSyncReconciled(onReconciled: () => void) {
-  const handler = (e: Event) => {
-    const detail = (e as CustomEvent).detail as
-      | { collections?: string[] }
-      | undefined;
-    if (detail) {
-      onReconciled();
-    }
-  };
-
-  window.addEventListener("sync:reconciled", handler);
-  onUnmounted(() => window.removeEventListener("sync:reconciled", handler));
-}

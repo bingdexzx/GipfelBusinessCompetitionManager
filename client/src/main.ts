@@ -14,6 +14,7 @@ import "./components/dashboard/registerCustomWidgets";
 // 确保各 store 初始化读取 token / 比赛选择时已进入正确的账号命名空间。
 import { ensureStorageMigration } from "./utils/accountStorage";
 import { deleteOldAccountDbs } from "./api/cache";
+import { formatTime } from "./utils/format";
 
 ensureStorageMigration();
 // 清理升级前「仅按账号、无 realm」的旧 IndexedDB 缓存库（新方案库名带 realm 段）。
@@ -30,13 +31,8 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component);
 }
 
-// 全局时间格式化：截断到秒
-app.config.globalProperties.$formatTime = (val: string | Date | undefined | null) => {
-  if (!val) return "-";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return "-";
-  return d.toISOString().replace("T", " ").substring(0, 19);
-};
+// 全局时间格式化：截断到秒（统一引用 format.ts 的 formatTime，单一真源）
+app.config.globalProperties.$formatTime = formatTime;
 
 // 全局错误兜底：捕获渲染/生命周期/侦听器中未被组件级 ErrorBoundary 接住的异常，
 // 统一打到控制台，便于定位根因（如「创建数据后空白」类崩溃），避免静默白屏。

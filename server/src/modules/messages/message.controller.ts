@@ -21,6 +21,7 @@ import { PermissionsGuard } from "../../permissions/permissions.guard";
 import { RequirePermissions } from "../../permissions/permissions.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { NoCompetitionScope } from "../../common/decorators/no-competition-scope.decorator";
+import { ALLOWED_IMAGE_MIME, IMAGE_MIME_ERROR } from "../../common/image-mime";
 
 /**
  * 消息中心接口。
@@ -62,9 +63,8 @@ export class MessageController {
     FileInterceptor("file", {
       limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
       fileFilter: (_req, file, cb) => {
-        const ALLOWED = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"];
-        if (!ALLOWED.includes(file.mimetype)) {
-          return cb(new BadRequestException("仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）"), false);
+        if (!ALLOWED_IMAGE_MIME.includes(file.mimetype)) {
+          return cb(new BadRequestException(IMAGE_MIME_ERROR), false);
         }
         cb(null, true);
       },

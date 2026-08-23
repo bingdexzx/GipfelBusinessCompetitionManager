@@ -423,6 +423,7 @@ import { stockApi, companiesApi, regionsApi, companyFieldsApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import { formatMoney } from "@/utils/format";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
@@ -716,10 +717,7 @@ async function onAccountFieldChange(val?: number | null) {
   }
 }
 
-function fmt(n: number): string {
-  if (n == null || isNaN(n)) return "—";
-  return Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
-}
+const fmt = formatMoney;
 function companyName(id: number | null): string {
   if (id == null) return "—";
   return companies.value.find((c) => c.id === id)?.name || `公司#${id}`;

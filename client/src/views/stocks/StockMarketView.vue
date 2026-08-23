@@ -177,6 +177,7 @@ import { stockApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import { formatMoney } from "@/utils/format";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
@@ -263,10 +264,7 @@ const canTrade = computed(() => !!selectedAccountId.value && !!selectedStockId.v
 const chartRef = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
 
-function fmt(n: number): string {
-  if (n == null || isNaN(n)) return "—";
-  return Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
-}
+const fmt = formatMoney;
 function changeClass(v: number): string {
   if (v > 0) return "up";
   if (v < 0) return "down";

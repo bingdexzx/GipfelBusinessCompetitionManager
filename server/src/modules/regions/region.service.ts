@@ -6,6 +6,7 @@ import { CreateRegionDto, UpdateRegionDto, SaveOverviewCardsDto } from "./dto/re
 import { assertSameCompetition } from "../../common/scope";
 import { applyUpdatedAfter, buildIncrementalResult } from "../../common/sync";
 import { validateRegionOverviewCards } from "../../common/validators/json-schema";
+import { assertValidated } from "../../common/assert-validated";
 
 function parseCards(json: string): any[] {
   try {
@@ -60,10 +61,7 @@ export class RegionService {
   async create(dto: CreateRegionDto) {
     // 校验 overviewCards JSON
     if (dto.overviewCards && dto.overviewCards.length > 0) {
-      const validation = validateRegionOverviewCards(JSON.stringify(dto.overviewCards));
-      if (!validation.success) {
-        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-      }
+      assertValidated(validateRegionOverviewCards(JSON.stringify(dto.overviewCards)));
     }
     const region = await this.prisma.region.create({
       data: {
@@ -80,10 +78,7 @@ export class RegionService {
   async update(id: number, dto: UpdateRegionDto) {
     // 校验 overviewCards JSON
     if (dto.overviewCards && dto.overviewCards.length > 0) {
-      const validation = validateRegionOverviewCards(JSON.stringify(dto.overviewCards));
-      if (!validation.success) {
-        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-      }
+      assertValidated(validateRegionOverviewCards(JSON.stringify(dto.overviewCards)));
     }
     await this.findOne(id);
     const region = await this.prisma.region.update({

@@ -40,11 +40,6 @@ export interface AuditEntry {
   requestId?: string | null;
 }
 
-/** 当前是否处于审计写上下文（用于阻断递归）。 */
-export function isAuditSuppressed(): boolean {
-  return suppressAuditStorage.getStore() === true;
-}
-
 /**
  * 异步把一条审计记录写入 AuditLog 表。
  * - 通过 suppress 标记包裹，审计写自身不会再被二次审计；

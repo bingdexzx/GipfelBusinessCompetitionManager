@@ -17,6 +17,7 @@ import { RealtimeService } from "../../realtime/realtime.service";
 import { RegionService } from "../regions/region.service";
 import { CompanyFieldsService } from "../company-fields/company-fields.service";
 import { validateStockFieldRef, validateStockIndustryAvgCarbonRefs } from "../../common/validators/json-schema";
+import { assertValidated } from "../../common/assert-validated";
 
 export interface ReqUser {
   id: number;
@@ -433,22 +434,13 @@ export class StockService {
     if (existing) throw new ConflictException("股票代码已存在");
     // 校验绑定引用格式（Zod）
     if (dto.carbonFieldRef) {
-      const validation = validateStockFieldRef(dto.carbonFieldRef);
-      if (!validation.success) {
-        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-      }
+      assertValidated(validateStockFieldRef(dto.carbonFieldRef));
     }
     if (dto.happinessFieldRef) {
-      const validation = validateStockFieldRef(dto.happinessFieldRef);
-      if (!validation.success) {
-        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-      }
+      assertValidated(validateStockFieldRef(dto.happinessFieldRef));
     }
     if (dto.industryAvgCarbonRefs) {
-      const validation = validateStockIndustryAvgCarbonRefs(dto.industryAvgCarbonRefs);
-      if (!validation.success) {
-        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-      }
+      assertValidated(validateStockIndustryAvgCarbonRefs(dto.industryAvgCarbonRefs));
     }
     const pb = await this.computePbData(null, dto);
     const initPrice = computeInitPrice(dto.initNetProfit, dto.totalShares, pb.industryPE);
@@ -497,28 +489,19 @@ export class StockService {
     if (dto.happiness !== undefined) data.happiness = dto.happiness;
     if (dto.carbonFieldRef !== undefined) {
       if (dto.carbonFieldRef) {
-        const validation = validateStockFieldRef(dto.carbonFieldRef);
-        if (!validation.success) {
-          throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-        }
+        assertValidated(validateStockFieldRef(dto.carbonFieldRef));
       }
       data.carbonFieldRef = dto.carbonFieldRef ?? null;
     }
     if (dto.happinessFieldRef !== undefined) {
       if (dto.happinessFieldRef) {
-        const validation = validateStockFieldRef(dto.happinessFieldRef);
-        if (!validation.success) {
-          throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-        }
+        assertValidated(validateStockFieldRef(dto.happinessFieldRef));
       }
       data.happinessFieldRef = dto.happinessFieldRef ?? null;
     }
     if (dto.industryAvgCarbonRefs !== undefined) {
       if (dto.industryAvgCarbonRefs) {
-        const validation = validateStockIndustryAvgCarbonRefs(dto.industryAvgCarbonRefs);
-        if (!validation.success) {
-          throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-        }
+        assertValidated(validateStockIndustryAvgCarbonRefs(dto.industryAvgCarbonRefs));
       }
       data.industryAvgCarbonRefs = dto.industryAvgCarbonRefs ?? null;
     }

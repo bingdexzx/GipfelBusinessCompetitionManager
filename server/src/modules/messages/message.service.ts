@@ -10,6 +10,8 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { RealtimeService } from "../../realtime/realtime.service";
 import { CreateMessageDto, MessageImageDto } from "./dto/message.dto";
 import { validateMessageImages } from "../../common/validators/json-schema";
+import { assertValidated } from "../../common/assert-validated";
+import { assertImageMime } from "../../common/image-mime";
 
 interface Actor {
   id: number;
@@ -19,15 +21,6 @@ interface Actor {
 
 // 消息图片落盘目录（与 main.ts 的 /uploads 静态服务同源，前端经 getApiBaseUrl() + url 跨源加载）。
 const MSG_UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "message-images");
-
-// 仅允许常见图片格式，规避非图片/可执行文件上传风险。
-const MSG_ALLOWED_MIME: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-  "image/bmp": ".bmp",
-};
 
 /** 解析 PNG / JPEG 的像素尺寸；其他格式或解析失败返回 null（前端加载后再补）。 */
 function readImageDimensions(
@@ -77,10 +70,7 @@ export class MessageService {
    */
   async uploadImage(actor: Actor, file: { buffer: Buffer; mimetype: string; size: number }): Promise<MessageImageDto> {
     if (!file || !file.buffer) throw new BadRequestException("未收到文件");
-    const ext = MSG_ALLOWED_MIME[file.mimetype];
-    if (!ext) {
-      throw new BadRequestException("仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）");
-    }
+    const ext = assertImageMime(file.mimetype);
     fs.mkdirSync(MSG_UPLOAD_DIR, { recursive: true });
     const safeName = `msg-${actor.id}-${Date.now()}-${Math.floor(Math.random() * 1e6)}${ext}`;
     fs.writeFileSync(path.join(MSG_UPLOAD_DIR, safeName), file.buffer);
@@ -115,10 +105,7 @@ export class MessageService {
   async create(actor: Actor, dto: CreateMessageDto) {
     // 校验 images JSON
     if (dto.images && dto.images.length > 0) {
-      const validation = validateMessageImages(JSON.stringify(dto.images));
-      if (!validation.success) {
-        throw new BadRequestException(`JSON 校验失败: ${validation.error}`);
-      }
+      assertValidated(validateMessageImages(JSON.stringify(dto.images)));
     }
     // 超管可经 dto.competitionId 把收件范围收敛到指定比赛；归属账号忽略该字段，
     // 恒以自身 competitionId 为准。不传 competitionId 时超管作用于全部比赛（全站广播）。

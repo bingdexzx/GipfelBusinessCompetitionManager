@@ -20,14 +20,7 @@ import { NoCompetitionScope } from "../../common/decorators/no-competition-scope
 import { FilesService } from "./files.service";
 import { MapBackgroundTargetDto } from "./dto/map-background.dto";
 import { MapBackgroundTransformDto } from "./dto/map-background-transform.dto";
-
-const ALLOWED_MIME = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/bmp",
-];
+import { ALLOWED_IMAGE_MIME } from "../../common/image-mime";
 
 /**
  * 文件上传接口（地图背景图）。
@@ -46,7 +39,7 @@ export class FilesController {
     FileInterceptor("file", {
       limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
       fileFilter: (_req, file, cb) => {
-        if (!ALLOWED_MIME.includes(file.mimetype)) {
+        if (!ALLOWED_IMAGE_MIME.includes(file.mimetype)) {
           return cb(
             new BadRequestException("仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）"),
             false,
