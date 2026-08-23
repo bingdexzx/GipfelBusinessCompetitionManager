@@ -954,6 +954,8 @@ useResourceChanged("company-field", scheduleAccountReload);
 useResourceChanged("stocks", scheduleAccountReload);
 // 下单 / 撤单瞬间（stock-orders 资源）立即刷新总览，确保冻结 / 回滚现金即时可见
 useResourceChanged("stock-orders", scheduleAccountReload);
+// 资金账户本身的创建 / 编辑 / 删除（stock-accounts 资源）须同步刷新总览
+useResourceChanged("stock-accounts", scheduleAccountReload);
 
 onMounted(reloadAll);
 onBeforeUnmount(() => {
