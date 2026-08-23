@@ -16,6 +16,7 @@ build_tmp*.log
 .npm-cache-tmp/
 server-npmcache/
 dist_check/
+*.tsbuildinfo
 # 数据库备份（不要入库）
 *.db.bak*
 *.db.backup.*
