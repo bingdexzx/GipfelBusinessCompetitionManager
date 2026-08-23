@@ -309,6 +309,54 @@ Product ← ProductTechRequirement → TechNode
 - `calcGraph`：计算图 JSON（GGraph 格式）
 - 触发机制：写入非计算字段时，级联重算所有依赖的计算字段
 
+**计算字段间引用关系**：
+
+计算字段之间可以存在引用关系，即一个计算字段的计算图可以读取另一个计算字段的值。
+
+**级联重算机制**（`CompanyFieldsService.recomputeCalculatedFields`）：
+
+```typescript
+// 1. 依赖分析：提取每个计算字段引用的其他计算字段
+const fieldKeyById = new Map(calcFields.map(f => [f.fieldKey, f]));
+const deps: Record<string, Set<string>> = {};
+for (const f of calcFields) {
+  const readKeys = this.calcEngine.getFieldDependencies(parseGraph(f.calcGraph));
+  const depSet = new Set<string>();
+  for (const k of readKeys) {
+    if (k !== f.fieldKey && fieldKeyById.has(k)) depSet.add(k); // 自引用忽略
+  }
+  deps[f.fieldKey] = depSet;
+}
+
+// 2. 拓扑排序（Kahn 算法）：检测循环依赖
+const ordered = topoSortCalcFields(calcFields, deps);
+
+// 3. 按序求值：每算完一个即刷新作用域，保证传递依赖正确
+for (const f of ordered) {
+  const result = await calcEngine.evaluate(graph, scope, calcCtx);
+  scope[f.fieldKey] = result; // 刷新作用域，供后续字段读取
+}
+```
+
+**示例**：
+```
+fieldA = fieldX + 1        （依赖普通字段）
+fieldB = fieldA * 2        （依赖计算字段 A）
+fieldC = fieldA + fieldB   （依赖计算字段 A 和 B）
+
+拓扑排序结果：fieldA → fieldB → fieldC
+执行顺序：先算 A，再算 B（读取最新 A），最后算 C（读取最新 A 和 B）
+```
+
+**循环依赖检测**：如果计算字段互相引用（A 依赖 B，B 依赖 A），拓扑排序会抛出异常：
+```
+BadRequestException: 产业计算图之间存在循环依赖（计算字段互相引用）
+```
+
+**关键文件**：
+- [company-fields.service.ts](file:///c:/Users/32394/Desktop/GipfelBusinessCompetitionManager/server/src/modules/company-fields/company-fields.service.ts#L689-L719)：级联重算逻辑
+- [industry-calc-engine.service.ts](file:///c:/Users/32394/Desktop/GipfelBusinessCompetitionManager/server/src/modules/industry-types/industry-calc-engine.service.ts#L342-L358)：`getFieldDependencies` 提取字段依赖
+
 **财年定时器**：
 - `timerEnabled`：是否启用
 - `timerTrigger`：FY_START / FY_END
