@@ -349,8 +349,8 @@ async function saveFrame() {
     await loadRegions();
     ElMessage.success("已保存");
     showFrame.value = false;
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     saving.value = false;
   }
@@ -367,8 +367,8 @@ async function removeFrame(region: any, card: any) {
     );
     await loadRegions();
     ElMessage.success("已移除");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "移除失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -419,8 +419,8 @@ async function saveDemand() {
     await loadDemands();
     ElMessage.success("已保存");
     showDemand.value = false;
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     savingDemand.value = false;
   }
@@ -434,8 +434,8 @@ async function removeDemand(region: any, d: any) {
     await consumerDemandsApi.remove(d.id, compStore.competitionId ?? undefined);
     await loadDemands();
     ElMessage.success("已删除");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 

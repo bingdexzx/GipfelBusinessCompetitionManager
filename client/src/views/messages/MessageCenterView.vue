@@ -487,7 +487,7 @@ async function submitPublish() {
     loadSent();
   } catch (e: any) {
     console.error("发布失败:", e);
-    ElMessage.error(e?.response?.data?.message || "发布失败");
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     submitting.value = false;
   }

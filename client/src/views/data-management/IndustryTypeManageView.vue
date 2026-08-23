@@ -693,8 +693,8 @@ async function loadTypes() {
   try {
     const res: any = await industryTypesApi.list();
     types.value = Array.isArray(res) ? res : res?.items || res?.data || [];
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "加载产业类型失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     loading.value = false;
   }
@@ -737,8 +737,8 @@ async function submitForm() {
     }
     showForm.value = false;
     await loadTypes();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     saving.value = false;
   }
@@ -764,8 +764,8 @@ async function handleDelete(row: any) {
     await industryTypesApi.remove(row.id);
     ElMessage.success("已删除");
     await loadTypes();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -984,8 +984,8 @@ async function loadFields() {
   try {
     const res: any = await industryTypesApi.listFields(fieldTarget.value.id);
     fields.value = Array.isArray(res) ? res : res?.items || res?.data || [];
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "加载产业字段失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     fieldLoading.value = false;
   }
@@ -1171,8 +1171,8 @@ async function submitField() {
     resetFieldForm();
     await loadFields();
     await loadTypes();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存字段失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     fieldSaving.value = false;
   }
@@ -1193,8 +1193,8 @@ async function deleteField(row: any) {
     ElMessage.success("已删除");
     await loadFields();
     await loadTypes();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除字段失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -1205,8 +1205,8 @@ async function toggleFieldVisible(row: any, val: any) {
     await industryTypesApi.updateField(row.id, { visible: next });
     row.visible = next;
     ElMessage.success(next ? "字段已设为展示" : "字段已隐藏");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "切换展示状态失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 

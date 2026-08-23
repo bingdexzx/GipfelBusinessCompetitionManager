@@ -188,8 +188,8 @@ async function loadFieldValues() {
       isCalculated: !!f.isCalculated,
       editValue: normalizeEditValue(f, f.value),
     }));
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "加载字段失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
     fieldEditors.value = [];
   } finally {
     fieldValuesLoading.value = false;

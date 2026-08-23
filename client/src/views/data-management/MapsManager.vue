@@ -920,8 +920,8 @@ async function addRegion() {
     ElMessage.success("已新建区域");
     newRegionName.value = "";
     regionDialogVisible.value = false;
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "新建区域失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -940,8 +940,8 @@ async function removeRegion(name: string) {
     await regionsApi.remove(id, compStore.competitionId);
     await loadRegionsFromServer();
     ElMessage.success("已删除区域");
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除区域失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -1865,8 +1865,8 @@ async function uploadBackground(file: File) {
     const meta = await mapsApi.mapBackground.upload(file, compStore.competitionId);
     ElMessage.success("地图背景已更新");
     applyBackgroundMeta(meta);
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "上传失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     uploadingBg.value = false;
   }
@@ -1886,8 +1886,8 @@ async function clearBackground() {
     await mapsApi.mapBackground.remove(compStore.competitionId);
     ElMessage.success("已清除地图背景");
     applyBackgroundMeta(null);
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "清除失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
@@ -1991,8 +1991,8 @@ async function persistTransform() {
   if (!authStore.can("data:map:edit")) return;
   try {
     await mapsApi.mapBackground.updateTransform(t, compStore.competitionId);
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "保存背景变换失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 

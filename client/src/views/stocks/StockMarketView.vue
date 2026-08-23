@@ -593,16 +593,16 @@ async function submitOrder() {
     });
     ElMessage.success("委托已提交，将在下一轮撮合");
     await reloadAccountData();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "下单失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 async function cancelOrder(id: number) {
   try {
     await stockApi.cancelOrder(id);
     await reloadAccountData();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "撤单失败");
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
 }
 
