@@ -197,13 +197,13 @@ export class StockController {
   ) {
     // 非超管：忽略客户端传入的 competitionId，强制使用令牌归属的比赛，
     // 防止越权推进其他比赛（SUPER_ADMIN 的 competitionId 为 null，可指定任意比赛）。
-    let cid: number;
+    let cid: number | null;
     if (user.role === "SUPER_ADMIN") {
-      cid = competitionId ? parseInt(competitionId) : user.competitionId ?? undefined;
+      cid = competitionId ? parseInt(competitionId) : user.competitionId;
     } else {
       cid = user.competitionId;
     }
-    if (!cid) throw new BadRequestException("缺少比赛上下文");
+    if (cid == null) throw new BadRequestException("缺少比赛上下文");
     return this.service.advanceRound(user, cid, dto);
   }
 }
