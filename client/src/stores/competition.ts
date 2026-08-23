@@ -213,6 +213,13 @@ export const useCompetitionStore = defineStore("competition", () => {
   // 注册断线重连回调：重连成功后重订阅房间 + 回源刷新财年/比赛（见 handleReconnect）。
   onReconnect(handleReconnect);
 
+  // serverUrl 变更后统一重建实时通道：无论哪个入口改了服务器地址（设置页 / config store 直调），
+  // 都在此兜底断开旧 socket 并按当前比赛重新订阅新服务器房间，避免实时更新静默失效。
+  // （HTTP 通道由请求拦截器即时切换；此处补齐 WebSocket 一侧。）
+  const onServerChanged = () => reconnectRealtime();
+  window.removeEventListener("server:changed", onServerChanged);
+  window.addEventListener("server:changed", onServerChanged);
+
   return {
     selected,
     currentFiscalYear,

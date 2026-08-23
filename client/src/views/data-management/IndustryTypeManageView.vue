@@ -1216,7 +1216,7 @@ onMounted(async () => {
 
 useResourceChanged("industry-types", () => {
   loadTypes();
-});
+}, { scope: "global" });
 </script>
 
 <style scoped>

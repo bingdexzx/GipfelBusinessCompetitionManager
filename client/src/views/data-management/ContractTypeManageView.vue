@@ -279,7 +279,7 @@ onMounted(load);
 
 useResourceChanged("contract-types", () => {
   load();
-});
+}, { scope: "global" });
 </script>
 
 <style scoped>

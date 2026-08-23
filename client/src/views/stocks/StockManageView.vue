@@ -956,6 +956,8 @@ useResourceChanged("stocks", scheduleAccountReload);
 useResourceChanged("stock-orders", scheduleAccountReload);
 // 资金账户本身的创建 / 编辑 / 删除（stock-accounts 资源）须同步刷新总览
 useResourceChanged("stock-accounts", scheduleAccountReload);
+// 持仓随撮合逐条变动（stock-holdings 资源）须同步刷新总览的持仓市值 / 总资产
+useResourceChanged("stock-holdings", scheduleAccountReload);
 
 onMounted(reloadAll);
 onBeforeUnmount(() => {

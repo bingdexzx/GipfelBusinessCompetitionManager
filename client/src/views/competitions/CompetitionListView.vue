@@ -192,7 +192,7 @@ onMounted(() => {
 
 useResourceChanged("competitions", () => {
   loadCompetitions();
-});
+}, { scope: "global" });
 
 onUnmounted(() => offRealtime("fiscal-year:changed", handleFiscalYearRealtime));
 

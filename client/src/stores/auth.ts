@@ -3,6 +3,7 @@ import { ref, computed } from "vue";
 import api, { authApi } from "@/api";
 import { getAccountItem, setAccountItem, removeAccountItem, setActiveUser } from "@/utils/accountStorage";
 import { logger } from "@/utils/logger";
+import { disconnectRealtime } from "@/realtime/socket";
 
 export interface UserInfo {
   id: number;
@@ -187,6 +188,9 @@ export const useAuthStore = defineStore("auth", () => {
     token.value = "";
     user.value = null;
     permissionCatalog.value = null; // 清空权限目录缓存
+    // 断开实时 WebSocket 通道：被顶号 / 登录过期后旧 socket 若不断开，会以失效 token 无限重连，
+    // 产生大量 401 噪声且实时事件在登录态恢复前可能错乱（见 request.ts 拦截器 401 处理）。
+    disconnectRealtime();
     // 仅移除账号命名空间下的 token（保留该账号其余已持久化数据，下次登录可恢复）；
     // activeUserId 指针保留，由 token 是否存在决定登录态（见 competition.loadFromStorage 守卫）。
     removeAccountItem("token");
