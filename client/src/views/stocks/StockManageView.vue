@@ -936,6 +936,7 @@ async function confirmAdvance() {
 
 // 绑定产业字段的资金账户（现金实时=字段值）与 PE 联动的股票（有效PE=字段值），
 // 当公司产业字段被合同 / 财年定时器 / 计算图改写时，刷新账户与股票列表以同步显示。
+// 账户总览（总资产 / 持仓市值 / 历史盈亏 / 可用资金）同样依赖这些数据，须一并实时刷新。
 let accountReloadTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleAccountReload() {
   if (accountReloadTimer) clearTimeout(accountReloadTimer);
@@ -944,10 +945,13 @@ function scheduleAccountReload() {
     if (compStore.competitionId) {
       reloadAccounts();
       reloadStocks();
+      if (canSuper.value) reloadOverview();
     }
   }, 400);
 }
 useResourceChanged("company-field", scheduleAccountReload);
+// 股价 / 持仓 / 总资产随推进轮次与撮合变动，账户总览须实时刷新
+useResourceChanged("stocks", scheduleAccountReload);
 
 onMounted(reloadAll);
 onBeforeUnmount(() => {
