@@ -98,6 +98,76 @@
       </el-table>
     </el-card>
 
+    <!-- 账户总览（仅超级管理员） -->
+    <el-card v-if="canSuper" shadow="never" class="block-card">
+      <template #header>
+        <div class="card-head">
+          <span class="card-title">账户总览（{{ overview.length }}）</span>
+          <el-button type="primary" :icon="Refresh" @click="reloadOverview">刷新总览</el-button>
+        </div>
+      </template>
+      <el-table :data="overview" size="small" v-loading="loadingOverview" row-key="id">
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="holding-detail" v-if="row.holdings && row.holdings.length">
+              <table class="holding-table">
+                <thead>
+                  <tr>
+                    <th>代码</th><th>名称</th><th class="num">股数</th><th class="num">成本价</th>
+                    <th class="num">现价</th><th class="num">市值</th><th class="num">成本</th>
+                    <th class="num">盈亏</th><th class="num">盈亏率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="h in row.holdings" :key="h.stockCode">
+                    <td>{{ h.stockCode }}</td>
+                    <td>{{ h.stockName }}</td>
+                    <td class="num">{{ fmt(h.shares) }}</td>
+                    <td class="num">{{ fmt(h.costPrice) }}</td>
+                    <td class="num">{{ fmt(h.currentPrice) }}</td>
+                    <td class="num">{{ fmt(h.marketValue) }}</td>
+                    <td class="num">{{ fmt(h.costBasis) }}</td>
+                    <td class="num" :class="h.profit >= 0 ? 'up' : 'down'">{{ fmt(h.profit) }}</td>
+                    <td class="num" :class="h.profitPct >= 0 ? 'up' : 'down'">{{ h.profitPct }}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <el-empty v-else description="无持仓" :image-size="40" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="name" label="账户名" min-width="120" />
+        <el-table-column label="类型" width="70">
+          <template #default="{ row }">{{ row.ownerLabel }}</template>
+        </el-table-column>
+        <el-table-column label="归属" min-width="120">
+          <template #default="{ row }">
+            <span v-if="row.ownerType === 'USER'">用户#{{ row.userId }}</span>
+            <span v-else>{{ row.companyName || ("公司#" + row.companyId) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="可用资金(元)" min-width="130" align="right">
+          <template #default="{ row }">{{ fmt(row.cashBalance) }}</template>
+        </el-table-column>
+        <el-table-column label="持仓市值(元)" min-width="130" align="right">
+          <template #default="{ row }">{{ fmt(row.holdingsMarketValue) }}</template>
+        </el-table-column>
+        <el-table-column label="总资产(元)" min-width="130" align="right">
+          <template #default="{ row }">{{ fmt(row.totalAssets) }}</template>
+        </el-table-column>
+        <el-table-column label="历史盈亏(元)" min-width="130" align="right">
+          <template #default="{ row }">
+            <span :class="row.totalProfit >= 0 ? 'up' : 'down'">{{ fmt(row.totalProfit) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="盈亏率" min-width="90" align="right">
+          <template #default="{ row }">
+            <span :class="row.totalProfitPct >= 0 ? 'up' : 'down'">{{ row.totalProfitPct }}%</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <!-- 股票编辑对话框 -->
     <el-dialog append-to-body v-model="stockDialogVisible" :title="stockForm.id ? '编辑股票' : '新增股票'" width="560px">
       <el-form :model="stockForm" label-width="110px" size="small">
@@ -358,6 +428,8 @@ const compStore = useCompetitionStore();
 const authStore = useAuthStore();
 const canManage = computed(() => authStore.can("stock:manage"));
 const canEdit = computed(() => authStore.canAny(["stock:edit", "stock:manage"]));
+// 账户总览：仅超级管理员可见
+const canSuper = computed(() => authStore.user?.role === "SUPER_ADMIN");
 
 interface Stock {
   id: number;
@@ -393,6 +465,37 @@ const accounts = ref<Account[]>([]);
 const companies = ref<Company[]>([]);
 const loadingStocks = ref(false);
 const loadingAccounts = ref(false);
+
+// 账户总览（仅超级管理员）
+interface OverviewHolding {
+  stockCode: string;
+  stockName: string;
+  shares: number;
+  costPrice: number;
+  currentPrice: number;
+  marketValue: number;
+  costBasis: number;
+  profit: number;
+  profitPct: number;
+}
+interface AccountOverview {
+  id: number;
+  name: string;
+  ownerType: string;
+  ownerLabel: string;
+  companyId: number | null;
+  companyName: string | null;
+  userId: number | null;
+  cashBalance: number;
+  holdings: OverviewHolding[];
+  holdingsMarketValue: number;
+  costBasis: number;
+  totalAssets: number;
+  totalProfit: number;
+  totalProfitPct: number;
+}
+const overview = ref<AccountOverview[]>([]);
+const loadingOverview = ref(false);
 
 const stockDialogVisible = ref(false);
 const stockForm = ref<any>({ code: "", name: "", totalShares: 0, initNetProfit: 0, currentCarbon: 0, industryAvgCarbon: 0, happiness: 50, companyId: null, id: null, carbonRefSel: "", happinessRefSel: "", industryAvgCarbonRefsSel: [], pbCompanyId: null, pbFieldId: null });
@@ -654,8 +757,21 @@ async function loadRegionOverview() {
     regionOverview.value = [];
   }
 }
+async function reloadOverview() {
+  if (!compStore.competitionId) return;
+  loadingOverview.value = true;
+  try {
+    overview.value = await stockApi.accountOverview(compStore.competitionId);
+  } catch {
+    overview.value = [];
+  } finally {
+    loadingOverview.value = false;
+  }
+}
+
 async function reloadAll() {
   await Promise.all([reloadStocks(), reloadAccounts(), reloadCompanies(), loadRegionOverview(), loadPbSources()]);
+  if (canSuper.value) await reloadOverview();
 }
 
 function openStockDialog(row?: any) {
@@ -911,5 +1027,36 @@ onBeforeUnmount(() => {
 .field-link-tag {
   margin-left: 6px;
   vertical-align: middle;
+}
+/* 账户总览：红涨绿跌（中国股票惯例） */
+.up {
+  color: #f5483b;
+  font-weight: 600;
+}
+.down {
+  color: #16a34a;
+  font-weight: 600;
+}
+.holding-detail {
+  padding: 8px 12px;
+}
+.holding-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.holding-table th,
+.holding-table td {
+  border-bottom: 1px solid var(--color-border, #ebeef5);
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.holding-table th {
+  color: var(--color-text-tertiary, #92969e);
+  font-weight: 500;
+}
+.holding-table .num {
+  text-align: right;
 }
 </style>

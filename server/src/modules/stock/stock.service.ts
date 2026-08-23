@@ -589,6 +589,88 @@ export class StockService {
     return result;
   }
 
+  /**
+   * 账户总览（仅超级管理员可见）：
+   * 返回比赛内所有资金账户的可用资金、持仓明细、总资产、历史累计盈亏（盈亏额与盈亏率）。
+   * 排除「AI做市商」账户（10 亿噪音资金），与 listAccounts 口径一致。
+   * 权限：仅 SUPER_ADMIN 可调用，其余角色一律拒绝。
+   */
+  async accountOverview(user: ReqUser, competitionId: number) {
+    if (!this.isSuper(user)) throw new ForbiddenException("仅超级管理员可查看账户总览");
+    const accounts = await this.prisma.stockFundsAccount.findMany({
+      where: { competitionId, name: { not: "AI做市商" } },
+      orderBy: { name: "asc" },
+    });
+    // 为绑定字段的账户同步字段余额（与 listAccounts 一致），避免读到旧值
+    const accountIds = accounts.map((a) => a.id);
+    const holdings = await this.prisma.stockHolding.findMany({
+      where: { fundsAccountId: { in: accountIds }, competitionId },
+      include: { stock: { select: { code: true, name: true, currentPrice: true } } },
+    });
+
+    const holdingsByAccount = new Map<number, any[]>();
+    for (const h of holdings) {
+      const arr = holdingsByAccount.get(h.fundsAccountId) || [];
+      const marketValue = Math.round(h.shares * h.stock.currentPrice * 100) / 100;
+      const costBasis = Math.round(h.shares * h.costPrice * 100) / 100;
+      const profit = Math.round((marketValue - costBasis) * 100) / 100;
+      const profitPct = costBasis > 0 ? Math.round((profit / costBasis) * 10000) / 100 : 0;
+      arr.push({
+        stockCode: h.stock.code,
+        stockName: h.stock.name,
+        shares: h.shares,
+        costPrice: h.costPrice,
+        currentPrice: h.stock.currentPrice,
+        marketValue,
+        costBasis,
+        profit,
+        profitPct,
+      });
+      holdingsByAccount.set(h.fundsAccountId, arr);
+    }
+
+    const companyIds = accounts.filter((a) => a.companyId).map((a) => a.companyId as number);
+    const companies = companyIds.length
+      ? await this.prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } })
+      : [];
+    const companyNameMap = new Map(companies.map((c) => [c.id, c.name]));
+
+    // 预解析每个账户的可用资金（绑定字段账户需 await 取字段值），再聚合
+    const enriched = await Promise.all(
+      accounts.map(async (acc) => {
+        const effCash = acc.bindFieldId && acc.companyId
+          ? ((await this.resolveFieldValueOrDefault(acc.companyId, acc.bindFieldId)) ?? acc.cashBalance)
+          : acc.cashBalance;
+        return { acc, effCash: Math.round(effCash * 100) / 100 };
+      }),
+    );
+
+    return enriched.map(({ acc, effCash }) => {
+      const hs = holdingsByAccount.get(acc.id) || [];
+      const holdingsMarketValue = Math.round(hs.reduce((s, h) => s + h.marketValue, 0) * 100) / 100;
+      const costBasis = Math.round(hs.reduce((s, h) => s + h.costBasis, 0) * 100) / 100;
+      const totalAssets = Math.round((effCash + holdingsMarketValue) * 100) / 100;
+      const totalProfit = Math.round((holdingsMarketValue - costBasis) * 100) / 100;
+      const totalProfitPct = costBasis > 0 ? Math.round((totalProfit / costBasis) * 10000) / 100 : 0;
+      return {
+        id: acc.id,
+        name: acc.name,
+        ownerType: acc.ownerType,
+        ownerLabel: acc.ownerType === "USER" ? "个人" : "公司",
+        companyId: acc.companyId,
+        companyName: acc.companyId ? companyNameMap.get(acc.companyId) || null : null,
+        userId: acc.userId,
+        cashBalance: effCash,
+        holdings: hs,
+        holdingsMarketValue,
+        costBasis,
+        totalAssets,
+        totalProfit,
+        totalProfitPct,
+      };
+    });
+  }
+
   async findOneFundsAccount(user: ReqUser, id: number) {
     const account = await this.prisma.stockFundsAccount.findUnique({ where: { id } });
     if (!account) throw new NotFoundException("资金账户不存在");

@@ -110,6 +110,14 @@ export class StockController {
     return this.service.findAllFundsAccounts(user, cid);
   }
 
+  // 账户总览（仅超级管理员，service 内部校验 role）
+  @Get("accounts/overview")
+  accountOverview(@CurrentUser() user: ReqUser, @Query("competitionId") competitionId?: string) {
+    const cid = competitionId ? parseInt(competitionId) : user.competitionId ?? undefined;
+    if (!cid) return [];
+    return this.service.accountOverview(user, cid);
+  }
+
   @Get("accounts/:id")
   @Ownership({ model: "stockFundsAccount" })
   getAccount(@CurrentUser() user: ReqUser, @Param("id", ParseIntPipe) id: number) {

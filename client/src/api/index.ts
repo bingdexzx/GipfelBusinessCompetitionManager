@@ -401,6 +401,11 @@ export const stockApi = {
     const params: Record<string, unknown> = { competitionId };
     return api.get("/stocks/accounts/list", { params, cache: false });
   },
+  /** 账户总览（仅超级管理员）：可用资金 / 持仓 / 总资产 / 历史盈亏 */
+  accountOverview: (competitionId: number) => {
+    const params: Record<string, unknown> = { competitionId };
+    return api.get("/stocks/accounts/overview", { params, cache: false });
+  },
   getAccount: (id: number) => api.get(`/stocks/accounts/${id}`),
   accountHoldings: (id: number) => api.get(`/stocks/accounts/${id}/holdings`),
   createAccount: (data: CreateStockFundsAccountInput) => api.post("/stocks/accounts", data),
