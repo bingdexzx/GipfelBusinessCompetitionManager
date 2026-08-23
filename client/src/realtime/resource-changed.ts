@@ -7,7 +7,7 @@
 //      直接派发 window 事件通知组件层自动重拉。组件重拉走 cachedApi → 增量模式，仅取回变更行。
 // 使用原生 CustomEvent 而非第三方事件总线，零额外依赖。
 
-import { onRealtime, getSocketInstance } from "./socket";
+import { onRealtime, getSocketInstance, updateLastReceivedSeq } from "./socket";
 import { removeFullItemByResource, SEG_TO_RESOURCE } from "@/api/cache";
 import { reconcileAllIncremental, bumpResourceEvent } from "@/api/request";
 
@@ -56,6 +56,8 @@ export function bindResourceChanged() {
       // 更新最后收到的事件序号
       if (payload.seq && payload.seq > _lastSeq) {
         _lastSeq = payload.seq;
+        // 同步到 socket.ts 的 lastReceivedSeq，消除两套 seq 计数器漂移（见 M5 修复说明）。
+        updateLastReceivedSeq(payload.seq);
       }
 
       // 后端广播的 resource 可能是复数（经 Prisma 中间件自动发，如 materials/contracts/stocks）
@@ -123,8 +125,14 @@ export function bindResourceChanged() {
   // 重连补发结果处理
   onRealtime(
     "sync:replay:result",
-    (payload: { events?: Array<{ event: string; data: any; ts: number }> }) => {
+    (payload: { events?: Array<{ event: string; data: any; ts: number }>; serverSeq?: number }) => {
       if (!payload || !Array.isArray(payload.events)) return;
+      // 服务端序号回退检测：若 serverSeq 小于本端记录的 _lastSeq，说明服务端重启过、
+      // 内存序号与缓冲已归零，基于旧 _lastSeq 的增量 replay 已不可信。此时重置基线为 0，
+      // 后续实时事件从 0 重新累计；断线期间丢失的变更由 reconcileAllIncremental 兜底全量对账。
+      if (typeof payload.serverSeq === "number" && payload.serverSeq < _lastSeq) {
+        _lastSeq = 0;
+      }
       // 处理补发的事件
       for (const evt of payload.events) {
         if (evt.event === "resource:changed" && evt.data) {

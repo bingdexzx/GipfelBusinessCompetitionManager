@@ -51,11 +51,9 @@ export function connectRealtime(): Socket | null {
     logger.error("[Realtime] 连接失败:", err.message);
   });
   // 断线自动重连成功（仅 reconnection，不含首次 connect）：通知业务层重订阅房间 + 回源刷新。
+  // 注意：遗漏事件的补发统一由 resource-changed.ts 在 "connect" 事件（含重连后的 connect）中发起，
+  // 此处不再重复发 sync:replay，避免与 connect 处理重复补发导致事件被处理两遍。
   socket.io.on("reconnect", () => {
-    // 重连后请求补发遗漏的事件
-    if (lastReceivedSeq > 0) {
-      socket?.emit("sync:replay", { lastSeq: lastReceivedSeq });
-    }
     reconnectHandler?.();
   });
   return socket;

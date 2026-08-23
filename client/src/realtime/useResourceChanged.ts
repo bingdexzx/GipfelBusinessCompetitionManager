@@ -53,7 +53,17 @@ export function useResourceChanged(
     
     // 兼容新旧事件格式：优先使用ids数组，其次使用单个id
     const eventIds = detail.ids || (detail.id != null ? [detail.id] : []);
-    
+    const action = detail.action;
+
+    // 批量事件（bulk）通常影响整集合，且后端已尽量带上 competitionId 按比赛隔离；
+    // 但无 competitionId 的全局批量（如全局 deleteMany）competitionId 为 null，
+    // 默认 competition scope 永远不匹配。故 bulk 动作一律触发刷新，
+    // 由业务回调自行整集合重拉，避免遗漏。
+    if (action === "bulk") {
+      onChanged();
+      return;
+    }
+
     // 按 scope 过滤
     if (scope === "any") {
       // 不检查 competitionId，直接触发
