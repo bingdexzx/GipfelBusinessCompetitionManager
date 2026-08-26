@@ -16,12 +16,15 @@
 
 | 脚本 | 作用 | 运行位置 |
 |------|------|----------|
-| `tools/setup_debian.sh` | 首次部署：环境检查 + 生成 `.env` + 装依赖 + 建库 + 构建 + PM2 启动 | 服务器 |
-| `tools/deploy.sh` | 增量更新：拉代码 + 备份 + 装依赖 + 构建 + 迁移 + 重启 + 健康检查 | 服务器 |
-| `tools/backup.sh` | 一次性备份：数据库 + 上传目录 + `.env` 打包为时间戳压缩包 | 服务器 |
+| `tools/setup_debian.sh` | 首次部署：环境检查 + 生成 `.env` + 装依赖 + 建库 + 构建 + PM2 启动 | 服务器（Debian） |
+| `tools/deploy_debian.sh` | 增量更新：拉代码 + 备份 + 装依赖 + 构建 + 迁移 + 重启 + 健康检查 | 服务器（Debian） |
+| `tools/backup_debian.sh` | 一次性备份/恢复：数据库 + 上传目录 + `.env` 打包为时间戳压缩包 | 服务器（Debian） |
+| `tools/setup_windows.bat` | 首次部署（Windows 服务器，功能同 setup_debian.sh） | 服务器（Windows） |
+| `tools/deploy_windows.bat` | 增量更新（Windows 服务器，功能同 deploy_debian.sh） | 服务器（Windows） |
+| `tools/backup_windows.bat` | 备份/恢复（Windows 服务器，功能同 backup_debian.sh） | 服务器（Windows） |
 | `server/ecosystem.config.js` | PM2 进程定义（供上述脚本调用） | 服务器 |
 
-> Windows 服务器上仍可用原有 `tools/update_server.bat`；Debian 上请用本文档的 `setup_debian.sh` / `deploy.sh`。
+> Windows 服务器请使用 `tools/setup_windows.bat` / `tools/deploy_windows.bat` / `tools/backup_windows.bat`（与下文 Debian 脚本功能一致）；本文其余章节以 Debian 为例。
 
 ---
 
@@ -231,13 +234,13 @@ pm2 save                   # 变更后保存列表（开机自启依赖）
 
 ---
 
-## 6. 一键更新（deploy.sh）
+## 6. 一键更新（deploy_debian.sh）
 
 代码或数据库结构变更后，在服务器项目根目录执行：
 
 ```bash
 cd /opt/gipfel
-bash tools/deploy.sh
+bash tools/deploy_debian.sh
 ```
 
 脚本执行流程（任一步失败即中断并提示，不会把服务留在半更新状态）：
@@ -263,7 +266,7 @@ bash tools/deploy.sh
 ```bash
 cd /opt/gipfel
 # 1) 恢复数据库与上传（从最新备份包）
-bash tools/backup.sh restore tools/backups/gipfel-<时间戳>.tar.gz
+bash tools/backup_debian.sh restore tools/backups/gipfel-<时间戳>.tar.gz
 # 2) 退回上一个 git 提交（按实际版本号）
 git log --oneline -5
 git checkout <上一个稳定commit>
@@ -284,13 +287,13 @@ cd server && npm run build && pm2 restart gipfel-server
 | `server/.env` | **必须** | 含 `JWT_SECRET`；**恢复时必须用同一份**，否则已签发的 JWT 全部失效（用户被顶号/需重登） |
 | `server/logs/` | 可选 | 运维审计日志，按需保留 |
 
-> SQLite 为单文件，备份即复制文件；**务必在停服或低峰期**复制，避免复制到写一半的库（脚本 `deploy.sh` 在 `pm2 stop` 后备份）。
+> SQLite 为单文件，备份即复制文件；**务必在停服或低峰期**复制，避免复制到写一半的库（脚本 `deploy_debian.sh` 在 `pm2 stop` 后备份）。
 
 ### 7.2 一键备份
 
 ```bash
 cd /opt/gipfel
-bash tools/backup.sh
+bash tools/backup_debian.sh
 # 产物：tools/backups/gipfel-YYYYMMDD-HHMMSS.tar.gz
 ```
 
@@ -407,7 +410,7 @@ CORS_ORIGIN=https://gipfel.example.com
 | JWT 密钥 | `JWT_SECRET` 用 `openssl rand -hex 32`，**绝不**用默认值；备份 `.env`（§7） |
 | 公网 | 必须 HTTPS + `CORS_ORIGIN` 白名单（§10）；不要放开 `*` 给公网 |
 | 登录限流 | 服务端已内置：同 IP+用户名 10 次/5 分钟失败锁 15 分钟（429），无需额外配置 |
-| 备份 | 定时执行 `tools/backup.sh`（可加 cron），备份包存异地/对象存储 |
+| 备份 | 定时执行 `tools/backup_debian.sh`（可加 cron），备份包存异地/对象存储 |
 | 版本一致 | 客户端与服务端版本号必须一致（§12），避免功能被硬封锁 |
 | 定期更新 | 依赖漏洞：更新前先在测试环境 `npm ci && npm run build` 验证 |
 | 不要暴露 | 勿公开 5555（Prisma Studio）、3000 直连（公网场景） |
@@ -469,16 +472,16 @@ CORS_ORIGIN=https://gipfel.example.com
 - [ ] `pm2 startup` 提示命令已执行（开机自启）
 - [ ] `curl /api/ping` 返回 ok；`/api/version` 版本正确
 - [ ] 防火墙只开必要端口
-- [ ] 首次备份 `tools/backup.sh` 成功，备份包已异地留存
+- [ ] 首次备份 `tools/backup_debian.sh` 成功，备份包已异地留存
 - [ ] 用 `admin/admin123` 登录并强制改密
 
 **日常**
 - [ ] 监控 `pm2 ls` 状态、`pm2 monit` 资源
 - [ ] 关注 `server/logs/error-*.log`
-- [ ] 定时（如每日）`tools/backup.sh`
+- [ ] 定时（如每日）`tools/backup_debian.sh`
 
 **更新后**
-- [ ] `tools/deploy.sh` 全流程无报错
+- [ ] `tools/deploy_debian.sh` 全流程无报错
 - [ ] 健康检查 `curl /api/ping` 通过
 - [ ] 客户端版本号与 `server/package.json` 一致（§12.1）
 - [ ] 抽检关键功能（登录、比赛切换、数据读写）
@@ -490,8 +493,8 @@ CORS_ORIGIN=https://gipfel.example.com
 | 文件 | 说明 |
 |------|------|
 | `tools/setup_debian.sh` | 首次部署（§4.9） |
-| `tools/deploy.sh` | 增量更新（§6） |
-| `tools/backup.sh` | 备份/恢复（§7） |
+| `tools/deploy_debian.sh` | 增量更新（§6） |
+| `tools/backup_debian.sh` | 备份/恢复（§7） |
 | `server/ecosystem.config.js` | PM2 进程定义 |
 | `server/.env.example` | 环境变量模板 |
 | `docs/软件文档.md` | 完整软件文档（接口/流程/配置） |

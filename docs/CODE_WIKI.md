@@ -123,12 +123,17 @@ GipfelBusinessCompetitionManager/
 │   └── 自定义控件开发指南.md            # 控件开发
 │
 ├── tools/                               # 辅助脚本
-│   ├── install_deps.bat                 # 一键安装依赖
-│   ├── start_server.bat                 # 启动服务端
-│   ├── start_client.bat                 # 启动客户端
-│   ├── build.bat                        # 构建
-│   ├── package.bat                      # 打包安装包
-│   ├── update_server.bat                # 服务器更新
+│   ├── deps_windows.bat                 # 一键安装依赖（Windows）
+│   ├── start-server_windows.bat         # 启动服务端（Windows）
+│   ├── start-client_windows.bat         # 启动客户端（Windows）
+│   ├── build_windows.bat                # 构建（Windows）
+│   ├── package_windows.bat              # 打包安装包（Windows）
+│   ├── setup_windows.bat                # 首次部署（Windows 服务器）
+│   ├── deploy_windows.bat               # 服务器一键更新（Windows）
+│   ├── backup_windows.bat               # 备份/恢复（Windows 服务器）
+│   ├── setup_debian.sh                  # 首次部署（Debian 服务器）
+│   ├── deploy_debian.sh                 # 服务器一键更新（Debian）
+│   ├── backup_debian.sh                 # 备份/恢复（Debian 服务器）
 │   ├── logsreader/                      # 日志读取工具
 │   └── updater/                         # 发版工具
 │
@@ -773,7 +778,7 @@ modules/files/ → prisma/
 
 ```bash
 # 1. 安装依赖
-tools\install_deps.bat
+tools\deps_windows.bat
 # 或手动：
 cd shared/engine-dsl && npm install
 cd ../../server && npm install
@@ -806,10 +811,10 @@ npm run dev
 
 ```bash
 # 构建（不打包安装包）
-tools\build.bat
+tools\build_windows.bat
 
 # 打包 Windows 安装包
-tools\package.bat
+tools\package_windows.bat
 
 # 跨平台打包
 cd client && npm run electron:build        # macOS
@@ -841,8 +846,8 @@ pm2 startup
 ### 8.6 服务器一键更新
 
 ```bash
-tools\update_server.bat
-# 内含：git pull → npm ci → shared tsc → server build → prisma db push → pm2 restart
+tools\deploy_windows.bat
+# 内含：git pull → 备份 → npm ci → shared tsc → server build → prisma db push → pm2 restart
 ```
 
 ---
@@ -934,7 +939,7 @@ cd server && npm run test:e2e
 1. 编辑 `tools/updater/ui.mjs`（新版本号 + 更新公告）
 2. 双击 `tools/updater/run.bat` 打开发布页
 3. 点击「执行发版」→ 同步改写两处 package.json + 生成公告
-4. 执行 `tools/package.bat` 生成安装包
+4. 执行 `tools/package_windows.bat` 生成安装包
 
 ---
 

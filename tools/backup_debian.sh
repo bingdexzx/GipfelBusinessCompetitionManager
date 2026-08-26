@@ -4,12 +4,12 @@
 #
 # 备份：打包 server/prisma/dev.db + server/uploads + server/.env
 #       为 tools/backups/gipfel-<时间戳>.tar.gz（路径相对 server/）
-# 恢复：bash tools/backup.sh restore <备份包路径>
+# 恢复：bash tools/backup_debian.sh restore <备份包路径>
 #       停服后将备份原地解回 server/ 目录
 #
 # 用法：
-#   cd /opt/gipfel && bash tools/backup.sh            # 备份
-#   cd /opt/gipfel && bash tools/backup.sh restore tools/backups/gipfel-xxxx.tar.gz
+#   cd /opt/gipfel && bash tools/backup_debian.sh            # 备份
+#   cd /opt/gipfel && bash tools/backup_debian.sh restore tools/backups/gipfel-xxxx.tar.gz
 #
 # 注意：.env 含 JWT_SECRET，恢复后请勿再改 JWT_SECRET，否则已签发 JWT 全部失效。
 # ============================================================
@@ -29,7 +29,7 @@ mkdir -p "$BACKUP_DIR"
 # 恢复模式
 if [ "${1:-}" = "restore" ]; then
   SRC="${2:-}"
-  [ -z "$SRC" ] && { err "用法：bash tools/backup.sh restore <备份包路径>"; exit 1; }
+  [ -z "$SRC" ] && { err "用法：bash tools/backup_debian.sh restore <备份包路径>"; exit 1; }
   [ -f "$SRC" ] || { err "备份包不存在：$SRC"; exit 1; }
   # 提示停服
   if command -v pm2 >/dev/null 2>&1 && pm2 describe gipfel-server >/dev/null 2>&1; then

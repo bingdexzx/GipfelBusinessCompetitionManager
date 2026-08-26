@@ -14,7 +14,7 @@
 #   9. 健康检查 /api/ping
 #
 # 用法：
-#   cd /opt/gipfel && bash tools/deploy.sh
+#   cd /opt/gipfel && bash tools/deploy_debian.sh
 #
 # 回滚：见 docs/运维部署手册-Debian.md §6「回滚」。
 # ============================================================
@@ -110,7 +110,7 @@ if curl -fsS http://localhost:3000/api/ping >/dev/null 2>&1; then
   log "更新完成，服务正常 ✅"
 else
   err "健康检查未通过！请查看日志：pm2 logs gipfel-server / tools/deploy.log"
-  err "如需回滚：bash tools/backup.sh restore $BACKUP_FILE"
+  err "如需回滚：bash tools/backup_debian.sh restore $BACKUP_FILE"
   exit 1
 fi
 

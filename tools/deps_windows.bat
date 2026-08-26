@@ -55,7 +55,7 @@ echo ============================================================
 echo [OK] Dependencies installed.
 echo      If this is a fresh clone (DB not initialized), continue with:
 echo        cd server ^&^& npx prisma db push ^&^& npx prisma db seed
-echo      Then run tools/start_server.bat and tools/start_client.bat.
+echo      Then run tools/start-server_windows.bat and tools/start-client_windows.bat.
 echo      Remember to commit the regenerated package-lock.json files.
 echo ============================================================
 echo Press any key to close this window.

@@ -45,7 +45,7 @@
 | 数据库 | SQLite（Prisma ORM，单文件 `server/prisma/dev.db`，34 个数据模型） |
 | 共享包 | `shared/engine-dsl` —— 表达式引擎 DSL（前后端共用，前端直接吃 TS 源码无需预构建） |
 | 发版工具 | `tools/updater/`（本地 HTTP 发布页 + release-core.mjs 统一改写版本号） |
-| 部署工具 | `tools/update_server.bat`（服务器一键更新：拉代码 / 装依赖 / 编译 / 迁移 / 重启） |
+| 部署工具 | `tools/deploy_windows.bat`（Windows 服务器一键更新）/ `tools/deploy_debian.sh`（Debian 一键更新）；首次部署见 `tools/setup_windows.bat` / `tools/setup_debian.sh`；备份见 `tools/backup_windows.bat` / `tools/backup_debian.sh` |
 | 测试框架 | 后端：Jest（单元 + e2e）；服务端已有用例：`catalog.spec.ts` / `role-templates.spec.ts` / `company-fields.service.spec.ts` / `industry-calc-engine.service.spec.ts` / `safe-expression.spec.ts` / `engine.spec.ts`（股票引擎）/ `json-schema.spec.ts` |
 
 服务端默认监听 `http://localhost:3000`，Socket.IO 与 REST **复用同一端口**（同源）；静态资源 `/uploads`（地图背景图 / 消息图片）由 Express `express.static` 托管，并放松 CORP 为 cross-origin 以便 Electron 渲染进程跨源加载。
@@ -163,12 +163,17 @@ HTTP Request
 ├── docs/                                      # 10 份文档（见文首链接列表）
 │
 ├── tools/                                     # 辅助脚本
-│   ├── install_deps.bat                       # 一键安装 server + client + shared 依赖
-│   ├── start_server.bat                       # 启动服务端（dev 热重载）
-│   ├── start_client.bat                       # 启动客户端（Vite + Electron dev）
-│   ├── build.bat                              # 构建服务端 + 客户端
-│   ├── package.bat                            # 打包 Windows NSIS 安装包（输出 client/release/）
-│   ├── update_server.bat                      # 服务器远程一键更新（git pull / npm ci / 构建 / prisma migrate / pm2 重启）
+│   ├── deps_windows.bat                       # 一键安装 server + client + shared 依赖
+│   ├── start-server_windows.bat                       # 启动服务端（dev 热重载）
+│   ├── start-client_windows.bat                       # 启动客户端（Vite + Electron dev）
+│   ├── build_windows.bat                              # 构建服务端 + 客户端
+│   ├── package_windows.bat                            # 打包 Windows NSIS 安装包（输出 client/release/）
+│   ├── setup_windows.bat                      # Windows 服务器首次部署
+│   ├── deploy_windows.bat                      # Windows 服务器远程一键更新（git pull / 备份 / npm ci / 构建 / prisma migrate / pm2 重启）
+│   ├── backup_windows.bat                      # Windows 服务器备份/恢复
+│   ├── setup_debian.sh                         # Debian 服务器首次部署
+│   ├── deploy_debian.sh                        # Debian 服务器远程一键更新
+│   ├── backup_debian.sh                        # Debian 服务器备份/恢复
 │   ├── logsreader/                            # 服务端日志可视化读取工具（本地 node HTTP）
 │   └── updater/                               # 本地发布页 + release-core.mjs / release.mjs 发版脚本
 │
@@ -251,7 +256,7 @@ HTTP Request
 ```bash
 # 1. 安装依赖（三处：shared / server / client）
 # 方式 A：使用一键脚本（Windows）
-tools\install_deps.bat
+tools\deps_windows.bat
 
 # 方式 B：手动
 cd shared/engine-dsl && npm install
@@ -273,12 +278,12 @@ npx prisma db push
 
 # 4. 启动服务端（开发热重载，默认 http://localhost:3000）
 npm run start:dev
-# 或双击 tools\start_server.bat
+# 或双击 tools\start-server_windows.bat
 
 # 5. 启动客户端（另开一个终端：Vite dev server + Electron 窗口）
 cd ../client
 npm run dev
-# 或双击 tools\start_client.bat
+# 或双击 tools\start-client_windows.bat
 ```
 
 启动成功后会弹出 Electron 桌面窗口，默认连接 `http://localhost:3000`。可在客户端「系统设置」中修改服务端地址（Electron Store 持久化）。
@@ -320,7 +325,7 @@ npm run dev
 ### 构建产物（不打包安装包）
 
 ```bash
-tools\build.bat
+tools\build_windows.bat
 # 等价于：
 #   cd shared/engine-dsl && tsc -p tsconfig.json
 #   cd server && npm run build        # → server/dist/
@@ -331,7 +336,7 @@ tools\build.bat
 
 ```bash
 # 以管理员身份运行（避免符号链接 / 解压权限问题）
-tools\package.bat
+tools\package_windows.bat
 
 # 产物：client\release\Gipfel商赛系统 1.3.16-win-x64.exe 等
 # 支持 x64 / ia32 双架构；安装时用户可自选安装目录
@@ -380,7 +385,7 @@ pm2 startup          # 开机自启（按 PM2 提示执行输出命令）
 **服务器一键更新**（代码 & DB 变更后）：在服务器项目根目录执行
 
 ```bash
-tools\update_server.bat
+tools\deploy_windows.bat
 # 内含：git pull → npm ci → shared tsc → server build → prisma db push → pm2 restart
 ```
 
@@ -398,7 +403,7 @@ tools\update_server.bat
 1. 编辑 `tools/updater/ui.mjs` 顶部的新版本号 + 更新公告文字（announcement）。
 2. 双击 `tools/updater/run.bat` 打开本地发布页。
 3. 点击「执行发版」→ 调用 `release-core.mjs` 同步改写两处 package.json、重写 `client/src/data/announcement.ts` 与 `client/src/data/version.ts`、生成 CHANGELOG。
-4. CI / 人工执行 `tools/package.bat` 生成安装包、上传分发。
+4. CI / 人工执行 `tools/package_windows.bat` 生成安装包、上传分发。
 
 客户端启动时版本比对结果：
 - ✅ 一致 → 正常进入。
