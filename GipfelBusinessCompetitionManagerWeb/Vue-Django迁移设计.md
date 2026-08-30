@@ -544,14 +544,18 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=...)
 - [x] stock（引擎 + 推进轮次 + 账户/持仓/订单/K线 + bulk 广播）
 - [x] files（上传 + 地图背景）
 
-### 阶段 6：联调与部署
+### 阶段 6：联调与部署 ✅
 - [x] 迁移生成与应用：`makemigrations` + `migrate` 全部 24 个应用通过（含 0001/0002 拆分）
 - [x] Django `check` 无错误（静默 DRF W001——分页为自定义 parsePagination）
 - [x] 启动验证：daphne ASGI 启动正常
 - [x] 端到端联调：登录/JWT/改密拦截/me/competitions CRUD/materials/maps/full/stocks/industry-types/version 全部 200
 - [x] 默认超管自举修复：post_migrate 信号去掉 sender 限定，`migrate` 即自动建 admin（幂等）
 - [x] 前端验证：`vue-tsc --noEmit` 零错误；`vite build` 成功（剥离 Electron，移除无用 engine-dsl 别名）
-- [ ] 部署脚本（daphne/systemd）与 README 部署手册（后续按需补充）
+- [x] README：[README.md](README.md)（架构总览/三行启动/环境要求/安全合规/常用命令速查）；[backend/README.md](backend/README.md) 与 [frontend/README.md](frontend/README.md) 子项目说明
+- [x] Linux 部署：[deploy-linux.sh](scripts/deploy-linux.sh)（apt/node20/venv/migrate/npm build/systemd gipfel.service/nginx vhost/回滚策略）；配套模板 [gipfel.service](deploy/gipfel.service)、[nginx-gipfel.conf](deploy/nginx-gipfel.conf)
+- [x] Windows 部署：[deploy-windows.ps1](scripts/deploy-windows.ps1)（Robocopy 同步/venv/随机 JWT_SECRET/强制改密/nssm 注册服务/IIS 可选）
+- [x] Windows 开发启动：[bootstrap-dev.ps1](scripts/bootstrap-dev.ps1) 首次初始化 + [start-dev.ps1](scripts/start-dev.ps1) 并行拉起 Django+Vite 合并 tail 日志 + Ctrl+C 清理
+- [x] 部署手册：[deploy/README.md](deploy/README.md)（方案 A Linux / B Windows / C Docker 示例 + 升级与回滚）
 
 ---
 
