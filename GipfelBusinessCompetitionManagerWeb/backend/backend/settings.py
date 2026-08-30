@@ -118,6 +118,7 @@ INSTALLED_APPS = [
     "apps.production_lines",
     "apps.industry_types",
     "apps.companies",
+    "apps.company_fields",
     "apps.contracts",
     "apps.regions",
     "apps.consumer_demands",
