@@ -951,6 +951,8 @@ def advance_round(
             "轮次推进正在进行中，请稍候", code=409, status_code=409
         )
     try:
+        from apps.common.signals import suppress_signals
+
         qs = Stock.objects.filter(competition_id=competition_id)
         if stock_ids:
             qs = qs.filter(pk__in=stock_ids)
@@ -967,30 +969,35 @@ def advance_round(
         mm_config = market_maker
 
         total_mm_orders = 0
-        for stock in stocks:
-            apply_pb_round(stock)
-            # 连续封板判定（最近 3 根 K 线）
-            recent = list(
-                StockCandle.objects.filter(stock_id=stock.id, competition_id=competition_id)
-                .order_by("-round")[:3]
-            )
-            up = 0
-            down = 0
-            for c in recent:
-                if c.change_pct >= 9.9:
-                    up += 1
-                    down = 0
-                elif c.change_pct <= -9.9:
-                    down += 1
-                    up = 0
-                else:
-                    break
-            r = advance_one_stock(
-                stock, competition_id, field_map, cfg, up, down, mm_config
-            )
-            if r:
-                results.append(r)
-                total_mm_orders += r.get("mmOrderCount", 0)
+
+        # 屏蔽 per-row 信号：advance_one_stock 内对 Stock/Holding/Order/Candle/FundsAccount
+        # 会有数十次 save，仅靠外层 bulk 广播一次即可；审计也在循环结束后统一写入。
+        with suppress_signals():
+            for stock in stocks:
+                apply_pb_round(stock)
+                recent = list(
+                    StockCandle.objects.filter(
+                        stock_id=stock.id, competition_id=competition_id
+                    )
+                    .order_by("-round")[:3]
+                )
+                up = 0
+                down = 0
+                for c in recent:
+                    if c.change_pct >= 9.9:
+                        up += 1
+                        down = 0
+                    elif c.change_pct <= -9.9:
+                        down += 1
+                        up = 0
+                    else:
+                        break
+                r = advance_one_stock(
+                    stock, competition_id, field_map, cfg, up, down, mm_config
+                )
+                if r:
+                    results.append(r)
+                    total_mm_orders += r.get("mmOrderCount", 0)
 
         advanced = sum(1 for x in results if not x.get("skipped"))
         # 单次 bulk 广播（替代每只股票逐条事件）

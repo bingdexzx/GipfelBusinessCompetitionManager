@@ -54,6 +54,7 @@ class User(AbstractBaseUser):
     stock_company_scopes = models.TextField(null=True, blank=True)
     must_change_password = models.BooleanField(default=False)
     token_version = models.IntegerField(default=0)
+    permission_version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

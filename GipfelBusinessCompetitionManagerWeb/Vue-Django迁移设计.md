@@ -504,11 +504,15 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=...)
 - [x] competitions 模块（CRUD + 财年）
 - [x] audit 模块（只读列表）
 
-### 阶段 2：实时广播 ✅（网关就绪）
+### 阶段 2：实时广播 ✅
 - [x] python-socketio ASGI 装配（backend/asgi.py 按 path 前缀分发）
-- [x] 网关（鉴权/房间/sync:replay 占位）
-- [ ] RealtimeService（微批/缓冲/广播触发）—— 由各业务模块 signals 接入
-- [ ] signals 触发审计 + 广播
+- [x] 网关（connect JWT 鉴权、tokenVersion 顶号、user-{id}/comp-{id} 自动入房、subscribe 兼容 { room / competitionId / userId } 三键）
+- [x] sync:replay 按 lastSeq 过滤补发（环形缓冲保留最近 5000 条，按 user/comp 权限过滤）
+- [x] RealtimeService：全局 seq 计数器 + MOEL_TO_RESOURCE 映射 + 契约对齐 ResourceChangedEvent（resource/ids/action/competitionId/seq/ts）
+- [x] 跨线程安全 emit：gateway.connect 注册 ASGI loop，同步侧用 asyncio.run_coroutine_threadsafe 把 await sio.emit 投递到 daphne loop（解决 Django HTTP 同步视图里 AsyncServer.emit 静默失败的问题）
+- [x] permissions:changed / auth:required 事件发布器；用户赋权接口 bump permission_version 并实时通知前端刷新缓存
+- [x] signals 触发审计 + 广播：apps/common/signals.py 统一 connect 所有 tracked 模型 post_save/post_delete → log_write + emit_resource_changed；`suppress_signals` 上下文管理器供批量 ORM 操作临时屏蔽 per-row 事件
+- [x] 股票推进轮次合并广播：advance_round 内 `with suppress_signals():` 包裹 ORM 循环，结束后统一 `emit_resource_changed("stocks", None, comp_id, "bulk")`
 
 ### 阶段 3：生产链与地图（P1）✅
 - [x] 通用 CRUD 基类（apps/common/base_crud.py：分页/权限/冲突检测/删除影响/路由生成）

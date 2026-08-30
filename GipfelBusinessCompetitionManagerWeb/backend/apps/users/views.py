@@ -165,10 +165,19 @@ class UserPermissionsView(APIView):
         user = _get_user(pk)
         permissions = request.data.get("permissions")
         if not isinstance(permissions, list):
-            raise BusinessError("permissions 必须为数组", code=400, status_code=400)
+            raise BusinessError("permissions 必须是数组", code=400, status_code=400)
         _assert_grant(request, user.role, permissions)
         user.permissions = dump_json_scope(permissions) if permissions else None
-        user.save(update_fields=["permissions", "updated_at"])
+        # 每一次赋权都 bump permission_version：前端收到 permissions:changed 后刷新缓存并重算 can()
+        user.permission_version = (user.permission_version or 0) + 1
+        user.save(update_fields=["permissions", "permission_version", "updated_at"])
+
+        # 实时推送给该用户，让前端立即重算权限按钮显隐
+        try:
+            from apps.realtime.emit import emit_permissions_changed
+            emit_permissions_changed(user.id, user.permission_version)
+        except Exception:  # noqa: BLE001
+            pass
         return Response(UserSerializer(user).data)
 
 
