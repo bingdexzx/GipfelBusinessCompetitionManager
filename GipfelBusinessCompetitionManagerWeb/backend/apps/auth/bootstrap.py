@@ -14,9 +14,12 @@ logger = logging.getLogger("gipfel")
 
 
 def seed_default_admin(sender, **kwargs):
-    """迁移完成后，若无任何用户则写入默认超管。"""
-    # 通过 sender.label 防御性地限定触发源；但 post_migrate 由各 app 触发，
-    # 此处统一查表，幂等：已存在用户则直接返回。
+    """迁移完成后，若无任何用户则写入默认超管。
+
+    幂等：已存在用户则直接返回。post_migrate 对每个 app 各触发一次，
+    故不限定 sender——首次触发即在全部迁移应用完毕后建表，后续触发被
+    exists() 守卫跳过。
+    """
     from apps.users.models import User
 
     try:

@@ -510,40 +510,44 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=...)
 - [ ] RealtimeService（微批/缓冲/广播触发）—— 由各业务模块 signals 接入
 - [ ] signals 触发审计 + 广播
 
-### 阶段 3：生产链与地图（P1）—— 进行中
+### 阶段 3：生产链与地图（P1）✅
 - [x] 通用 CRUD 基类（apps/common/base_crud.py：分页/权限/冲突检测/删除影响/路由生成）
-- [ ] materials
+- [x] materials
 - [x] parts（Part + PartMaterial/PartTechRequirement 嵌套 include + 事务全量替换 + 删除影响）
 - [x] products（Product + ProductPart/ProductTechRequirement 嵌套 include + 事务全量替换 + 删除影响）
-- [ ] tech_tree
-- [ ] maps（复合 /maps/full + 子资源 + 增量）
-- [ ] infrastructures
-- [ ] fuels
+- [x] tech_tree（TechNode + TechPrerequisite 自引用前置依赖）
+- [x] maps（复合 /maps/full + nodeTypes/pathTypes/nodes/edges 子资源）
+- [x] infrastructures
+- [x] fuels
 - [x] vehicles（Vehicle + VehiclePathType 嵌套 include + 事务全量替换；fuel PROTECT）
-- [ ] warehouses
-- [ ] production_lines
+- [x] warehouses
+- [x] production_lines
 
-> 注：parts/products/vehicles 的外键指向尚未创建的兄弟应用（materials/tech_tree/fuels/maps），
-> 采用字符串外键引用（如 `"materials.Material"`、`"maps.PathType"`），于兄弟应用就位后
-> `makemigrations` 时解析；删除影响中对跨应用关联表（ProductPart/ConsumerDemand）的统计
-> 采用请求期延迟导入，避免循环依赖。
+> 注：parts/products/vehicles 的外键指向兄弟应用（materials/tech_tree/fuels/maps），
+> 采用字符串外键引用（如 `"materials.Material"`、`"maps.PathType"`），`makemigrations` 时解析；
+> 循环依赖（companies↔regions、parts/products 自引用 tech_node）拆为 0001+0002 两个迁移解决；
+> 删除影响中对跨应用关联表（ProductPart/ConsumerDemand）的统计采用请求期延迟导入。
 
-### 阶段 4：产业与合同（P2）
-- [ ] industry_types（字段 + 计算引擎 + 财年定时器）
-- [ ] companies（字段读写 + 乐观锁 + 级联重算）
-- [ ] contracts（类型 + 实例 + 引擎 + 可撤销 + 事务）
-- [ ] regions/consumer_demands
+### 阶段 4：产业与合同（P2）✅
+- [x] industry_types（字段 + 计算图校验 + 财年定时器；全局资源返回数组；默认「所在地」字段）
+- [x] companies（字段读写 + 乐观锁 version + 级联重算）
+- [x] company_fields（公司字段值独立端点）
+- [x] contracts（ContractType + Contract + ContractFieldEffect + 引擎 engine.py）
+- [x] regions/consumer_demands（地图总览聚合 + 消费需求管理）
 
-### 阶段 5：消息与股票（P3）
-- [ ] messages（发布/收件箱/未读/图片）
-- [ ] stock（引擎 + 推进轮次 + bulk 广播）
-- [ ] files（上传 + 地图背景）
+### 阶段 5：消息与股票（P3）✅
+- [x] messages（label=gipfel_messages，规避与 django.contrib.messages 冲突；发布/收件箱/未读/图片）
+- [x] stock（引擎 + 推进轮次 + 账户/持仓/订单/K线 + bulk 广播）
+- [x] files（上传 + 地图背景）
 
 ### 阶段 6：联调与部署
-- [ ] 前端连后端联调（CORS/凭据/Socket.IO）
-- [ ] 全模块端到端验证（保持界面与功能不变）
-- [ ] 部署脚本（gunicorn/daphne + systemd）
-- [ ] 文档更新（README/部署手册）
+- [x] 迁移生成与应用：`makemigrations` + `migrate` 全部 24 个应用通过（含 0001/0002 拆分）
+- [x] Django `check` 无错误（静默 DRF W001——分页为自定义 parsePagination）
+- [x] 启动验证：daphne ASGI 启动正常
+- [x] 端到端联调：登录/JWT/改密拦截/me/competitions CRUD/materials/maps/full/stocks/industry-types/version 全部 200
+- [x] 默认超管自举修复：post_migrate 信号去掉 sender 限定，`migrate` 即自动建 admin（幂等）
+- [x] 前端验证：`vue-tsc --noEmit` 零错误；`vite build` 成功（剥离 Electron，移除无用 engine-dsl 别名）
+- [ ] 部署脚本（daphne/systemd）与 README 部署手册（后续按需补充）
 
 ---
 

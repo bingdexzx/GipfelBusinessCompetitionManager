@@ -32,6 +32,9 @@ __pycache__/
 *$py.class
 *.egg-info/
 .eggs/
+# Python 虚拟环境（本地依赖，不入库）
+.venv/
+venv/
 # 本地内嵌依赖（backend/.deps 为打包副本，不入库）
 .deps/
 # 环境变量与机密

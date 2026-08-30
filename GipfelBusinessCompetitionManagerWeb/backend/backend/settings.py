@@ -200,6 +200,10 @@ REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": (),
 }
 
+# 分页采用自定义 parsePagination（等价原 NestJS），DEFAULT_PAGINATION_CLASS=None 为有意为之，
+# 静默 DRF 的 W001 检查（PAGE_SIZE 仅作为后备默认值）。
+SILENCED_SYSTEM_CHECKS = ["rest_framework.W001"]
+
 # ==================== SimpleJWT 配置（被自定义覆盖，此处仅设默认值） ====================
 from datetime import timedelta  # noqa: E402
 

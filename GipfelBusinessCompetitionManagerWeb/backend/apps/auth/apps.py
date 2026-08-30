@@ -18,4 +18,6 @@ class AuthConfig(AppConfig):
         # 延迟导入，避免在应用注册阶段触发模型加载
         from .bootstrap import seed_default_admin
 
-        post_migrate.connect(seed_default_admin, sender=self)
+        # 不限定 sender：post_migrate 在全部迁移应用完毕后对每个 app 触发，
+        # 首次触发即建默认超管，后续被 exists() 守卫幂等跳过。
+        post_migrate.connect(seed_default_admin)
