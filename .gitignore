@@ -24,3 +24,28 @@ dist_check/
 uploads/
 # Prisma 迁移：本项目采用 `prisma db push` 流程，不维护 migrations 目录
 server/prisma/migrations/
+
+# ==================== Django 后端（Vue+Django 迁移） ====================
+# Python 编译产物
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+# 本地内嵌依赖（backend/.deps 为打包副本，不入库）
+.deps/
+# 环境变量与机密
+.env.local
+*.pem
+*.key
+# SQLite 本地数据库
+*.sqlite3
+db.sqlite3
+# 前端构建缓存
+.vite/
+*.local
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.swp
+Thumbs.db
