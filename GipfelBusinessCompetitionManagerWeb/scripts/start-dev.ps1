@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # Gipfel · Windows 开发启动（Django 8000 + Vite 5173 并行）
 #
 # 依赖：先执行过 scripts\bootstrap-dev.ps1
@@ -8,18 +8,29 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\start-dev.ps1
 #
 # 特性：
-#   - 启动两个后台进程（Django + Vite），它们的 stdout/stderr 持续写到 logs\ 并 tail 到当前控制台
+#   - 启动两个后台进程（Django + Vite），它们的 stdout/stderr 直接流式输出到
+#     当前控制台（不写日志文件）
 #   - Ctrl+C 时自动 Stop-Process 两个子进程（try/finally 保证清理）
-#   - 启动前做存活探活，日志里打印两个 URL
+#   - 启动前做存活探活，控制台打印两个 URL
+#   - 任何子进程异常退出都会打印错误并退出（界面停住，不再写日志）
 # ============================================================
 [CmdletBinding()]
 param(
-    [string]$BackendDir   = (Join-Path $PSScriptRoot "..\backend"),
-    [string]$FrontendDir  = (Join-Path $PSScriptRoot "..\frontend"),
+    [string]$BackendDir,
+    [string]$FrontendDir,
     [string]$BackendBind  = "127.0.0.1:8000",
     [string]$VitePort     = "5173",
     [switch]$OpenBrowser
 )
+
+# NOTE: do NOT use $PSScriptRoot inside param() defaults - PS 5.1 bug.
+# Strip BOM + control chars from ALL paths before IO.Path (经验 1383550).
+function _CleanPath([string]$s) {
+    if ([string]::IsNullOrEmpty($s)) { return $s }
+    return [regex]::Replace($s, '[\u0000-\u001F\uFEFF]', '')
+}
+if ([string]::IsNullOrWhiteSpace($BackendDir))  { $BackendDir  = "$PSScriptRoot\..\backend" }
+if ([string]::IsNullOrWhiteSpace($FrontendDir)) { $FrontendDir = "$PSScriptRoot\..\frontend" }
 
 $ErrorActionPreference = "Stop"
 
@@ -28,15 +39,16 @@ function Write-OK    { Write-Host ("[OK]    " + $args) -ForegroundColor Green }
 function Write-Warn  { Write-Host ("[WARN]  " + $args) -ForegroundColor Yellow }
 function Write-Err   { Write-Host ("[ERROR] " + $args) -ForegroundColor Red }
 
-$BackendDir  = [System.IO.Path]::GetFullPath($BackendDir)
-$FrontendDir = [System.IO.Path]::GetFullPath($FrontendDir)
-$LogDir      = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\logs"))
-$null = New-Item -ItemType Directory -Force -Path $LogDir
+Push-Location $PSScriptRoot
+$BackendDir  = [System.IO.Path]::GetFullPath((_CleanPath $BackendDir))
+$FrontendDir = [System.IO.Path]::GetFullPath((_CleanPath $FrontendDir))
+Pop-Location
 
-$backendLog = Join-Path $LogDir "backend.log"
-$viteLog    = Join-Path $LogDir "vite.log"
+$BackendHost, $BackendPort = $BackendBind.Split(":", 2)
+$backendProc = $null
+$viteProc    = $null
 
-# 前置检查
+# 前置检查：venv 与前端依赖是否就绪
 $pyExe  = Join-Path $BackendDir ".venv\Scripts\python.exe"
 if (-not (Test-Path $pyExe)) {
     Write-Err "找不到 $pyExe。请先运行：scripts\bootstrap-dev.ps1"
@@ -47,25 +59,17 @@ if (-not (Test-Path (Join-Path $FrontendDir "node_modules\.bin\vite.cmd"))) {
     exit 1
 }
 
-$BackendHost, $BackendPort = $BackendBind.Split(":", 2)
-$backendProc = $null
-$viteProc    = $null
-
 try {
-    # --- 1) 启动 Django（daphne 通过 runserver 接管）---
-    if (Test-Path $backendLog) { Clear-Content $backendLog -ErrorAction SilentlyContinue }
-    Write-Info "启动 Django → $BackendBind"
-    $backendProc = Start-Process python.exe `
-        -ArgumentList @($pyExe, "manage.py", "runserver", $BackendBind, "--noreload") `
+    # --- 1) 启动 Django（runserver，--noreload 便于 Ctrl+C 快速退出）---
+    Write-Info "启动 Django -> $BackendBind"
+    $backendProc = Start-Process -FilePath $pyExe `
+        -ArgumentList @("manage.py", "runserver", $BackendBind, "--noreload") `
         -WorkingDirectory $BackendDir `
-        -RedirectStandardOutput $backendLog `
-        -RedirectStandardError $backendLog `
         -UseNewEnvironment:$false `
         -PassThru -NoNewWindow
     Start-Sleep -Milliseconds 500
     if ($backendProc.HasExited) {
-        Write-Err "Django 立即退出，日志如下："
-        Get-Content $backendLog
+        Write-Err "Django 立即退出（退出码 $($backendProc.ExitCode)），请查看上方报错"
         exit 1
     }
 
@@ -81,19 +85,15 @@ try {
     }
 
     # --- 2) 启动 Vite ---
-    if (Test-Path $viteLog) { Clear-Content $viteLog -ErrorAction SilentlyContinue }
-    Write-Info "启动 Vite → 127.0.0.1:${VitePort}"
+    Write-Info "启动 Vite -> 127.0.0.1:${VitePort}"
     $env:VITE_PORT = $VitePort
     $viteProc = Start-Process npm.cmd `
         -ArgumentList @("run", "dev", "--", "--host", "127.0.0.1", "--port", $VitePort) `
         -WorkingDirectory $FrontendDir `
-        -RedirectStandardOutput $viteLog `
-        -RedirectStandardError $viteLog `
         -PassThru -NoNewWindow
     Start-Sleep -Milliseconds 500
     if ($viteProc.HasExited) {
-        Write-Err "Vite 立即退出，日志如下："
-        Get-Content $viteLog
+        Write-Err "Vite 立即退出（退出码 $($viteProc.ExitCode)），请查看上方报错"
         exit 1
     }
 
@@ -115,34 +115,17 @@ try {
     Write-Host ""
     Write-OK "服务已全部启动"
     Write-Host "  前端(Vite) : http://127.0.0.1:${VitePort}"
-    Write-Host "  后端(Daphne): http://${BackendBind}"
-    Write-Host "  Django 日志 : Get-Content $backendLog -Wait -Tail 30"
-    Write-Host "  Vite   日志 : Get-Content $viteLog    -Wait -Tail 30"
+    Write-Host "  后端(Django): http://${BackendBind}"
+    Write-Host "  Django / Vite 的输出会实时显示在本窗口（不写日志文件）"
     Write-Host ""
     Write-Warn "Ctrl + C 会停止两个子进程并退出"
 
-    # --- 合并 tail：直到收到 Ctrl+C ---
-    $bTail = Start-Job -ArgumentList $backendLog -ScriptBlock {
-        param($Path)
-        Get-Content -Path $Path -Wait -Tail 0 -ErrorAction SilentlyContinue | ForEach-Object { "[DJANGO]  $_" }
-    }
-    $vTail = Start-Job -ArgumentList $viteLog -ScriptBlock {
-        param($Path)
-        Get-Content -Path $Path -Wait -Tail 0 -ErrorAction SilentlyContinue | ForEach-Object { "[VITE]    $_" }
-    }
-    try {
-        while ($true) {
-            Receive-Job -Job $bTail
-            Receive-Job -Job $vTail
-            Start-Sleep -Milliseconds 500
-            # 任何子进程挂了就提示
-            if ($backendProc.HasExited) { Write-Warn "Django 已退出，退出码 $($backendProc.ExitCode)" }
-            if ($viteProc.HasExited)    { Write-Warn "Vite 已退出，退出码 $($viteProc.ExitCode)" }
-            if ($backendProc.HasExited -and $viteProc.HasExited) { break }
-        }
-    } finally {
-        Remove-Job -Job $bTail -Force -ErrorAction SilentlyContinue
-        Remove-Job -Job $vTail -Force -ErrorAction SilentlyContinue
+    # --- 保活：直到收到 Ctrl+C 或两个子进程都退出 ---
+    while ($true) {
+        Start-Sleep -Milliseconds 500
+        if ($backendProc.HasExited) { Write-Warn "Django 已退出，退出码 $($backendProc.ExitCode)" }
+        if ($viteProc.HasExited)    { Write-Warn "Vite 已退出，退出码 $($viteProc.ExitCode)" }
+        if ($backendProc.HasExited -and $viteProc.HasExited) { break }
     }
 } finally {
     Write-Host ""

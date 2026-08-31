@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # Gipfel · Windows 开发环境首次初始化（仅运行一次）
 #
 # 执行：
@@ -14,10 +14,23 @@
 # ============================================================
 [CmdletBinding()]
 param(
-    [string]$BackendDir = (Join-Path $PSScriptRoot "..\backend"),
-    [string]$FrontendDir = (Join-Path $PSScriptRoot "..\frontend"),
+    [string]$BackendDir,
+    [string]$FrontendDir,
     [switch]$SkipFrontend
 )
+
+# NOTE: do NOT use $PSScriptRoot inside param() defaults - PS 5.1 bug.
+# NOTE: sanitize control chars / BOM from ALL paths before GetFullPath (经验 1383550).
+function _CleanPath([string]$s) {
+    if ([string]::IsNullOrEmpty($s)) { return $s }
+    return [regex]::Replace($s, '[\u0000-\u001F\uFEFF]', '')
+}
+if ([string]::IsNullOrWhiteSpace($BackendDir)) {
+    $BackendDir  = "$PSScriptRoot\..\backend"
+}
+if ([string]::IsNullOrWhiteSpace($FrontendDir)) {
+    $FrontendDir = "$PSScriptRoot\..\frontend"
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -27,8 +40,13 @@ function Write-Warn  { Write-Host ("[WARN]  " + $args) -ForegroundColor Yellow }
 function Write-Err   { Write-Host ("[ERROR] " + $args) -ForegroundColor Red }
 
 # --------- 绝对路径归一化 ---------
+$BackendDir  = _CleanPath $BackendDir
+$FrontendDir = _CleanPath $FrontendDir
+# Set current location so relative "..\" anchors resolve correctly for GetFullPath
+Push-Location $PSScriptRoot
 $BackendDir  = [System.IO.Path]::GetFullPath($BackendDir)
 $FrontendDir = [System.IO.Path]::GetFullPath($FrontendDir)
+Pop-Location
 
 # --------- 1. 环境检查 ---------
 Write-Info "检查运行环境..."
