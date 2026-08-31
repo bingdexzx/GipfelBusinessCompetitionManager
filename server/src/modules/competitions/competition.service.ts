@@ -97,6 +97,13 @@ export class CompetitionService {
     } catch (err: any) {
       this.logger.warn(`新建财年 #${created.id} 定时器执行失败：${err?.message || err}`);
     }
+    // 强时效：与 updateFiscalYear 对齐，新建财年（开始）也实时广播给该比赛所有前端，
+    // 使其即刻同步顶部栏财年显示（此前只有结束财年广播，导致开始财年仅依赖 HTTP 回源，
+    // 一旦回源失败/延迟左上角便卡在旧值）。
+    this.realtime.broadcastToCompetition(created.competitionId, "fiscal-year:changed", {
+      competitionId: created.competitionId,
+      fiscalYear: created,
+    });
     return created;
   }
 
