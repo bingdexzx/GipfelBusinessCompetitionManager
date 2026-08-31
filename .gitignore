@@ -52,3 +52,6 @@ db.sqlite3
 .idea/
 *.swp
 Thumbs.db
+
+# Web 版已独立为单独仓库，父仓库不再跟踪
+GipfelBusinessCompetitionManagerWeb/
